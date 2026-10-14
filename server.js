@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { Chess } = require('chess.js');
-const { spawn } = require('child_process');
+const https = require('https');
 
 const app = express();
 const server = http.createServer(app);
@@ -40,21 +40,21 @@ io.on('connection', (socket) => {
     socket.to(data.roomId).emit('receive_chat', data.message);
   });
 
-  // 2. نظام اللعب ضد Stockfish (سحابي مستقر)
+  // 2. نظام اللعب ضد Stockfish الحقيقي القوي عبر السحاب
   socket.on('create_stockfish_room', (data) => {
     const roomId = 'ai_' + Math.random().toString(36).substring(2, 8);
     socket.join(roomId);
 
     const game = new Chess();
     const playerColor = data.color || 'w';
-    const difficulty = data.level || 10;
+    const difficulty = data.level || 10; // مستوى الصعوبة
 
     socket.roomData = { game, playerColor, difficulty };
 
     socket.emit('stockfish_room_created', { roomId, color: playerColor });
 
     if (playerColor === 'b') {
-      makeAIMove(socket);
+      fetchStockfishMove(socket);
     }
   });
 
@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    makeAIMove(socket);
+    fetchStockfishMove(socket);
   });
 
   socket.on('disconnect', () => {
@@ -84,20 +84,67 @@ io.on('connection', (socket) => {
   });
 });
 
-// محاكاة ذكية وسريعة لحركات المحرك لضمان عدم توقف السيرفر أبداً
-function makeAIMove(socket) {
+// دالة لجلب أقوى نقلة من Stockfish عبر الإنترنت
+function fetchStockfishMove(socket) {
   const room = socket.roomData;
   if (!room || !room.game) return;
 
+  const fen = room.game.fen();
+  // استخدام Stockfish Online API المجانية والقوية
+  const encodedFen = encodeURIComponent(fen);
+  const depth = Math.min(Math.max(room.difficulty, 1), 15); // تحديد عمق التفكير حسب الصعوبة
+  const apiUrl = `https://stockfish.online/api/s/v2.php?fen=${encodedFen}&depth=${depth}`;
+
+  https.get(apiUrl, (res) => {
+    let data = '';
+    res.on('data', (chunk) => {
+      data += chunk;
+    });
+
+    res.on('end', () => {
+      try {
+        const response = JSON.parse(data);
+        if (response.success && response.bestmove) {
+          // الرد يكون بصيغة مثل "bestmove e2e4 ponder e7e5"
+          const moveParts = response.bestmove.split(' ');
+          const moveStr = moveParts[1]; // نأخذ النقلة الأولى
+
+          if (moveStr && moveStr.length >= 4) {
+            const from = moveStr.substring(0, 2);
+            const to = moveStr.substring(2, 4);
+            const promotion = moveStr.length > 4 ? moveStr[4] : undefined;
+
+            const moveResult = room.game.move({ from, to, promotion });
+            if (moveResult) {
+              socket.emit('server_ai_move', {
+                from,
+                to,
+                promotion,
+                fen: room.game.fen(),
+                isGameOver: room.game.game_over()
+              });
+            }
+          }
+        } else {
+          fallbackRandomMove(socket);
+        }
+      } catch (e) {
+        fallbackRandomMove(socket);
+      }
+    });
+  }).on('error', () => {
+    fallbackRandomMove(socket);
+  });
+}
+
+// خطة بديلة احتياطية في حال انقطاع الإنترنت مؤقتاً
+function fallbackRandomMove(socket) {
+  const room = socket.roomData;
+  if (!room || !room.game) return;
   const possibleMoves = room.game.moves({ verbose: true });
   if (possibleMoves.length === 0) return;
-
-  // اختيار نقلة عشوائية ذكية مؤقتة لضمان استقرار السيرفر 100% وعدم حدوث أي Status 7
-  const randomIdx = Math.floor(Math.random() * possibleMoves.length);
-  const selectedMove = possibleMoves[randomIdx];
-
+  const selectedMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
   room.game.move(selectedMove);
-
   socket.emit('server_ai_move', {
     from: selectedMove.from,
     to: selectedMove.to,
