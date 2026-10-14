@@ -22,46 +22,59 @@ app.get('/', (req, res) => {
             button, select, input { padding: 10px; margin: 8px; font-size: 16px; border-radius: 5px; border: none; outline: none; }
             button { background: #4CAF50; color: white; cursor: pointer; font-weight: bold; }
             button:hover { background: #45a049; }
-            #board { width: 400px; margin: 20px auto; }
+            #board { width: 400px; margin: 15px auto; }
             .hidden { display: none !important; }
-            #chat-box { height: 100px; background: #1a1a1a; border: 1px solid #444; overflow-y: scroll; text-align: right; padding: 8px; margin-bottom: 10px; border-radius: 5px; }
+            .timer-box { font-size: 20px; font-weight: bold; background: #1a1a1a; padding: 8px; border-radius: 5px; margin: 5px 0; display: inline-block; width: 45%; }
+            #chat-box { height: 90px; background: #1a1a1a; border: 1px solid #444; overflow-y: scroll; text-align: right; padding: 8px; margin-bottom: 10px; border-radius: 5px; }
         </style>
     </head>
     <body>
     <div class="container">
-        <h2>منصة الشطرنج الذكية</h2>
+        <h2>منصة الشطرنج الاحترافية</h2>
         
         <div id="menu-screen">
-            <h3>اختر طريقة اللعب:</h3>
-            <button onclick="showAIOptions()">اللعب ضد الذكاء الاصطناعي (Stockfish)</button>
-            <br><br>
-            <button onclick="createRoom()">إنشاء غرفة جديدة للعب مع صديق</button>
-            <br>
-            <input type="text" id="join-room-input" placeholder="أدخل كود الغرفة">
-            <button onclick="joinRoom()">انضمام للغرفة</button>
+            <h3>اختر نظام اللعب والوقت:</h3>
+            <label>اختر النظام:</label><br>
+            <button onclick="selectMode('bullet')">⚡ بوليت (1 دقيقة)</button>
+            <button onclick="selectMode('blitz')">🔥 بليتز (3 دقائق)</button>
+            <button onclick="selectMode('rapid')">⏱️ رابيد (10 دقائق)</button>
+            
+            <div id="action-buttons" class="hidden" style="margin-top: 15px; border-top: 1px solid #444; padding-top: 15px;">
+                <p id="selected-mode-text" style="color: #4CAF50; font-weight: bold;"></p>
+                <button onclick="startAIOptions()">لعب ضد الذكاء الاصطناعي</button>
+                <br><br>
+                <button onclick="createRoom()">إنشاء غرفة خاصة لصديق</button>
+                <br>
+                <input type="text" id="join-room-input" placeholder="أدخل كود الغرفة">
+                <button onclick="joinRoom()">انضمام للغرفة</button>
+            </div>
         </div>
 
         <div id="ai-options-screen" class="hidden">
             <h3>إعدادات محرك Stockfish</h3>
             <label>اختر اللون:</label>
             <select id="ai-color">
-                <option value="w">الأبيض (أنت تبدأ)</option>
+                <option value="w">الأبيض (تبدأ أولاً)</option>
                 <option value="b">الأسود</option>
             </select>
             <br>
             <label>مستوى الصعوبة (1 إلى 15):</label>
             <input type="number" id="ai-level" min="1" max="15" value="10">
             <br><br>
-            <button onclick="startAIGame()">ابدأ اللعبة</button>
+            <button onclick="startAIGame()">ابدأ التحدي</button>
             <button onclick="location.reload()">رجوع</button>
         </div>
 
         <div id="game-screen" class="hidden">
+            <div>
+                <div class="timer-box" id="opponent-timer">الخصم: --:--</div>
+                <div class="timer-box" id="my-timer">أنت: --:--</div>
+            </div>
             <div id="board"></div>
-            <p id="status-text">جاري اللعب...</p>
+            <p id="status-text">اللعبة جارية...</p>
             <div id="chat-container">
                 <div id="chat-box"></div>
-                <input type="text" id="chat-input" placeholder="اكتب رسالة للخصم...">
+                <input type="text" id="chat-input" placeholder="اكتب رسالة...">
                 <button onclick="sendChatMessage()">إرسال</button>
             </div>
             <br>
@@ -79,6 +92,14 @@ app.get('/', (req, res) => {
         let board = null;
         let gameMode = '';
         let currentRoomId = '';
+        let selectedTimeControl = 'blitz'; // الافتراضي
+
+        function selectMode(mode) {
+            selectedTimeControl = mode;
+            let names = { 'bullet': 'بوليت (1 دقيقة)', 'blitz': 'بليتز (3 دقائق)', 'rapid': 'رابيد (10 دقائق)' };
+            $('#selected-mode-text').text('النظام المحدد: ' + names[mode]);
+            $('#action-buttons').removeClass('hidden');
+        }
 
         function showAIOptions() {
             $('#menu-screen').addClass('hidden');
@@ -88,8 +109,8 @@ app.get('/', (req, res) => {
         function createRoom() {
             currentRoomId = 'room_' + Math.random().toString(36).substring(2, 8);
             gameMode = 'multi';
-            socket.emit('create_room', { roomId: currentRoomId });
-            alert('تم إنشاء الغرفة بنجاح! كود الغرفة هو: ' + currentRoomId);
+            socket.emit('create_room', { roomId: currentRoomId, timeControl: selectedTimeControl });
+            alert('تم إنشاء الغرفة! كود الغرفة هو: ' + currentRoomId);
             $('#menu-screen').addClass('hidden');
             $('#game-screen').removeClass('hidden');
             initBoard('w');
@@ -109,7 +130,7 @@ app.get('/', (req, res) => {
             gameMode = 'ai';
             $('#ai-options-screen').addClass('hidden');
             $('#game-screen').removeClass('hidden');
-            socket.emit('create_stockfish_room', { color, level });
+            socket.emit('create_stockfish_room', { color, level, timeControl: selectedTimeControl });
             initBoard(color);
         }
 
@@ -118,6 +139,7 @@ app.get('/', (req, res) => {
                 draggable: true,
                 position: 'start',
                 orientation: orientation === 'b' ? 'black' : 'white',
+                pieceTheme: 'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/img/chesspieces/wikipedia/{piece}.png',
                 onDrop: handleMove
             };
             board = Chessboard('board', config);
@@ -179,7 +201,7 @@ const rooms = {};
 
 io.on('connection', (socket) => {
     socket.on('create_room', (data) => {
-        rooms[data.roomId] = { white: socket.id, black: null, fen: 'start' };
+        rooms[data.roomId] = { white: socket.id, black: null, fen: 'start', timeControl: data.timeControl };
         socket.join(data.roomId);
     });
 
@@ -194,7 +216,7 @@ io.on('connection', (socket) => {
 
     socket.on('create_stockfish_room', (data) => {
         const roomId = 'ai_room_' + socket.id;
-        rooms[roomId] = { aiLevel: data.level || 10, fen: 'start' };
+        rooms[roomId] = { aiLevel: data.level || 10, fen: 'start', timeControl: data.timeControl };
         socket.join(roomId);
         socket.emit('stockfish_room_created', { roomId, fen: 'start' });
         if (data.color === 'b') {
@@ -223,10 +245,14 @@ io.on('connection', (socket) => {
     });
 
     socket.on('send_chat', (data) => {
-        socket.to(data.roomId).emit('receive_chat', data.message);
+        socket.to(data.roomId).emit('send_chat', data.message);
     });
 });
 
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
