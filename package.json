@@ -10,6 +10,6 @@
     "chess.js": "^0.10.3",
     "express": "^4.19.2",
     "socket.io": "^4.7.2",
-    "stockfish": "^16.0.0"
+    "stockfish.js": "^10.0.2"
   }
 }
