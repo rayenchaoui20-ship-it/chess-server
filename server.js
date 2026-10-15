@@ -1,375 +1,542 @@
-const express = require('express');
-const http = require('http');
-const path = require('path');
-const { Server } = require('socket.io');
-const axios = require('axios');
-const { Chess } = require('chess.js');
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منصة الشطرنج الاحترافية</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #121212; color: #e0e0e0; text-align: center; margin: 0; padding: 10px; }
+        .container { max-width: 600px; margin: auto; background: #1e1e1e; padding: 15px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.7); }
+        button, select, input { padding: 10px; margin: 6px; font-size: 15px; border-radius: 6px; border: none; outline: none; }
+        button { background: #4CAF50; color: white; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #43a047; }
+        button.danger { background: #d32f2f; }
+        button.danger:hover { background: #c62828; }
+        button.gray { background: #555; }
+        button.blue { background: #1976d2; }
+        button.blue:hover { background: #1565c0; }
+        #board { width: min(400px, 92vw); margin: 15px auto; direction: ltr; }
+        .hidden { display: none !important; }
+        .timer-box { font-size: 18px; font-weight: bold; background: #2a2a2a; padding: 6px 12px; border-radius: 6px; display: inline-block; margin: 4px; border: 1px solid #444; min-width: 110px; }
+        .timer-box.active { border-color: #4CAF50; }
+        .timer-box.low { color: #ff5252; }
+        #chat-box { height: 80px; background: #121212; border: 1px solid #333; overflow-y: scroll; text-align: right; padding: 6px; margin-bottom: 6px; border-radius: 6px; font-size: 14px; }
+        .highlight-last { background-color: rgba(255, 255, 0, 0.4) !important; }
+        .error { color: #ff5252; min-height: 20px; font-weight: bold; }
+        #room-code { font-size: 32px; letter-spacing: 6px; color: #4CAF50; font-weight: bold; direction: ltr; user-select: all; }
+        #promotion-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 20px; border-radius: 10px; border: 2px solid #4CAF50; z-index: 1000; }
+        .divider { margin-top: 12px; border-top: 1px solid #333; padding-top: 12px; }
+        .spinner { width: 42px; height: 42px; border: 5px solid #333; border-top-color: #4CAF50; border-radius: 50%; margin: 14px auto; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+        /* سجل الحركات */
+        #move-list { direction: ltr; text-align: left; height: 70px; overflow-y: auto; background: #121212; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 14px; line-height: 1.8; }
+        #move-list .num { color: #888; margin-right: 3px; }
+        #move-list .mv { display: inline-block; padding: 0 5px; border-radius: 4px; margin-right: 4px; }
+        #move-list .mv.last { background: #4CAF50; color: #fff; font-weight: bold; }
+        #move-list .empty { color: #666; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>منصة الشطرنج الاحترافية 🏆</h2>
 
-app.use(express.static(path.join(__dirname, 'public')));
+    <!-- القائمة الرئيسية -->
+    <div id="menu-screen">
+        <h3>اختر نظام الوقت واللعب:</h3>
+        <button onclick="selectMode('bullet', 60)">⚡ بوليت (دقيقة واحدة)</button>
+        <button onclick="selectMode('blitz', 180)">🔥 بليتز (3 دقائق)</button>
+        <button onclick="selectMode('rapid', 600)">⏱️ رابيد (10 دقائق)</button>
 
-// ───────────────────────── الإعدادات ─────────────────────────
-const ALLOWED_TIMES = [60, 180, 600];       // ثوانٍ: بوليت / بليتز / رابيد
-const MAX_CHAT_LENGTH = 200;
-const STOCKFISH_URL = 'https://stockfish.online/api/s/v2.php';
+        <div id="action-buttons" class="hidden divider">
+            <p id="selected-mode-text" style="color: #4CAF50; font-weight: bold;"></p>
+            <button class="blue" onclick="findMatch()">🎲 ابحث عن خصم عشوائي</button>
+            <br>
+            <button onclick="showAIOptions()">اللعب ضد الذكاء الاصطناعي</button>
+            <br>
+            <button onclick="createRoom()">إنشاء غرفة لصديق</button>
+            <br>
+            <input type="text" id="join-room-input" placeholder="أدخل كود الغرفة" maxlength="6" style="text-transform: uppercase;">
+            <button onclick="joinRoom()">انضمام</button>
+            <div class="error" id="menu-error"></div>
+        </div>
+    </div>
 
-const rooms = new Map();
+    <!-- إعدادات الذكاء الاصطناعي -->
+    <div id="ai-options-screen" class="hidden">
+        <h3>إعدادات محرك Stockfish الذكي</h3>
+        <label>اختر لونك:</label>
+        <select id="ai-color">
+            <option value="w">الأبيض (أنت تبدأ)</option>
+            <option value="b">الأسود</option>
+        </select>
+        <br>
+        <label>المستوى (1 إلى 15):</label>
+        <input type="number" id="ai-level" min="1" max="15" value="10">
+        <br><br>
+        <button onclick="startAIGame()">ابدأ المعركة</button>
+        <button class="gray" onclick="location.reload()">رجوع</button>
+    </div>
 
-// طابور البحث عن خصم عشوائي: طابور لكل نظام وقت (قيم هي socket.id)
-const queues = {};
-ALLOWED_TIMES.forEach((t) => { queues[t] = []; });
+    <!-- انتظار الخصم (غرفة صديق) -->
+    <div id="waiting-screen" class="hidden">
+        <h3>شارك هذا الكود مع صديقك:</h3>
+        <div id="room-code"></div>
+        <button onclick="copyRoomCode()">نسخ الكود</button>
+        <p>في انتظار انضمام الخصم...</p>
+        <button class="gray" onclick="location.reload()">إلغاء</button>
+    </div>
 
-function removeFromQueues(socketId) {
-    for (const t of ALLOWED_TIMES) {
-        const i = queues[t].indexOf(socketId);
-        if (i !== -1) queues[t].splice(i, 1);
+    <!-- البحث عن خصم عشوائي -->
+    <div id="searching-screen" class="hidden">
+        <h3>جارٍ البحث عن لاعب...</h3>
+        <div class="spinner"></div>
+        <p id="search-info" style="color: #4CAF50; font-weight: bold;"></p>
+        <p id="search-timer" style="direction: ltr;">00:00</p>
+        <p style="font-size: 13px; color: #aaa;">سيبدأ اللعب فور وجود لاعب آخر يبحث بنفس نظام الوقت. إن طال الانتظار فأرسل رابط الموقع لصديق ليبحث معك.</p>
+        <button class="gray" onclick="cancelSearch()">إلغاء البحث</button>
+    </div>
+
+    <!-- شاشة اللعب -->
+    <div id="game-screen" class="hidden">
+        <div>
+            <div class="timer-box" id="opponent-timer">الخصم: --:--</div>
+            <div class="timer-box" id="my-timer">أنت: --:--</div>
+        </div>
+
+        <div id="board"></div>
+
+        <p id="status-text" style="font-weight: bold; margin: 8px 0; color: #ffb74d;">اللعبة جارية...</p>
+        <p id="notice-text" class="error"></p>
+
+        <div id="move-list"><span class="empty">لا توجد حركات بعد</span></div>
+
+        <div id="chat-container" class="hidden">
+            <div id="chat-box"></div>
+            <input type="text" id="chat-input" placeholder="اكتب رسالة..." maxlength="200">
+            <button onclick="sendChatMessage()">إرسال</button>
+        </div>
+
+        <button id="resign-btn" class="danger" onclick="resign()">استسلام</button>
+        <button id="sound-btn" class="gray" onclick="toggleSound()">🔊 الصوت</button>
+        <button class="gray" onclick="location.reload()">خروج</button>
+    </div>
+</div>
+
+<!-- نافذة اختيار الترقية -->
+<div id="promotion-dialog" class="hidden">
+    <h3>اختر قطعة الترقية:</h3>
+    <button onclick="promotePiece('q')">وزير (Q)</button>
+    <button onclick="promotePiece('r')">قلعة (R)</button>
+    <button onclick="promotePiece('b')">فيل (B)</button>
+    <button onclick="promotePiece('n')">حصان (N)</button>
+    <br>
+    <button class="gray" onclick="cancelPromotion()">إلغاء</button>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    let board = null;
+    let myColor = 'w';
+    let gameMode = '';
+    let selectedTimeSec = 180;
+    let state = null;
+    let serverOffset = 0;
+    let pendingMove = null;
+    let lastSoundCount = 0;
+    let lastOver = false;
+    let searchInterval = null;
+
+    // فحص المكتبات: إذا فشل تحميل أي مكتبة تظهر رسالة واضحة بدل أن تتجمد الأزرار بصمت
+    const missingLibs = [];
+    if (typeof $ === 'undefined') missingLibs.push('jQuery');
+    if (typeof Chess === 'undefined') missingLibs.push('chess.js');
+    if (typeof Chessboard === 'undefined') missingLibs.push('chessboard.js');
+    if (typeof io === 'undefined') missingLibs.push('socket.io');
+    if (missingLibs.length) {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:#b71c1c;color:#fff;padding:10px;margin:0 0 10px;border-radius:8px;font-weight:bold;';
+        banner.textContent = 'تعذّر تحميل: ' + missingLibs.join('، ') + ' — تحقق من الاتصال بالإنترنت أو عطّل مانع الإعلانات ثم أعد تحميل الصفحة.';
+        document.body.insertBefore(banner, document.body.firstChild);
     }
-}
 
-// ───────────────────────── أدوات مساعدة ─────────────────────────
-const other = (c) => (c === 'w' ? 'b' : 'w');
+    const socket = (typeof io === 'function') ? io() : { on() {}, emit() { alert('لا يوجد اتصال بالسيرفر. أعد تحميل الصفحة.'); } };
+    const game = (typeof Chess === 'function') ? new Chess() : null;   // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
 
-function makeRoomId() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let id;
-    do {
-        id = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    } while (rooms.has(id));
-    return id;
-}
+    const MODE_NAMES = { bullet: 'بوليت (دقيقة واحدة)', blitz: 'بليتز (3 دقائق)', rapid: 'رابيد (10 دقائق)' };
+    const TIME_NAMES = { 60: MODE_NAMES.bullet, 180: MODE_NAMES.blitz, 600: MODE_NAMES.rapid };
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'game-screen'];
 
-function newRoom(type, timeSec) {
-    const room = {
-        id: makeRoomId(),
-        type,                       // 'multi' | 'ai'
-        game: new Chess(),
-        players: { w: null, b: null },
-        matched: false,             // انضم الطرفان
-        aiColor: null,
-        aiLevel: 10,
-        aiBusy: false,
-        aiFallbackNotified: false,
-        clocks: { w: timeSec * 1000, b: timeSec * 1000 },
-        running: false,             // الساعة تبدأ بعد أول نصف حركتين
-        plies: 0,
-        lastTick: Date.now(),
-        timer: null,
-        lastMove: null,
-        over: false,
-        result: null,               // { winner: 'w' | 'b' | null, reason }
-        closed: false
-    };
-    rooms.set(room.id, room);
-    return room;
-}
+    function show(id) { SCREENS.forEach(s => $('#' + s).toggleClass('hidden', s !== id)); }
 
-// يجلس اللاعب على لون في الغرفة
-function seat(socket, room, color) {
-    room.players[color] = socket.id;
-    socket.join(room.id);
-    socket.data.roomId = room.id;
-    socket.data.color = color;
-}
+    // ───────── الأصوات (مولَّدة داخل المتصفح بدون ملفات خارجية) ─────────
+    let audioCtx = null;
+    let soundOn = true;
+    try { if (localStorage.getItem('chess-sound') === 'off') soundOn = false; } catch (e) {}
 
-// يبدأ المباراة بعد اكتمال اللاعبين (غرفة صديق أو بحث عشوائي)
-function startMatch(room) {
-    room.matched = true;
-    for (const color of ['w', 'b']) {
-        io.to(room.players[color]).emit('game_start', {
-            color,
-            mode: 'multi',
-            roomId: room.id
-        });
-    }
-    broadcast(room);
-}
-
-function publicState(room) {
-    return {
-        fen: room.game.fen(),
-        turn: room.game.turn(),
-        check: room.game.inCheck(),
-        lastMove: room.lastMove,
-        history: room.game.history(),
-        moveCount: room.plies,
-        clocks: room.clocks,
-        tickAt: room.lastTick,
-        serverNow: Date.now(),
-        running: room.running,
-        over: room.over,
-        result: room.result
-    };
-}
-
-function broadcast(room) {
-    io.to(room.id).emit('state', publicState(room));
-}
-
-function closeRoom(room) {
-    clearTimeout(room.timer);
-    room.closed = true;
-    rooms.delete(room.id);
-}
-
-// ───────────────────────── الساعة ─────────────────────────
-function scheduleFlag(room) {
-    clearTimeout(room.timer);
-    if (room.over || !room.running) return;
-    const side = room.game.turn();
-    room.timer = setTimeout(() => onFlag(room, side), Math.max(0, room.clocks[side]));
-}
-
-function onFlag(room, side) {
-    if (room.over || room.closed || room.game.turn() !== side) return;
-    room.clocks[side] = 0;
-    endGame(room, { winner: other(side), reason: 'timeout' });
-}
-
-function endGame(room, result) {
-    if (room.over) return;
-    room.over = true;
-    room.result = result;
-    clearTimeout(room.timer);
-    room.lastTick = Date.now();
-    broadcast(room);
-}
-
-// ───────────────────────── تطبيق الحركة ─────────────────────────
-function applyMove(room, color, { from, to, promotion }) {
-    if (room.over || room.closed || room.game.turn() !== color) return false;
-
-    const now = Date.now();
-    if (room.running) {
-        room.clocks[color] -= now - room.lastTick;
-        if (room.clocks[color] <= 0) {
-            room.clocks[color] = 0;
-            endGame(room, { winner: other(color), reason: 'timeout' });
-            return false;
-        }
-    }
-
-    let mv;
-    try {
-        const promo = ['q', 'r', 'b', 'n'].includes(promotion) ? promotion : 'q';
-        mv = room.game.move({ from, to, promotion: promo });
-    } catch (e) {
-        // حركة غير قانونية: نعيد الوقت المخصوم
-        if (room.running) room.clocks[color] += now - room.lastTick;
-        return false;
-    }
-
-    room.plies++;
-    room.lastMove = { from: mv.from, to: mv.to, san: mv.san, captured: !!mv.captured };
-    if (!room.running && room.plies >= 2) room.running = true;
-    room.lastTick = now;
-
-    const g = room.game;
-    if (g.isCheckmate()) {
-        endGame(room, { winner: color, reason: 'checkmate' });
-    } else if (g.isStalemate()) {
-        endGame(room, { winner: null, reason: 'stalemate' });
-    } else if (g.isInsufficientMaterial()) {
-        endGame(room, { winner: null, reason: 'insufficient' });
-    } else if (g.isThreefoldRepetition()) {
-        endGame(room, { winner: null, reason: 'repetition' });
-    } else if (g.isDraw()) {
-        endGame(room, { winner: null, reason: 'fifty' });
-    } else {
-        scheduleFlag(room);
-        broadcast(room);
-        if (room.type === 'ai' && g.turn() === room.aiColor) aiTurn(room);
-    }
-    return true;
-}
-
-// ───────────────────────── الذكاء الاصطناعي ─────────────────────────
-async function fetchEngineMove(room) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+    function ensureAudio() {
         try {
-            const res = await axios.get(STOCKFISH_URL, {
-                params: { fen: room.game.fen(), depth: room.aiLevel },
-                timeout: 8000
-            });
-            const text = res.data && res.data.success ? String(res.data.bestmove || '') : '';
-            const m = /bestmove\s+([a-h][1-8])([a-h][1-8])([qrbn])?/.exec(text);
-            if (m) return { from: m[1], to: m[2], promotion: m[3] };
-        } catch (e) {
-            console.error('Stockfish API error:', e.message);
-        }
-    }
-    return null;
-}
-
-async function aiTurn(room) {
-    if (room.over || room.closed || room.aiBusy || room.game.turn() !== room.aiColor) return;
-    room.aiBusy = true;
-    try {
-        let move = await fetchEngineMove(room);
-
-        // الغرفة قد تُغلق أو تنتهي أثناء الانتظار
-        if (room.over || room.closed || room.game.turn() !== room.aiColor) return;
-
-        if (!move) {
-            // بديل: حركة عشوائية قانونية حتى لا تتجمد اللعبة
-            const legal = room.game.moves({ verbose: true });
-            if (!legal.length) return;
-            const pick = legal[Math.floor(Math.random() * legal.length)];
-            move = { from: pick.from, to: pick.to, promotion: pick.promotion };
-            if (!room.aiFallbackNotified) {
-                room.aiFallbackNotified = true;
-                io.to(room.id).emit('notice', 'تعذّر الاتصال بمحرك Stockfish، سيلعب الحاسوب حركات عشوائية مؤقتًا.');
+            if (!audioCtx) {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (AC) audioCtx = new AC();
             }
-        }
-        applyMove(room, room.aiColor, move);
-    } finally {
-        room.aiBusy = false;
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        } catch (e) {}
     }
-}
+    // المتصفحات تمنع الصوت قبل أول لمسة من المستخدم، لذلك نفعّله عند أول نقرة
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, ensureAudio));
 
-// ───────────────────────── المغادرة ─────────────────────────
-function handleLeave(socket) {
-    removeFromQueues(socket.id);
-    const room = rooms.get(socket.data.roomId);
-    socket.data.roomId = null;
-    if (!room) return;
-    socket.leave(room.id);
-
-    if (room.type === 'ai') {
-        closeRoom(room);
-        return;
+    function tone(freq, start, dur, vol, type, endFreq) {
+        const t0 = audioCtx.currentTime + start;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.setValueAtTime(freq, t0);
+        if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.02);
     }
 
-    const color = socket.data.color;
-    if (room.players[color] === socket.id) room.players[color] = null;
-
-    if (room.matched && !room.over && room.players[other(color)]) {
-        endGame(room, { winner: other(color), reason: 'abandoned' });
+    function noise(start, dur, vol, cutoff) {
+        const t0 = audioCtx.currentTime + start;
+        const len = Math.max(1, Math.floor(audioCtx.sampleRate * dur));
+        const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = cutoff;
+        const g = audioCtx.createGain();
+        g.gain.value = vol;
+        src.connect(filter);
+        filter.connect(g);
+        g.connect(audioCtx.destination);
+        src.start(t0);
     }
-    if (!room.players.w && !room.players.b) closeRoom(room);
-}
 
-// ───────────────────────── Socket.IO ─────────────────────────
-io.on('connection', (socket) => {
-    socket.data.roomId = null;
-    socket.data.color = null;
+    function playSound(type) {
+        if (!soundOn) return;
+        try {
+            ensureAudio();
+            if (!audioCtx) return;
+            if (type === 'move') {                       // نقرة خشبية خفيفة
+                tone(220, 0, 0.08, 0.5, 'triangle', 120);
+                noise(0, 0.05, 0.6, 1800);
+            } else if (type === 'capture') {             // نقرة أقوى
+                tone(160, 0, 0.12, 0.7, 'triangle', 80);
+                noise(0, 0.09, 1.0, 2600);
+                noise(0.05, 0.06, 0.5, 1500);
+            } else if (type === 'check') {               // تنبيه الكش
+                tone(660, 0, 0.12, 0.3, 'sine');
+                tone(880, 0.1, 0.16, 0.3, 'sine');
+            } else if (type === 'end') {                 // نهاية المباراة
+                [523, 659, 784].forEach((f, i) => tone(f, i * 0.14, 0.3, 0.35, 'sine'));
+            }
+        } catch (e) {}
+    }
 
-    socket.on('create_room', (data) => {
-        const timeSec = Number(data && data.timeSec);
-        if (!ALLOWED_TIMES.includes(timeSec)) return socket.emit('room_error', 'نظام الوقت غير صالح.');
+    function updateSoundButton() {
+        $('#sound-btn').text(soundOn ? '🔊 الصوت' : '🔇 الصوت');
+    }
 
-        handleLeave(socket);
-        const room = newRoom('multi', timeSec);
-        room.players.w = socket.id;
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.data.color = 'w';
-        socket.emit('room_created', { roomId: room.id });
-    });
+    function toggleSound() {
+        soundOn = !soundOn;
+        try { localStorage.setItem('chess-sound', soundOn ? 'on' : 'off'); } catch (e) {}
+        updateSoundButton();
+        if (soundOn) playSound('move');
+    }
+    updateSoundButton();
 
-    socket.on('join_room', (roomIdRaw) => {
-        const roomId = String(roomIdRaw || '').trim().toUpperCase();
-        const room = rooms.get(roomId);
-        if (!room || room.type !== 'multi') return socket.emit('room_error', 'الغرفة غير موجودة.');
-        if (room.players.w === socket.id) return socket.emit('room_error', 'هذه غرفتك أنت، أرسل الكود لصديقك.');
-        if (room.players.b || room.over) return socket.emit('room_error', 'الغرفة ممتلئة أو انتهت اللعبة فيها.');
+    // ───────── القائمة ─────────
+    function selectMode(mode, seconds) {
+        selectedTimeSec = seconds;
+        $('#selected-mode-text').text('النظام: ' + MODE_NAMES[mode]);
+        $('#action-buttons').removeClass('hidden');
+        $('#menu-error').text('');
+    }
 
-        handleLeave(socket);
-        room.players.b = socket.id;
-        room.matched = true;
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.data.color = 'b';
+    function showAIOptions() { show('ai-options-screen'); }
 
-        startMatch(room);
-    });
+    function createRoom() { socket.emit('create_room', { timeSec: selectedTimeSec }); }
 
-    socket.on('find_match', (data) => {
-        const timeSec = Number(data && data.timeSec);
-        if (!ALLOWED_TIMES.includes(timeSec)) return socket.emit('room_error', 'نظام الوقت غير صالح.');
+    function joinRoom() {
+        const roomId = $('#join-room-input').val().trim();
+        if (!roomId) return $('#menu-error').text('الرجاء إدخال كود الغرفة');
+        socket.emit('join_room', roomId);
+    }
 
-        handleLeave(socket);                       // يخرج من أي غرفة أو طابور سابق
-
-        // ابحث عن خصم ما زال متصلًا في طابور نفس نظام الوقت
-        const queue = queues[timeSec];
-        let opponent = null;
-        while (queue.length) {
-            const candidate = io.sockets.sockets.get(queue.shift());
-            if (candidate && candidate.connected) { opponent = candidate; break; }
-        }
-
-        if (!opponent) {
-            queue.push(socket.id);
-            return socket.emit('searching', { timeSec });
-        }
-
-        const room = newRoom('multi', timeSec);
-        const opponentIsWhite = Math.random() < 0.5;   // توزيع الألوان عشوائيًا
-        seat(opponentIsWhite ? opponent : socket, room, 'w');
-        seat(opponentIsWhite ? socket : opponent, room, 'b');
-        startMatch(room);
-    });
-
-    socket.on('cancel_search', () => {
-        removeFromQueues(socket.id);
-        socket.emit('search_cancelled');
-    });
-
-    socket.on('create_ai_room', (data) => {
-        data = data || {};
-        const timeSec = Number(data.timeSec);
-        if (!ALLOWED_TIMES.includes(timeSec)) return socket.emit('room_error', 'نظام الوقت غير صالح.');
-        const color = data.color === 'b' ? 'b' : 'w';
-        const level = Math.min(15, Math.max(1, parseInt(data.level, 10) || 10));
-
-        handleLeave(socket);
-        const room = newRoom('ai', timeSec);
-        room.matched = true;
-        room.aiLevel = level;
-        room.aiColor = other(color);
-        room.players[color] = socket.id;
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.data.color = color;
-
-        socket.emit('game_start', { color, mode: 'ai', roomId: room.id });
-        broadcast(room);
-        if (room.aiColor === 'w') aiTurn(room);
-    });
-
-    socket.on('move', (data) => {
-        const room = rooms.get(socket.data.roomId);
-        if (!room || !data || typeof data.from !== 'string' || typeof data.to !== 'string') return;
-        const ok = applyMove(room, socket.data.color, {
-            from: data.from,
-            to: data.to,
-            promotion: typeof data.promotion === 'string' ? data.promotion : undefined
+    function startAIGame() {
+        socket.emit('create_ai_room', {
+            color: $('#ai-color').val(),
+            level: $('#ai-level').val(),
+            timeSec: selectedTimeSec
         });
-        if (!ok && !room.over) {
-            // إعادة مزامنة اللاعب الذي أرسل حركة مرفوضة
-            socket.emit('state', publicState(room));
+    }
+
+    function copyRoomCode() {
+        const code = $('#room-code').text();
+        if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+    }
+
+    // ───────── البحث عن خصم عشوائي ─────────
+    function findMatch() {
+        $('#menu-error').text('');
+        socket.emit('find_match', { timeSec: selectedTimeSec });
+    }
+
+    function cancelSearch() {
+        socket.emit('cancel_search');
+    }
+
+    function stopSearchTimer() {
+        if (searchInterval) { clearInterval(searchInterval); searchInterval = null; }
+    }
+
+    socket.on('searching', ({ timeSec }) => {
+        $('#search-info').text('النظام: ' + (TIME_NAMES[timeSec] || ''));
+        $('#search-timer').text('00:00');
+        show('searching-screen');
+        stopSearchTimer();
+        const startedAt = Date.now();
+        searchInterval = setInterval(() => {
+            const s = Math.floor((Date.now() - startedAt) / 1000);
+            $('#search-timer').text(String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'));
+        }, 1000);
+    });
+
+    socket.on('search_cancelled', () => {
+        stopSearchTimer();
+        show('menu-screen');
+    });
+
+    // ───────── اللوحة ─────────
+    function initBoard() {
+        if (board) board.destroy();
+        game.reset();
+        board = Chessboard('board', {
+            draggable: true,
+            position: 'start',
+            orientation: myColor === 'b' ? 'black' : 'white',
+            pieceTheme: 'https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@master/website/img/chesspieces/wikipedia/{piece}.png',
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: () => board.position(game.fen())
+        });
+    }
+
+    function onDragStart(source, piece) {
+        if (!state || state.over) return false;
+        if (game.turn() !== myColor) return false;
+        if (piece.charAt(0) !== myColor) return false;
+    }
+
+    function onDrop(source, target) {
+        if (source === target) return;
+        const legal = game.moves({ square: source, verbose: true }).filter(m => m.to === target);
+        if (!legal.length) return 'snapback';
+
+        if (legal[0].flags.indexOf('p') !== -1) {
+            pendingMove = { from: source, to: target };
+            $('#promotion-dialog').removeClass('hidden');
+            return 'snapback';
+        }
+        submitMove({ from: source, to: target });
+    }
+
+    function submitMove(m) {
+        const move = { from: m.from, to: m.to, promotion: m.promotion || 'q' };
+        if (game.move(move) === null) return false;   // تطبيق محلي فوري
+        socket.emit('move', move);                     // السيرفر يتحقق ويرسل الحالة الرسمية
+        return true;
+    }
+
+    function promotePiece(p) {
+        $('#promotion-dialog').addClass('hidden');
+        if (pendingMove) {
+            submitMove({ from: pendingMove.from, to: pendingMove.to, promotion: p });
+            board.position(game.fen());
+            pendingMove = null;
+        }
+    }
+
+    function cancelPromotion() {
+        $('#promotion-dialog').addClass('hidden');
+        pendingMove = null;
+    }
+
+    function highlightLastMove(lm) {
+        $('#board .square-55d63').removeClass('highlight-last');
+        if (!lm) return;
+        $('#board .square-' + lm.from).addClass('highlight-last');
+        $('#board .square-' + lm.to).addClass('highlight-last');
+    }
+
+    // ───────── سجل الحركات ─────────
+    function renderHistory(history) {
+        const box = $('#move-list').empty();
+        if (!history.length) {
+            box.append($('<span class="empty">').text('لا توجد حركات بعد'));
+            return;
+        }
+        history.forEach((san, i) => {
+            if (i % 2 === 0) box.append($('<span class="num">').text((i / 2 + 1) + '.'));
+            const el = $('<span class="mv">').text(san);   // text() لمنع أي حقن HTML
+            if (i === history.length - 1) el.addClass('last');
+            box.append(el);
+        });
+        box.scrollTop(box[0].scrollHeight);
+    }
+
+    // ───────── الساعات (يحسبها السيرفر، والعميل يعرضها فقط) ─────────
+    function remainingMs(color) {
+        if (!state) return 0;
+        let ms = state.clocks[color];
+        if (state.running && !state.over && state.turn === color) {
+            ms -= (Date.now() + serverOffset) - state.tickAt;
+        }
+        return Math.max(0, ms);
+    }
+
+    function fmt(ms) {
+        const total = Math.ceil(ms / 1000);
+        const m = Math.floor(total / 60), s = total % 60;
+        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+
+    function renderClocks() {
+        if (!state) return;
+        const opp = myColor === 'w' ? 'b' : 'w';
+        const mine = remainingMs(myColor), theirs = remainingMs(opp);
+        $('#my-timer').text('أنت: ' + fmt(mine)).toggleClass('low', mine < 10000)
+            .toggleClass('active', state.running && !state.over && state.turn === myColor);
+        $('#opponent-timer').text('الخصم: ' + fmt(theirs)).toggleClass('low', theirs < 10000)
+            .toggleClass('active', state.running && !state.over && state.turn === opp);
+    }
+    setInterval(renderClocks, 200);
+
+    // ───────── الحالة والنتيجة ─────────
+    const REASONS = {
+        checkmate: 'كش مات',
+        timeout: 'انتهى الوقت',
+        resign: 'استسلام',
+        abandoned: 'غادر الخصم المباراة',
+        stalemate: 'تعادل بالجمود (Stalemate)',
+        insufficient: 'تعادل لعدم كفاية القطع',
+        repetition: 'تعادل بتكرار الوضعية',
+        fifty: 'تعادل بقاعدة الخمسين حركة'
+    };
+
+    function updateStatus() {
+        if (!state) return;
+        let text;
+        if (state.over) {
+            const r = state.result;
+            const reason = REASONS[r.reason] || '';
+            if (!r.winner) text = reason + '!';
+            else if (r.winner === myColor) text = 'فزت! 🎉 (' + reason + ')';
+            else text = 'خسرت. (' + reason + ')';
+            $('#resign-btn').addClass('hidden');
+        } else if (state.check) {
+            text = state.turn === myColor ? 'كش على ملكك! ⚠️' : 'كش على ملك الخصم!';
+        } else if (!state.running) {
+            text = state.turn === myColor ? 'دورك، الساعة تبدأ بعد أول حركتين.' : 'دور الخصم...';
+        } else {
+            text = state.turn === myColor ? 'دورك' : 'دور الخصم...';
+        }
+        $('#status-text').text(text);
+    }
+
+    // ───────── أحداث السيرفر ─────────
+    socket.on('room_created', ({ roomId }) => {
+        $('#room-code').text(roomId);
+        show('waiting-screen');
+    });
+
+    socket.on('room_error', (msg) => {
+        $('#menu-error').text(msg);
+        if ($('#menu-screen').hasClass('hidden') && $('#game-screen').hasClass('hidden')) {
+            alert(msg);
         }
     });
 
-    socket.on('chat', (data) => {
-        const room = rooms.get(socket.data.roomId);
-        if (!room || room.type !== 'multi' || !data || typeof data.message !== 'string') return;
-        const message = data.message.trim().slice(0, MAX_CHAT_LENGTH);
-        if (message) socket.to(room.id).emit('chat', message);
+    socket.on('game_start', (data) => {
+        stopSearchTimer();
+        myColor = data.color;
+        gameMode = data.mode;
+        state = null;
+        lastSoundCount = 0;
+        lastOver = false;
+        $('#chat-box').empty();
+        $('#notice-text').text('');
+        $('#resign-btn').removeClass('hidden');
+        $('#chat-container').toggleClass('hidden', gameMode !== 'multi');
+        renderHistory([]);
+        show('game-screen');
+        initBoard();
     });
 
-    socket.on('resign', () => {
-        const room = rooms.get(socket.data.roomId);
-        if (!room || room.over) return;
-        endGame(room, { winner: other(socket.data.color), reason: 'resign' });
+    socket.on('state', (s) => {
+        state = s;
+        serverOffset = s.serverNow - Date.now();
+        game.load(s.fen);
+        if (board) board.position(s.fen);
+        highlightLastMove(s.lastMove);
+        renderHistory(s.history || []);
+
+        if (s.moveCount > lastSoundCount) {
+            if (s.check && !s.over) playSound('check');
+            else playSound(s.lastMove && s.lastMove.captured ? 'capture' : 'move');
+        }
+        lastSoundCount = s.moveCount;
+
+        if (s.over && !lastOver) setTimeout(() => playSound('end'), 350);
+        lastOver = s.over;
+
+        updateStatus();
+        renderClocks();
     });
 
-    socket.on('disconnect', () => handleLeave(socket));
-});
+    socket.on('notice', (msg) => $('#notice-text').text(msg));
 
-const PORT = process.env.PORT || 10000;
+    socket.on('disconnect', () => $('#notice-text').text('انقطع الاتصال بالسيرفر...'));
+    socket.on('connect', () => { if (state) $('#notice-text').text(''); });
+
+    // ───────── الدردشة (textContent لمنع XSS) ─────────
+    function appendChat(who, msg) {
+        $('<div>').text(who + ': ' + msg).appendTo('#chat-box');
+        const box = document.getElementById('chat-box');
+        box.scrollTop = box.scrollHeight;
+    }
+
+    socket.on('chat', (msg) => appendChat('الخصم', msg));
+
+    function sendChatMessage() {
+        const msg = $('#chat-input').val().trim();
+        if (!msg) return;
+        appendChat('أنت', msg);
+        socket.emit('chat', { message: msg });
+        $('#chat-input').val('');
+    }
+
+    $('#chat-input').on('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+
+    function resign() {
+        if (state && !state.over && confirm('هل تريد الاستسلام؟')) socket.emit('resign');
+    }
+</script>
+</body>
+</html>
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
