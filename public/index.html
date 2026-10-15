@@ -1,4 +1,4 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -14,6 +14,8 @@
         button.danger { background: #d32f2f; }
         button.danger:hover { background: #c62828; }
         button.gray { background: #555; }
+        button.blue { background: #1976d2; }
+        button.blue:hover { background: #1565c0; }
         #board { width: min(400px, 92vw); margin: 15px auto; direction: ltr; }
         .hidden { display: none !important; }
         .timer-box { font-size: 18px; font-weight: bold; background: #2a2a2a; padding: 6px 12px; border-radius: 6px; display: inline-block; margin: 4px; border: 1px solid #444; min-width: 110px; }
@@ -24,21 +26,33 @@
         .error { color: #ff5252; min-height: 20px; font-weight: bold; }
         #room-code { font-size: 32px; letter-spacing: 6px; color: #4CAF50; font-weight: bold; direction: ltr; user-select: all; }
         #promotion-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 20px; border-radius: 10px; border: 2px solid #4CAF50; z-index: 1000; }
+        .divider { margin-top: 12px; border-top: 1px solid #333; padding-top: 12px; }
+        .spinner { width: 42px; height: 42px; border: 5px solid #333; border-top-color: #4CAF50; border-radius: 50%; margin: 14px auto; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* سجل الحركات */
+        #move-list { direction: ltr; text-align: left; height: 70px; overflow-y: auto; background: #121212; border: 1px solid #333; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 14px; line-height: 1.8; }
+        #move-list .num { color: #888; margin-right: 3px; }
+        #move-list .mv { display: inline-block; padding: 0 5px; border-radius: 4px; margin-right: 4px; }
+        #move-list .mv.last { background: #4CAF50; color: #fff; font-weight: bold; }
+        #move-list .empty { color: #666; }
     </style>
 </head>
 <body>
 <div class="container">
     <h2>منصة الشطرنج الاحترافية 🏆</h2>
- 
+
     <!-- القائمة الرئيسية -->
     <div id="menu-screen">
         <h3>اختر نظام الوقت واللعب:</h3>
         <button onclick="selectMode('bullet', 60)">⚡ بوليت (دقيقة واحدة)</button>
         <button onclick="selectMode('blitz', 180)">🔥 بليتز (3 دقائق)</button>
         <button onclick="selectMode('rapid', 600)">⏱️ رابيد (10 دقائق)</button>
- 
-        <div id="action-buttons" class="hidden" style="margin-top: 12px; border-top: 1px solid #333; padding-top: 12px;">
+
+        <div id="action-buttons" class="hidden divider">
             <p id="selected-mode-text" style="color: #4CAF50; font-weight: bold;"></p>
+            <button class="blue" onclick="findMatch()">🎲 ابحث عن خصم عشوائي</button>
+            <br>
             <button onclick="showAIOptions()">اللعب ضد الذكاء الاصطناعي</button>
             <br>
             <button onclick="createRoom()">إنشاء غرفة لصديق</button>
@@ -48,7 +62,7 @@
             <div class="error" id="menu-error"></div>
         </div>
     </div>
- 
+
     <!-- إعدادات الذكاء الاصطناعي -->
     <div id="ai-options-screen" class="hidden">
         <h3>إعدادات محرك Stockfish الذكي</h3>
@@ -64,8 +78,8 @@
         <button onclick="startAIGame()">ابدأ المعركة</button>
         <button class="gray" onclick="location.reload()">رجوع</button>
     </div>
- 
-    <!-- انتظار الخصم -->
+
+    <!-- انتظار الخصم (غرفة صديق) -->
     <div id="waiting-screen" class="hidden">
         <h3>شارك هذا الكود مع صديقك:</h3>
         <div id="room-code"></div>
@@ -73,30 +87,43 @@
         <p>في انتظار انضمام الخصم...</p>
         <button class="gray" onclick="location.reload()">إلغاء</button>
     </div>
- 
+
+    <!-- البحث عن خصم عشوائي -->
+    <div id="searching-screen" class="hidden">
+        <h3>جارٍ البحث عن لاعب...</h3>
+        <div class="spinner"></div>
+        <p id="search-info" style="color: #4CAF50; font-weight: bold;"></p>
+        <p id="search-timer" style="direction: ltr;">00:00</p>
+        <p style="font-size: 13px; color: #aaa;">سيبدأ اللعب فور وجود لاعب آخر يبحث بنفس نظام الوقت. إن طال الانتظار فأرسل رابط الموقع لصديق ليبحث معك.</p>
+        <button class="gray" onclick="cancelSearch()">إلغاء البحث</button>
+    </div>
+
     <!-- شاشة اللعب -->
     <div id="game-screen" class="hidden">
         <div>
             <div class="timer-box" id="opponent-timer">الخصم: --:--</div>
             <div class="timer-box" id="my-timer">أنت: --:--</div>
         </div>
- 
+
         <div id="board"></div>
- 
+
         <p id="status-text" style="font-weight: bold; margin: 8px 0; color: #ffb74d;">اللعبة جارية...</p>
         <p id="notice-text" class="error"></p>
- 
+
+        <div id="move-list"><span class="empty">لا توجد حركات بعد</span></div>
+
         <div id="chat-container" class="hidden">
             <div id="chat-box"></div>
             <input type="text" id="chat-input" placeholder="اكتب رسالة..." maxlength="200">
             <button onclick="sendChatMessage()">إرسال</button>
         </div>
- 
+
         <button id="resign-btn" class="danger" onclick="resign()">استسلام</button>
+        <button id="sound-btn" class="gray" onclick="toggleSound()">🔊 الصوت</button>
         <button class="gray" onclick="location.reload()">خروج</button>
     </div>
 </div>
- 
+
 <!-- نافذة اختيار الترقية -->
 <div id="promotion-dialog" class="hidden">
     <h3>اختر قطعة الترقية:</h3>
@@ -107,19 +134,12 @@
     <br>
     <button class="gray" onclick="cancelPromotion()">إلغاء</button>
 </div>
- 
-<!-- أصوات اللعبة -->
-<audio id="move-sound" src="https://images.chesscomfiles.com/chess-themes/sounds/standard/1000/Move.mp3"></audio>
-<audio id="capture-sound" src="https://images.chesscomfiles.com/chess-themes/sounds/standard/1000/Capture.mp3"></audio>
-<audio id="game-end-sound" src="https://images.chesscomfiles.com/chess-themes/sounds/standard/1000/GameOver.mp3"></audio>
- 
+
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script>
-    const socket = io();
-    const game = new Chess();          // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
     let board = null;
     let myColor = 'w';
     let gameMode = '';
@@ -128,21 +148,116 @@
     let serverOffset = 0;
     let pendingMove = null;
     let lastSoundCount = 0;
- 
+    let lastOver = false;
+    let searchInterval = null;
+
+    // فحص المكتبات: إذا فشل تحميل أي مكتبة تظهر رسالة واضحة بدل أن تتجمد الأزرار بصمت
+    const missingLibs = [];
+    if (typeof $ === 'undefined') missingLibs.push('jQuery');
+    if (typeof Chess === 'undefined') missingLibs.push('chess.js');
+    if (typeof Chessboard === 'undefined') missingLibs.push('chessboard.js');
+    if (typeof io === 'undefined') missingLibs.push('socket.io');
+    if (missingLibs.length) {
+        const banner = document.createElement('div');
+        banner.style.cssText = 'background:#b71c1c;color:#fff;padding:10px;margin:0 0 10px;border-radius:8px;font-weight:bold;';
+        banner.textContent = 'تعذّر تحميل: ' + missingLibs.join('، ') + ' — تحقق من الاتصال بالإنترنت أو عطّل مانع الإعلانات ثم أعد تحميل الصفحة.';
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+
+    const socket = (typeof io === 'function') ? io() : { on() {}, emit() { alert('لا يوجد اتصال بالسيرفر. أعد تحميل الصفحة.'); } };
+    const game = (typeof Chess === 'function') ? new Chess() : null;   // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
+
     const MODE_NAMES = { bullet: 'بوليت (دقيقة واحدة)', blitz: 'بليتز (3 دقائق)', rapid: 'رابيد (10 دقائق)' };
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'game-screen'];
- 
+    const TIME_NAMES = { 60: MODE_NAMES.bullet, 180: MODE_NAMES.blitz, 600: MODE_NAMES.rapid };
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'game-screen'];
+
     function show(id) { SCREENS.forEach(s => $('#' + s).toggleClass('hidden', s !== id)); }
- 
-    function playSound(type) {
+
+    // ───────── الأصوات (مولَّدة داخل المتصفح بدون ملفات خارجية) ─────────
+    let audioCtx = null;
+    let soundOn = true;
+    try { if (localStorage.getItem('chess-sound') === 'off') soundOn = false; } catch (e) {}
+
+    function ensureAudio() {
         try {
-            const id = type === 'capture' ? 'capture-sound' : type === 'end' ? 'game-end-sound' : 'move-sound';
-            const el = document.getElementById(id);
-            el.currentTime = 0;
-            el.play().catch(() => {});
+            if (!audioCtx) {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (AC) audioCtx = new AC();
+            }
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
         } catch (e) {}
     }
- 
+    // المتصفحات تمنع الصوت قبل أول لمسة من المستخدم، لذلك نفعّله عند أول نقرة
+    ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, ensureAudio));
+
+    function tone(freq, start, dur, vol, type, endFreq) {
+        const t0 = audioCtx.currentTime + start;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.setValueAtTime(freq, t0);
+        if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.02);
+    }
+
+    function noise(start, dur, vol, cutoff) {
+        const t0 = audioCtx.currentTime + start;
+        const len = Math.max(1, Math.floor(audioCtx.sampleRate * dur));
+        const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        const filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = cutoff;
+        const g = audioCtx.createGain();
+        g.gain.value = vol;
+        src.connect(filter);
+        filter.connect(g);
+        g.connect(audioCtx.destination);
+        src.start(t0);
+    }
+
+    function playSound(type) {
+        if (!soundOn) return;
+        try {
+            ensureAudio();
+            if (!audioCtx) return;
+            if (type === 'move') {                       // نقرة خشبية خفيفة
+                tone(220, 0, 0.08, 0.5, 'triangle', 120);
+                noise(0, 0.05, 0.6, 1800);
+            } else if (type === 'capture') {             // نقرة أقوى
+                tone(160, 0, 0.12, 0.7, 'triangle', 80);
+                noise(0, 0.09, 1.0, 2600);
+                noise(0.05, 0.06, 0.5, 1500);
+            } else if (type === 'check') {               // تنبيه الكش
+                tone(660, 0, 0.12, 0.3, 'sine');
+                tone(880, 0.1, 0.16, 0.3, 'sine');
+            } else if (type === 'end') {                 // نهاية المباراة
+                [523, 659, 784].forEach((f, i) => tone(f, i * 0.14, 0.3, 0.35, 'sine'));
+            }
+        } catch (e) {}
+    }
+
+    function updateSoundButton() {
+        $('#sound-btn').text(soundOn ? '🔊 الصوت' : '🔇 الصوت');
+    }
+
+    function toggleSound() {
+        soundOn = !soundOn;
+        try { localStorage.setItem('chess-sound', soundOn ? 'on' : 'off'); } catch (e) {}
+        updateSoundButton();
+        if (soundOn) playSound('move');
+    }
+    updateSoundButton();
+
     // ───────── القائمة ─────────
     function selectMode(mode, seconds) {
         selectedTimeSec = seconds;
@@ -150,17 +265,17 @@
         $('#action-buttons').removeClass('hidden');
         $('#menu-error').text('');
     }
- 
+
     function showAIOptions() { show('ai-options-screen'); }
- 
+
     function createRoom() { socket.emit('create_room', { timeSec: selectedTimeSec }); }
- 
+
     function joinRoom() {
         const roomId = $('#join-room-input').val().trim();
         if (!roomId) return $('#menu-error').text('الرجاء إدخال كود الغرفة');
         socket.emit('join_room', roomId);
     }
- 
+
     function startAIGame() {
         socket.emit('create_ai_room', {
             color: $('#ai-color').val(),
@@ -168,12 +283,43 @@
             timeSec: selectedTimeSec
         });
     }
- 
+
     function copyRoomCode() {
         const code = $('#room-code').text();
         if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
     }
- 
+
+    // ───────── البحث عن خصم عشوائي ─────────
+    function findMatch() {
+        $('#menu-error').text('');
+        socket.emit('find_match', { timeSec: selectedTimeSec });
+    }
+
+    function cancelSearch() {
+        socket.emit('cancel_search');
+    }
+
+    function stopSearchTimer() {
+        if (searchInterval) { clearInterval(searchInterval); searchInterval = null; }
+    }
+
+    socket.on('searching', ({ timeSec }) => {
+        $('#search-info').text('النظام: ' + (TIME_NAMES[timeSec] || ''));
+        $('#search-timer').text('00:00');
+        show('searching-screen');
+        stopSearchTimer();
+        const startedAt = Date.now();
+        searchInterval = setInterval(() => {
+            const s = Math.floor((Date.now() - startedAt) / 1000);
+            $('#search-timer').text(String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'));
+        }, 1000);
+    });
+
+    socket.on('search_cancelled', () => {
+        stopSearchTimer();
+        show('menu-screen');
+    });
+
     // ───────── اللوحة ─────────
     function initBoard() {
         if (board) board.destroy();
@@ -188,18 +334,18 @@
             onSnapEnd: () => board.position(game.fen())
         });
     }
- 
+
     function onDragStart(source, piece) {
         if (!state || state.over) return false;
         if (game.turn() !== myColor) return false;
         if (piece.charAt(0) !== myColor) return false;
     }
- 
+
     function onDrop(source, target) {
         if (source === target) return;
         const legal = game.moves({ square: source, verbose: true }).filter(m => m.to === target);
         if (!legal.length) return 'snapback';
- 
+
         if (legal[0].flags.indexOf('p') !== -1) {
             pendingMove = { from: source, to: target };
             $('#promotion-dialog').removeClass('hidden');
@@ -207,14 +353,14 @@
         }
         submitMove({ from: source, to: target });
     }
- 
+
     function submitMove(m) {
         const move = { from: m.from, to: m.to, promotion: m.promotion || 'q' };
         if (game.move(move) === null) return false;   // تطبيق محلي فوري
         socket.emit('move', move);                     // السيرفر يتحقق ويرسل الحالة الرسمية
         return true;
     }
- 
+
     function promotePiece(p) {
         $('#promotion-dialog').addClass('hidden');
         if (pendingMove) {
@@ -223,19 +369,35 @@
             pendingMove = null;
         }
     }
- 
+
     function cancelPromotion() {
         $('#promotion-dialog').addClass('hidden');
         pendingMove = null;
     }
- 
+
     function highlightLastMove(lm) {
         $('#board .square-55d63').removeClass('highlight-last');
         if (!lm) return;
         $('#board .square-' + lm.from).addClass('highlight-last');
         $('#board .square-' + lm.to).addClass('highlight-last');
     }
- 
+
+    // ───────── سجل الحركات ─────────
+    function renderHistory(history) {
+        const box = $('#move-list').empty();
+        if (!history.length) {
+            box.append($('<span class="empty">').text('لا توجد حركات بعد'));
+            return;
+        }
+        history.forEach((san, i) => {
+            if (i % 2 === 0) box.append($('<span class="num">').text((i / 2 + 1) + '.'));
+            const el = $('<span class="mv">').text(san);   // text() لمنع أي حقن HTML
+            if (i === history.length - 1) el.addClass('last');
+            box.append(el);
+        });
+        box.scrollTop(box[0].scrollHeight);
+    }
+
     // ───────── الساعات (يحسبها السيرفر، والعميل يعرضها فقط) ─────────
     function remainingMs(color) {
         if (!state) return 0;
@@ -245,13 +407,13 @@
         }
         return Math.max(0, ms);
     }
- 
+
     function fmt(ms) {
         const total = Math.ceil(ms / 1000);
         const m = Math.floor(total / 60), s = total % 60;
         return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
     }
- 
+
     function renderClocks() {
         if (!state) return;
         const opp = myColor === 'w' ? 'b' : 'w';
@@ -262,7 +424,7 @@
             .toggleClass('active', state.running && !state.over && state.turn === opp);
     }
     setInterval(renderClocks, 200);
- 
+
     // ───────── الحالة والنتيجة ─────────
     const REASONS = {
         checkmate: 'كش مات',
@@ -274,7 +436,7 @@
         repetition: 'تعادل بتكرار الوضعية',
         fifty: 'تعادل بقاعدة الخمسين حركة'
     };
- 
+
     function updateStatus() {
         if (!state) return;
         let text;
@@ -294,64 +456,71 @@
         }
         $('#status-text').text(text);
     }
- 
+
     // ───────── أحداث السيرفر ─────────
     socket.on('room_created', ({ roomId }) => {
         $('#room-code').text(roomId);
         show('waiting-screen');
     });
- 
+
     socket.on('room_error', (msg) => {
         $('#menu-error').text(msg);
         if ($('#menu-screen').hasClass('hidden') && $('#game-screen').hasClass('hidden')) {
             alert(msg);
         }
     });
- 
+
     socket.on('game_start', (data) => {
+        stopSearchTimer();
         myColor = data.color;
         gameMode = data.mode;
         state = null;
         lastSoundCount = 0;
+        lastOver = false;
         $('#chat-box').empty();
         $('#notice-text').text('');
         $('#resign-btn').removeClass('hidden');
         $('#chat-container').toggleClass('hidden', gameMode !== 'multi');
+        renderHistory([]);
         show('game-screen');
         initBoard();
     });
- 
+
     socket.on('state', (s) => {
         state = s;
         serverOffset = s.serverNow - Date.now();
         game.load(s.fen);
         if (board) board.position(s.fen);
         highlightLastMove(s.lastMove);
- 
+        renderHistory(s.history || []);
+
         if (s.moveCount > lastSoundCount) {
-            playSound(s.lastMove && s.lastMove.captured ? 'capture' : 'move');
+            if (s.check && !s.over) playSound('check');
+            else playSound(s.lastMove && s.lastMove.captured ? 'capture' : 'move');
         }
         lastSoundCount = s.moveCount;
-        if (s.over) playSound('end');
- 
+
+        if (s.over && !lastOver) setTimeout(() => playSound('end'), 350);
+        lastOver = s.over;
+
         updateStatus();
         renderClocks();
     });
- 
+
     socket.on('notice', (msg) => $('#notice-text').text(msg));
- 
+
     socket.on('disconnect', () => $('#notice-text').text('انقطع الاتصال بالسيرفر...'));
     socket.on('connect', () => { if (state) $('#notice-text').text(''); });
- 
+
     // ───────── الدردشة (textContent لمنع XSS) ─────────
     function appendChat(who, msg) {
         $('<div>').text(who + ': ' + msg).appendTo('#chat-box');
         const box = document.getElementById('chat-box');
         box.scrollTop = box.scrollHeight;
     }
- 
+
     socket.on('chat', (msg) => appendChat('الخصم', msg));
- 
+
     function sendChatMessage() {
         const msg = $('#chat-input').val().trim();
         if (!msg) return;
@@ -359,9 +528,9 @@
         socket.emit('chat', { message: msg });
         $('#chat-input').val('');
     }
- 
+
     $('#chat-input').on('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
- 
+
     function resign() {
         if (state && !state.over && confirm('هل تريد الاستسلام؟')) socket.emit('resign');
     }
