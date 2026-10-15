@@ -18,6 +18,17 @@ const STOCKFISH_URL = 'https://stockfish.online/api/s/v2.php';
 
 const rooms = new Map();
 
+// طابور البحث عن خصم عشوائي: طابور لكل نظام وقت (قيم هي socket.id)
+const queues = {};
+ALLOWED_TIMES.forEach((t) => { queues[t] = []; });
+
+function removeFromQueues(socketId) {
+    for (const t of ALLOWED_TIMES) {
+        const i = queues[t].indexOf(socketId);
+        if (i !== -1) queues[t].splice(i, 1);
+    }
+}
+
 // ───────────────────────── أدوات مساعدة ─────────────────────────
 const other = (c) => (c === 'w' ? 'b' : 'w');
 
@@ -55,12 +66,34 @@ function newRoom(type, timeSec) {
     return room;
 }
 
+// يجلس اللاعب على لون في الغرفة
+function seat(socket, room, color) {
+    room.players[color] = socket.id;
+    socket.join(room.id);
+    socket.data.roomId = room.id;
+    socket.data.color = color;
+}
+
+// يبدأ المباراة بعد اكتمال اللاعبين (غرفة صديق أو بحث عشوائي)
+function startMatch(room) {
+    room.matched = true;
+    for (const color of ['w', 'b']) {
+        io.to(room.players[color]).emit('game_start', {
+            color,
+            mode: 'multi',
+            roomId: room.id
+        });
+    }
+    broadcast(room);
+}
+
 function publicState(room) {
     return {
         fen: room.game.fen(),
         turn: room.game.turn(),
         check: room.game.inCheck(),
         lastMove: room.lastMove,
+        history: room.game.history(),
         moveCount: room.plies,
         clocks: room.clocks,
         tickAt: room.lastTick,
@@ -198,6 +231,7 @@ async function aiTurn(room) {
 
 // ───────────────────────── المغادرة ─────────────────────────
 function handleLeave(socket) {
+    removeFromQueues(socket.id);
     const room = rooms.get(socket.data.roomId);
     socket.data.roomId = null;
     if (!room) return;
@@ -249,14 +283,38 @@ io.on('connection', (socket) => {
         socket.data.roomId = room.id;
         socket.data.color = 'b';
 
-        for (const color of ['w', 'b']) {
-            io.to(room.players[color]).emit('game_start', {
-                color,
-                mode: 'multi',
-                roomId: room.id
-            });
+        startMatch(room);
+    });
+
+    socket.on('find_match', (data) => {
+        const timeSec = Number(data && data.timeSec);
+        if (!ALLOWED_TIMES.includes(timeSec)) return socket.emit('room_error', 'نظام الوقت غير صالح.');
+
+        handleLeave(socket);                       // يخرج من أي غرفة أو طابور سابق
+
+        // ابحث عن خصم ما زال متصلًا في طابور نفس نظام الوقت
+        const queue = queues[timeSec];
+        let opponent = null;
+        while (queue.length) {
+            const candidate = io.sockets.sockets.get(queue.shift());
+            if (candidate && candidate.connected) { opponent = candidate; break; }
         }
-        broadcast(room);
+
+        if (!opponent) {
+            queue.push(socket.id);
+            return socket.emit('searching', { timeSec });
+        }
+
+        const room = newRoom('multi', timeSec);
+        const opponentIsWhite = Math.random() < 0.5;   // توزيع الألوان عشوائيًا
+        seat(opponentIsWhite ? opponent : socket, room, 'w');
+        seat(opponentIsWhite ? socket : opponent, room, 'b');
+        startMatch(room);
+    });
+
+    socket.on('cancel_search', () => {
+        removeFromQueues(socket.id);
+        socket.emit('search_cancelled');
     });
 
     socket.on('create_ai_room', (data) => {
