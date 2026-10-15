@@ -1,0 +1,370 @@
+!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>منصة الشطرنج الاحترافية</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+    <style>
+        body { font-family: Tahoma, sans-serif; background: #121212; color: #e0e0e0; text-align: center; margin: 0; padding: 10px; }
+        .container { max-width: 600px; margin: auto; background: #1e1e1e; padding: 15px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.7); }
+        button, select, input { padding: 10px; margin: 6px; font-size: 15px; border-radius: 6px; border: none; outline: none; }
+        button { background: #4CAF50; color: white; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #43a047; }
+        button.danger { background: #d32f2f; }
+        button.danger:hover { background: #c62828; }
+        button.gray { background: #555; }
+        #board { width: min(400px, 92vw); margin: 15px auto; direction: ltr; }
+        .hidden { display: none !important; }
+        .timer-box { font-size: 18px; font-weight: bold; background: #2a2a2a; padding: 6px 12px; border-radius: 6px; display: inline-block; margin: 4px; border: 1px solid #444; min-width: 110px; }
+        .timer-box.active { border-color: #4CAF50; }
+        .timer-box.low { color: #ff5252; }
+        #chat-box { height: 80px; background: #121212; border: 1px solid #333; overflow-y: scroll; text-align: right; padding: 6px; margin-bottom: 6px; border-radius: 6px; font-size: 14px; }
+        .highlight-last { background-color: rgba(255, 255, 0, 0.4) !important; }
+        .error { color: #ff5252; min-height: 20px; font-weight: bold; }
+        #room-code { font-size: 32px; letter-spacing: 6px; color: #4CAF50; font-weight: bold; direction: ltr; user-select: all; }
+        #promotion-dialog { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 20px; border-radius: 10px; border: 2px solid #4CAF50; z-index: 1000; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>منصة الشطرنج الاحترافية 🏆</h2>
+ 
+    <!-- القائمة الرئيسية -->
+    <div id="menu-screen">
+        <h3>اختر نظام الوقت واللعب:</h3>
+        <button onclick="selectMode('bullet', 60)">⚡ بوليت (دقيقة واحدة)</button>
+        <button onclick="selectMode('blitz', 180)">🔥 بليتز (3 دقائق)</button>
+        <button onclick="selectMode('rapid', 600)">⏱️ رابيد (10 دقائق)</button>
+ 
+        <div id="action-buttons" class="hidden" style="margin-top: 12px; border-top: 1px solid #333; padding-top: 12px;">
+            <p id="selected-mode-text" style="color: #4CAF50; font-weight: bold;"></p>
+            <button onclick="showAIOptions()">اللعب ضد الذكاء الاصطناعي</button>
+            <br>
+            <button onclick="createRoom()">إنشاء غرفة لصديق</button>
+            <br>
+            <input type="text" id="join-room-input" placeholder="أدخل كود الغرفة" maxlength="6" style="text-transform: uppercase;">
+            <button onclick="joinRoom()">انضمام</button>
+            <div class="error" id="menu-error"></div>
+        </div>
+    </div>
+ 
+    <!-- إعدادات الذكاء الاصطناعي -->
+    <div id="ai-options-screen" class="hidden">
+        <h3>إعدادات محرك Stockfish الذكي</h3>
+        <label>اختر لونك:</label>
+        <select id="ai-color">
+            <option value="w">الأبيض (أنت تبدأ)</option>
+            <option value="b">الأسود</option>
+        </select>
+        <br>
+        <label>المستوى (1 إلى 15):</label>
+        <input type="number" id="ai-level" min="1" max="15" value="10">
+        <br><br>
+        <button onclick="startAIGame()">ابدأ المعركة</button>
+        <button class="gray" onclick="location.reload()">رجوع</button>
+    </div>
+ 
+    <!-- انتظار الخصم -->
+    <div id="waiting-screen" class="hidden">
+        <h3>شارك هذا الكود مع صديقك:</h3>
+        <div id="room-code"></div>
+        <button onclick="copyRoomCode()">نسخ الكود</button>
+        <p>في انتظار انضمام الخصم...</p>
+        <button class="gray" onclick="location.reload()">إلغاء</button>
+    </div>
+ 
+    <!-- شاشة اللعب -->
+    <div id="game-screen" class="hidden">
+        <div>
+            <div class="timer-box" id="opponent-timer">الخصم: --:--</div>
+            <div class="timer-box" id="my-timer">أنت: --:--</div>
+        </div>
+ 
+        <div id="board"></div>
+ 
+        <p id="status-text" style="font-weight: bold; margin: 8px 0; color: #ffb74d;">اللعبة جارية...</p>
+        <p id="notice-text" class="error"></p>
+ 
+        <div id="chat-container" class="hidden">
+            <div id="chat-box"></div>
+            <input type="text" id="chat-input" placeholder="اكتب رسالة..." maxlength="200">
+            <button onclick="sendChatMessage()">إرسال</button>
+        </div>
+ 
+        <button id="resign-btn" class="danger" onclick="resign()">استسلام</button>
+        <button class="gray" onclick="location.reload()">خروج</button>
+    </div>
+</div>
+ 
+<!-- نافذة اختيار الترقية -->
+<div id="promotion-dialog" class="hidden">
+    <h3>اختر قطعة الترقية:</h3>
+    <button onclick="promotePiece('q')">وزير (Q)</button>
+    <button onclick="promotePiece('r')">قلعة (R)</button>
+    <button onclick="promotePiece('b')">فيل (B)</button>
+    <button onclick="promotePiece('n')">حصان (N)</button>
+    <br>
+    <button class="gray" onclick="cancelPromotion()">إلغاء</button>
+</div>
+ 
+<!-- أصوات اللعبة -->
+<audio id="move-sound" src="https://images.chesscomfiles.com/chess-themes/sounds/standard/1000/Move.mp3"></audio>
+<audio id="capture-sound" src="https://images.chesscomfiles.com/chess-themes/sounds/standard/1000/Capture.mp3"></audio>
+<audio id="game-end-sound" src="https://images.chesscomfiles.com/chess-themes/sounds/standard/1000/GameOver.mp3"></audio>
+ 
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    const game = new Chess();          // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
+    let board = null;
+    let myColor = 'w';
+    let gameMode = '';
+    let selectedTimeSec = 180;
+    let state = null;
+    let serverOffset = 0;
+    let pendingMove = null;
+    let lastSoundCount = 0;
+ 
+    const MODE_NAMES = { bullet: 'بوليت (دقيقة واحدة)', blitz: 'بليتز (3 دقائق)', rapid: 'رابيد (10 دقائق)' };
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'game-screen'];
+ 
+    function show(id) { SCREENS.forEach(s => $('#' + s).toggleClass('hidden', s !== id)); }
+ 
+    function playSound(type) {
+        try {
+            const id = type === 'capture' ? 'capture-sound' : type === 'end' ? 'game-end-sound' : 'move-sound';
+            const el = document.getElementById(id);
+            el.currentTime = 0;
+            el.play().catch(() => {});
+        } catch (e) {}
+    }
+ 
+    // ───────── القائمة ─────────
+    function selectMode(mode, seconds) {
+        selectedTimeSec = seconds;
+        $('#selected-mode-text').text('النظام: ' + MODE_NAMES[mode]);
+        $('#action-buttons').removeClass('hidden');
+        $('#menu-error').text('');
+    }
+ 
+    function showAIOptions() { show('ai-options-screen'); }
+ 
+    function createRoom() { socket.emit('create_room', { timeSec: selectedTimeSec }); }
+ 
+    function joinRoom() {
+        const roomId = $('#join-room-input').val().trim();
+        if (!roomId) return $('#menu-error').text('الرجاء إدخال كود الغرفة');
+        socket.emit('join_room', roomId);
+    }
+ 
+    function startAIGame() {
+        socket.emit('create_ai_room', {
+            color: $('#ai-color').val(),
+            level: $('#ai-level').val(),
+            timeSec: selectedTimeSec
+        });
+    }
+ 
+    function copyRoomCode() {
+        const code = $('#room-code').text();
+        if (navigator.clipboard) navigator.clipboard.writeText(code).catch(() => {});
+    }
+ 
+    // ───────── اللوحة ─────────
+    function initBoard() {
+        if (board) board.destroy();
+        game.reset();
+        board = Chessboard('board', {
+            draggable: true,
+            position: 'start',
+            orientation: myColor === 'b' ? 'black' : 'white',
+            pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/img/chesspieces/wikipedia/{piece}.png',
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: () => board.position(game.fen())
+        });
+    }
+ 
+    function onDragStart(source, piece) {
+        if (!state || state.over) return false;
+        if (game.turn() !== myColor) return false;
+        if (piece.charAt(0) !== myColor) return false;
+    }
+ 
+    function onDrop(source, target) {
+        if (source === target) return;
+        const legal = game.moves({ square: source, verbose: true }).filter(m => m.to === target);
+        if (!legal.length) return 'snapback';
+ 
+        if (legal[0].flags.indexOf('p') !== -1) {
+            pendingMove = { from: source, to: target };
+            $('#promotion-dialog').removeClass('hidden');
+            return 'snapback';
+        }
+        submitMove({ from: source, to: target });
+    }
+ 
+    function submitMove(m) {
+        const move = { from: m.from, to: m.to, promotion: m.promotion || 'q' };
+        if (game.move(move) === null) return false;   // تطبيق محلي فوري
+        socket.emit('move', move);                     // السيرفر يتحقق ويرسل الحالة الرسمية
+        return true;
+    }
+ 
+    function promotePiece(p) {
+        $('#promotion-dialog').addClass('hidden');
+        if (pendingMove) {
+            submitMove({ from: pendingMove.from, to: pendingMove.to, promotion: p });
+            board.position(game.fen());
+            pendingMove = null;
+        }
+    }
+ 
+    function cancelPromotion() {
+        $('#promotion-dialog').addClass('hidden');
+        pendingMove = null;
+    }
+ 
+    function highlightLastMove(lm) {
+        $('#board .square-55d63').removeClass('highlight-last');
+        if (!lm) return;
+        $('#board .square-' + lm.from).addClass('highlight-last');
+        $('#board .square-' + lm.to).addClass('highlight-last');
+    }
+ 
+    // ───────── الساعات (يحسبها السيرفر، والعميل يعرضها فقط) ─────────
+    function remainingMs(color) {
+        if (!state) return 0;
+        let ms = state.clocks[color];
+        if (state.running && !state.over && state.turn === color) {
+            ms -= (Date.now() + serverOffset) - state.tickAt;
+        }
+        return Math.max(0, ms);
+    }
+ 
+    function fmt(ms) {
+        const total = Math.ceil(ms / 1000);
+        const m = Math.floor(total / 60), s = total % 60;
+        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    }
+ 
+    function renderClocks() {
+        if (!state) return;
+        const opp = myColor === 'w' ? 'b' : 'w';
+        const mine = remainingMs(myColor), theirs = remainingMs(opp);
+        $('#my-timer').text('أنت: ' + fmt(mine)).toggleClass('low', mine < 10000)
+            .toggleClass('active', state.running && !state.over && state.turn === myColor);
+        $('#opponent-timer').text('الخصم: ' + fmt(theirs)).toggleClass('low', theirs < 10000)
+            .toggleClass('active', state.running && !state.over && state.turn === opp);
+    }
+    setInterval(renderClocks, 200);
+ 
+    // ───────── الحالة والنتيجة ─────────
+    const REASONS = {
+        checkmate: 'كش مات',
+        timeout: 'انتهى الوقت',
+        resign: 'استسلام',
+        abandoned: 'غادر الخصم المباراة',
+        stalemate: 'تعادل بالجمود (Stalemate)',
+        insufficient: 'تعادل لعدم كفاية القطع',
+        repetition: 'تعادل بتكرار الوضعية',
+        fifty: 'تعادل بقاعدة الخمسين حركة'
+    };
+ 
+    function updateStatus() {
+        if (!state) return;
+        let text;
+        if (state.over) {
+            const r = state.result;
+            const reason = REASONS[r.reason] || '';
+            if (!r.winner) text = reason + '!';
+            else if (r.winner === myColor) text = 'فزت! 🎉 (' + reason + ')';
+            else text = 'خسرت. (' + reason + ')';
+            $('#resign-btn').addClass('hidden');
+        } else if (state.check) {
+            text = state.turn === myColor ? 'كش على ملكك! ⚠️' : 'كش على ملك الخصم!';
+        } else if (!state.running) {
+            text = state.turn === myColor ? 'دورك، الساعة تبدأ بعد أول حركتين.' : 'دور الخصم...';
+        } else {
+            text = state.turn === myColor ? 'دورك' : 'دور الخصم...';
+        }
+        $('#status-text').text(text);
+    }
+ 
+    // ───────── أحداث السيرفر ─────────
+    socket.on('room_created', ({ roomId }) => {
+        $('#room-code').text(roomId);
+        show('waiting-screen');
+    });
+ 
+    socket.on('room_error', (msg) => {
+        $('#menu-error').text(msg);
+        if ($('#menu-screen').hasClass('hidden') && $('#game-screen').hasClass('hidden')) {
+            alert(msg);
+        }
+    });
+ 
+    socket.on('game_start', (data) => {
+        myColor = data.color;
+        gameMode = data.mode;
+        state = null;
+        lastSoundCount = 0;
+        $('#chat-box').empty();
+        $('#notice-text').text('');
+        $('#resign-btn').removeClass('hidden');
+        $('#chat-container').toggleClass('hidden', gameMode !== 'multi');
+        show('game-screen');
+        initBoard();
+    });
+ 
+    socket.on('state', (s) => {
+        state = s;
+        serverOffset = s.serverNow - Date.now();
+        game.load(s.fen);
+        if (board) board.position(s.fen);
+        highlightLastMove(s.lastMove);
+ 
+        if (s.moveCount > lastSoundCount) {
+            playSound(s.lastMove && s.lastMove.captured ? 'capture' : 'move');
+        }
+        lastSoundCount = s.moveCount;
+        if (s.over) playSound('end');
+ 
+        updateStatus();
+        renderClocks();
+    });
+ 
+    socket.on('notice', (msg) => $('#notice-text').text(msg));
+ 
+    socket.on('disconnect', () => $('#notice-text').text('انقطع الاتصال بالسيرفر...'));
+    socket.on('connect', () => { if (state) $('#notice-text').text(''); });
+ 
+    // ───────── الدردشة (textContent لمنع XSS) ─────────
+    function appendChat(who, msg) {
+        $('<div>').text(who + ': ' + msg).appendTo('#chat-box');
+        const box = document.getElementById('chat-box');
+        box.scrollTop = box.scrollHeight;
+    }
+ 
+    socket.on('chat', (msg) => appendChat('الخصم', msg));
+ 
+    function sendChatMessage() {
+        const msg = $('#chat-input').val().trim();
+        if (!msg) return;
+        appendChat('أنت', msg);
+        socket.emit('chat', { message: msg });
+        $('#chat-input').val('');
+    }
+ 
+    $('#chat-input').on('keydown', (e) => { if (e.key === 'Enter') sendChatMessage(); });
+ 
+    function resign() {
+        if (state && !state.over && confirm('هل تريد الاستسلام؟')) socket.emit('resign');
+    }
+</script>
+</body>
+</html>
