@@ -32,6 +32,11 @@ function removeFromQueues(socketId) {
 // ───────────────────────── أدوات مساعدة ─────────────────────────
 const other = (c) => (c === 'w' ? 'b' : 'w');
 
+// تنظيف اسم اللاعب: حذف المحارف الخفية والأقواس، وقص الطول
+function cleanName(v) {
+    return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 20);
+}
+
 function makeRoomId() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let id;
@@ -45,8 +50,10 @@ function newRoom(type, timeSec) {
     const room = {
         id: makeRoomId(),
         type,                       // 'multi' | 'ai'
+        timeSec,
         game: new Chess(),
         players: { w: null, b: null },
+        names: { w: '', b: '' },
         matched: false,             // انضم الطرفان
         aiColor: null,
         aiLevel: 10,
@@ -60,7 +67,10 @@ function newRoom(type, timeSec) {
         lastMove: null,
         over: false,
         result: null,               // { winner: 'w' | 'b' | null, reason }
-        closed: false
+        closed: false,
+        rematch: { w: false, b: false },
+        drawOffer: null,            // لون من اقترح التعادل حاليًا
+        lastDrawPly: { w: -9, b: -9 }
     };
     rooms.set(room.id, room);
     return room;
@@ -69,12 +79,13 @@ function newRoom(type, timeSec) {
 // يجلس اللاعب على لون في الغرفة
 function seat(socket, room, color) {
     room.players[color] = socket.id;
+    room.names[color] = socket.data.name || '';
     socket.join(room.id);
     socket.data.roomId = room.id;
     socket.data.color = color;
 }
 
-// يبدأ المباراة بعد اكتمال اللاعبين (غرفة صديق أو بحث عشوائي)
+// يبدأ المباراة بعد اكتمال اللاعبين (غرفة صديق أو بحث عشوائي أو إعادة)
 function startMatch(room) {
     room.matched = true;
     for (const color of ['w', 'b']) {
@@ -87,6 +98,32 @@ function startMatch(room) {
     broadcast(room);
 }
 
+// إعادة المباراة في نفس الغرفة مع تبديل الألوان
+function resetForRematch(room) {
+    clearTimeout(room.timer);
+    const wId = room.players.w, bId = room.players.b;
+    room.players.w = bId;
+    room.players.b = wId;
+    const wName = room.names.w;
+    room.names.w = room.names.b;
+    room.names.b = wName;
+    for (const c of ['w', 'b']) {
+        const s = io.sockets.sockets.get(room.players[c]);
+        if (s) s.data.color = c;
+    }
+    room.game = new Chess();
+    room.clocks = { w: room.timeSec * 1000, b: room.timeSec * 1000 };
+    room.running = false;
+    room.plies = 0;
+    room.lastTick = Date.now();
+    room.lastMove = null;
+    room.over = false;
+    room.result = null;
+    room.rematch = { w: false, b: false };
+    room.drawOffer = null;
+    room.lastDrawPly = { w: -9, b: -9 };
+}
+
 function publicState(room) {
     return {
         fen: room.game.fen(),
@@ -94,6 +131,7 @@ function publicState(room) {
         check: room.game.inCheck(),
         lastMove: room.lastMove,
         history: room.game.history(),
+        names: room.names,
         moveCount: room.plies,
         clocks: room.clocks,
         tickAt: room.lastTick,
@@ -132,6 +170,7 @@ function endGame(room, result) {
     if (room.over) return;
     room.over = true;
     room.result = result;
+    room.drawOffer = null;
     clearTimeout(room.timer);
     room.lastTick = Date.now();
     broadcast(room);
@@ -165,6 +204,12 @@ function applyMove(room, color, { from, to, promotion }) {
     room.lastMove = { from: mv.from, to: mv.to, san: mv.san, captured: !!mv.captured };
     if (!room.running && room.plies >= 2) room.running = true;
     room.lastTick = now;
+
+    // تحرّك الطرف الآخر دون الرد على اقتراح التعادل: يُعتبر رفضًا
+    if (room.drawOffer && room.drawOffer !== color) {
+        room.drawOffer = null;
+        io.to(room.id).emit('draw_cleared');
+    }
 
     const g = room.game;
     if (g.isCheckmate()) {
@@ -248,6 +293,9 @@ function handleLeave(socket) {
     if (room.matched && !room.over && room.players[other(color)]) {
         endGame(room, { winner: other(color), reason: 'abandoned' });
     }
+    // أبلغ من بقي في الغرفة (لإخفاء زر إعادة المباراة مثلًا)
+    io.to(room.id).emit('opponent_left');
+
     if (!room.players.w && !room.players.b) closeRoom(room);
 }
 
@@ -255,34 +303,31 @@ function handleLeave(socket) {
 io.on('connection', (socket) => {
     socket.data.roomId = null;
     socket.data.color = null;
+    socket.data.name = '';
 
     socket.on('create_room', (data) => {
         const timeSec = Number(data && data.timeSec);
         if (!ALLOWED_TIMES.includes(timeSec)) return socket.emit('room_error', 'نظام الوقت غير صالح.');
 
         handleLeave(socket);
+        socket.data.name = cleanName(data && data.name);
         const room = newRoom('multi', timeSec);
-        room.players.w = socket.id;
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.data.color = 'w';
+        seat(socket, room, 'w');
         socket.emit('room_created', { roomId: room.id });
     });
 
-    socket.on('join_room', (roomIdRaw) => {
-        const roomId = String(roomIdRaw || '').trim().toUpperCase();
+    socket.on('join_room', (payload) => {
+        // يقبل نصًا (الكود فقط) أو كائنًا { roomId, name }
+        const data = payload && typeof payload === 'object' ? payload : { roomId: payload };
+        const roomId = String(data.roomId || '').trim().toUpperCase();
         const room = rooms.get(roomId);
         if (!room || room.type !== 'multi') return socket.emit('room_error', 'الغرفة غير موجودة.');
         if (room.players.w === socket.id) return socket.emit('room_error', 'هذه غرفتك أنت، أرسل الكود لصديقك.');
         if (room.players.b || room.over) return socket.emit('room_error', 'الغرفة ممتلئة أو انتهت اللعبة فيها.');
 
         handleLeave(socket);
-        room.players.b = socket.id;
-        room.matched = true;
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.data.color = 'b';
-
+        socket.data.name = cleanName(data.name);
+        seat(socket, room, 'b');
         startMatch(room);
     });
 
@@ -291,6 +336,7 @@ io.on('connection', (socket) => {
         if (!ALLOWED_TIMES.includes(timeSec)) return socket.emit('room_error', 'نظام الوقت غير صالح.');
 
         handleLeave(socket);                       // يخرج من أي غرفة أو طابور سابق
+        socket.data.name = cleanName(data && data.name);
 
         // ابحث عن خصم ما زال متصلًا في طابور نفس نظام الوقت
         const queue = queues[timeSec];
@@ -325,14 +371,13 @@ io.on('connection', (socket) => {
         const level = Math.min(15, Math.max(1, parseInt(data.level, 10) || 10));
 
         handleLeave(socket);
+        socket.data.name = cleanName(data.name);
         const room = newRoom('ai', timeSec);
         room.matched = true;
         room.aiLevel = level;
         room.aiColor = other(color);
-        room.players[color] = socket.id;
-        socket.join(room.id);
-        socket.data.roomId = room.id;
-        socket.data.color = color;
+        seat(socket, room, color);
+        room.names[room.aiColor] = 'الحاسوب';
 
         socket.emit('game_start', { color, mode: 'ai', roomId: room.id });
         broadcast(room);
@@ -364,6 +409,57 @@ io.on('connection', (socket) => {
         const room = rooms.get(socket.data.roomId);
         if (!room || room.over) return;
         endGame(room, { winner: other(socket.data.color), reason: 'resign' });
+    });
+
+    // ───── اقتراح التعادل ─────
+    socket.on('offer_draw', () => {
+        const room = rooms.get(socket.data.roomId);
+        if (!room || room.type !== 'multi' || room.over || !room.matched) return;
+        const color = socket.data.color;
+
+        // الخصم اقترح قبلي وأنا أقترح الآن: اتفاق متبادل
+        if (room.drawOffer && room.drawOffer !== color) {
+            return endGame(room, { winner: null, reason: 'agreement' });
+        }
+        if (room.drawOffer === color) return;
+        if (room.plies < 2) return socket.emit('toast', 'يمكن اقتراح التعادل بعد أول حركتين.');
+        if (room.plies - room.lastDrawPly[color] < 2) {
+            return socket.emit('toast', 'انتظر حركة قبل اقتراح التعادل مرة أخرى.');
+        }
+
+        room.lastDrawPly[color] = room.plies;
+        room.drawOffer = color;
+        socket.to(room.id).emit('draw_offered');
+    });
+
+    socket.on('respond_draw', (data) => {
+        const room = rooms.get(socket.data.roomId);
+        if (!room || room.type !== 'multi' || room.over || !room.drawOffer) return;
+        if (room.drawOffer === socket.data.color) return;   // لا يرد على اقتراحه هو
+
+        const offerer = room.drawOffer;
+        room.drawOffer = null;
+        if (data && data.accept) {
+            endGame(room, { winner: null, reason: 'agreement' });
+        } else if (room.players[offerer]) {
+            io.to(room.players[offerer]).emit('draw_declined');
+        }
+    });
+
+    // ───── إعادة المباراة بتبديل الألوان ─────
+    socket.on('rematch', () => {
+        const room = rooms.get(socket.data.roomId);
+        if (!room || room.type !== 'multi' || !room.over) return;
+        if (!room.players.w || !room.players.b) {
+            return socket.emit('toast', 'غادر الخصم المباراة.');
+        }
+        room.rematch[socket.data.color] = true;
+        if (room.rematch.w && room.rematch.b) {
+            resetForRematch(room);
+            startMatch(room);
+        } else {
+            socket.to(room.id).emit('rematch_offered');
+        }
     });
 
     socket.on('disconnect', () => handleLeave(socket));
