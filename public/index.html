@@ -207,6 +207,9 @@
         #board .legal-move { background-image: radial-gradient(circle, rgba(11, 19, 36, .38) 0, rgba(11, 19, 36, .38) 18%, transparent 20%); }
         #board .legal-capture { background-image: radial-gradient(circle, transparent 0, transparent 60%, rgba(11, 19, 36, .38) 62%, rgba(11, 19, 36, .38) 80%, transparent 82%); }
 
+        #board .selected-sq { box-shadow: inset 0 0 0 4px var(--gold); }
+        #board .square-55d63 { cursor: pointer; }
+
         /* ───── القطع المأكولة ───── */
         .captured { display: inline-flex; align-items: center; min-height: 22px; margin-inline-start: 4px; }
         .captured img { width: 20px; height: 20px; margin-inline-end: -7px; }
@@ -711,20 +714,75 @@
 
     function onDrop(source, target) {
         clearLegal();
-        if (source === target) return;
-        const legal = game.moves({ square: source, verbose: true }).filter(m => m.to === target);
-        if (!legal.length) return 'snapback';
+        if (source === target) {            // لمسة بدون سحب: اختيار القطعة أو إلغاؤه
+            handleSquareTap(source);
+            return 'snapback';
+        }
+        clearSelection();
+        return attemptMove(source, target) === 'moved' ? undefined : 'snapback';
+    }
 
+    // يحاول تنفيذ الحركة: 'moved' تمّت، 'promo' تنتظر اختيار قطعة الترقية، false غير قانونية
+    function attemptMove(source, target) {
+        const legal = game.moves({ square: source, verbose: true }).filter(m => m.to === target);
+        if (!legal.length) return false;
         if (legal[0].flags.indexOf('p') !== -1) {
             pendingMove = { from: source, to: target };
             $('#promotion-dialog img').each(function () {
                 $(this).attr('src', PIECE_THEME.replace('{piece}', myColor + $(this).data('piece')));
             });
             $('#promotion-dialog').removeClass('hidden');
-            return 'snapback';
+            return 'promo';
         }
-        submitMove({ from: source, to: target });
+        return submitMove({ from: source, to: target }) ? 'moved' : false;
     }
+
+    // ───── التحريك بالنقر: اختر القطعة ثم المربع ─────
+    let selectedSquare = null;
+    let lastTapSq = null;
+    let lastTapAt = 0;
+
+    function clearSelection() {
+        selectedSquare = null;
+        $('#board .square-55d63').removeClass('selected-sq');
+        clearLegal();
+    }
+
+    function selectSquare(sq) {
+        clearSelection();
+        selectedSquare = sq;
+        $('#board .square-' + sq).addClass('selected-sq');
+        showLegal(sq);
+    }
+
+    function handleSquareTap(sq) {
+        // بعض الأجهزة ترسل اللمسة الواحدة مرتين (لمس ثم نقر): نتجاهل المكرر
+        const now = Date.now();
+        if (sq === lastTapSq && now - lastTapAt < 400) return;
+        lastTapSq = sq;
+        lastTapAt = now;
+
+        if (!state || state.over || game.turn() !== myColor) { clearSelection(); return; }
+
+        if (selectedSquare && selectedSquare !== sq) {
+            if (attemptMove(selectedSquare, sq)) {
+                clearSelection();
+                if (!pendingMove) board.position(game.fen());   // عند الترقية ننتظر اختيار القطعة
+                return;
+            }
+        }
+        const piece = game.get(sq);
+        if (piece && piece.color === myColor) {
+            if (selectedSquare === sq) clearSelection(); else selectSquare(sq);
+        } else {
+            clearSelection();
+        }
+    }
+
+    // نقر على مربع فارغ أو قطعة الخصم (نقر القطع الخاصة بك يصل عبر onDrop)
+    $('#board').on('click', '.square-55d63', function () {
+        handleSquareTap($(this).attr('data-square'));
+    });
 
     function submitMove(m) {
         const move = { from: m.from, to: m.to, promotion: m.promotion || 'q' };
@@ -929,6 +987,7 @@
 
     socket.on('state', (s) => {
         state = s;
+        clearSelection();
         serverOffset = s.serverNow - Date.now();
         game.load(s.fen);
         if (board) board.position(s.fen);
