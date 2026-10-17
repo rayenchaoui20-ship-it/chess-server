@@ -1,0 +1,13 @@
+{
+  "name": "منصة الشطرنج",
+  "short_name": "شطرنج",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B1324",
+  "theme_color": "#0B1324",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
