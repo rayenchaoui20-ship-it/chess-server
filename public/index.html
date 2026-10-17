@@ -5,7 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0B1324">
     <meta name="description" content="العب الشطرنج مباشرة مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين، دون تسجيل.">
-    <title>منصة الشطرنج الاحترافية</title>
+    <title>منصة الشطرنج الاحترافية: العب أونلاين وحل الألغاز مجانًا</title>
+    <link rel="canonical" href="https://chess-relay-server-y321.onrender.com/">
+    <meta name="robots" content="index, follow">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="ar_AR">
+    <meta property="og:title" content="منصة الشطرنج الاحترافية: العب أونلاين وحل الألغاز مجانًا">
+    <meta property="og:description" content="العب الشطرنج مباشرة مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين وألغاز تكتيكية، دون تسجيل.">
+    <meta property="og:url" content="https://chess-relay-server-y321.onrender.com/">
+    <meta name="twitter:card" content="summary">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.svg">
@@ -27,12 +35,21 @@
         <span class="wordmark">شطرنج</span>
     </header>
 
-    <noscript><div class="lib-banner">هذه المنصة تحتاج JavaScript لتعمل.</div></noscript>
+    <noscript><div class="lib-banner">هذه المنصة تحتاج JavaScript لتعمل. العب الشطرنج أونلاين مع لاعبين حقيقيين أو ضد الحاسوب، وحل ألغاز الشطرنج مجانًا.</div></noscript>
     <div id="conn-banner" class="conn-banner hidden" role="status">انقطع الاتصال بالسيرفر، جارٍ إعادة المحاولة...</div>
 
     <!-- القائمة الرئيسية -->
     <section id="menu-screen" class="narrow stack">
-        <p class="lead">العب مباشرة مع لاعبين حقيقيين أو ضد الحاسوب، دون تسجيل.</p>
+        <p class="lead">العب مباشرة مع لاعبين حقيقيين أو ضد الحاسوب. التسجيل اختياري.</p>
+
+        <div class="account-bar" id="account-bar">
+            <span id="acc-info" class="muted small">أنت تلعب كضيف</span>
+            <span class="acc-actions">
+                <button class="btn secondary hidden" id="acc-friends" data-action="showFriends">الأصدقاء<span id="friends-badge" class="badge hidden">0</span></button>
+                <button class="btn ghost" id="acc-login" data-action="showAuth">دخول / حساب جديد</button>
+                <button class="btn ghost hidden" id="acc-logout" data-action="logout">خروج</button>
+            </span>
+        </div>
 
         <div>
             <label class="label" for="player-name">اسمك (اختياري)</label>
@@ -130,6 +147,60 @@
             <p id="search-timer">00:00</p>
             <p class="muted small" style="margin-bottom:16px">يتسع نطاق البحث تدريجيًا كلما طال الانتظار. أرسل الموقع لصديق ليبحث معك بنفس الوقت.</p>
             <button class="btn ghost" data-action="cancelSearch">إلغاء البحث</button>
+        </div>
+    </section>
+
+    <!-- تسجيل الدخول -->
+    <section id="auth-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0">حسابك</h2>
+            <div class="seg seg2" role="group" aria-label="نوع العملية" id="auth-tabs">
+                <button type="button" data-action="authTab" data-mode="login" aria-pressed="true">تسجيل الدخول</button>
+                <button type="button" data-action="authTab" data-mode="register" aria-pressed="false">حساب جديد</button>
+            </div>
+            <div>
+                <label class="label" for="auth-user">اسم المستخدم</label>
+                <input type="text" id="auth-user" class="field" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false">
+                <div class="muted small" id="auth-hint" style="margin-top:6px">حروف وأرقام و _ فقط، 3 أحرف على الأقل.</div>
+            </div>
+            <div>
+                <label class="label" for="auth-pass">كلمة المرور</label>
+                <input type="password" id="auth-pass" class="field" maxlength="100" autocomplete="current-password">
+            </div>
+            <div class="error" id="auth-error" role="alert"></div>
+            <div class="btn-row">
+                <button class="btn primary" id="auth-submit" data-action="authSubmit">دخول</button>
+                <button class="btn ghost" data-action="goMenu">رجوع</button>
+            </div>
+            <p class="muted small" id="auth-note">عند إنشاء حساب يُحفظ تصنيفك الحالي ويمكنك إضافة الأصدقاء واللعب من أي جهاز.</p>
+        </div>
+    </section>
+
+    <!-- الأصدقاء -->
+    <section id="friends-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0">الأصدقاء</h2>
+            <div>
+                <label class="label" for="friend-input">أضف صديقًا باسم المستخدم</label>
+                <div class="join-row">
+                    <input type="text" id="friend-input" class="field" maxlength="20" autocomplete="off" autocapitalize="none" spellcheck="false">
+                    <button class="btn secondary" data-action="friendAdd">أرسل طلبًا</button>
+                </div>
+                <div class="fr-msg" id="fr-msg" role="status"></div>
+            </div>
+            <div id="fr-in-box" class="hidden">
+                <h3 class="sub-title">طلبات الصداقة</h3>
+                <ul class="fr-list" id="fr-in"></ul>
+            </div>
+            <div>
+                <h3 class="sub-title">قائمة الأصدقاء</h3>
+                <ul class="fr-list" id="fr-list"></ul>
+            </div>
+            <div id="fr-out-box" class="hidden">
+                <h3 class="sub-title">طلبات أرسلتها</h3>
+                <ul class="fr-list" id="fr-out"></ul>
+            </div>
+            <button class="btn ghost block" data-action="goMenu">رجوع</button>
         </div>
     </section>
 
@@ -277,6 +348,17 @@
     </div>
 </div>
 
+<!-- دعوة صديق -->
+<div id="invite-dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="invite-text">
+    <div class="dialog">
+        <p id="invite-text" style="margin-bottom:18px;font-weight:600"></p>
+        <div class="dialog-actions">
+            <button class="btn primary" data-action="inviteAccept">قبول</button>
+            <button class="btn ghost" data-action="inviteDecline">رفض</button>
+        </div>
+    </div>
+</div>
+
 <!-- تأكيد المغادرة -->
 <div id="confirm-dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-text">
     <div class="dialog">
@@ -296,6 +378,8 @@
         <button class="btn primary block" data-action="reload">استخدم هذه النافذة</button>
     </div>
 </div>
+
+<div id="global-toast" class="global-toast hidden" role="status"></div>
 
 <script src="/boot.js"></script>
 </body>
