@@ -10,7 +10,7 @@
     };
     const CAT_NAMES = { bullet: 'بوليت', blitz: 'بليتز', rapid: 'رابيد' };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'puzzle-screen', 'game-screen'];
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'puzzle-screen', 'game-screen'];
     const REASONS = {
         checkmate: 'كش مات', timeout: 'انتهى الوقت', resign: 'استسلام', abandoned: 'غادر الخصم المباراة',
         stalemate: 'جمود (Stalemate)', insufficient: 'عدم كفاية القطع', repetition: 'تكرار الوضعية',
@@ -53,6 +53,12 @@
     let replaced = false;
     let confirmYes = null;
     let memToken = null;
+    let account = null;
+    let authMode = 'login';
+    let friendsTimer = null;
+    let friendsData = { friends: [], incoming: [], outgoing: [] };
+    let pendingInvite = null;
+    let gtoastTimer = null;
 
     // ───────────────────────── تخزين المتصفح (اختياري) ─────────────────────────
     function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
@@ -60,6 +66,7 @@
 
     function show(id) {
         currentScreen = id;
+        if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
         window.scrollTo(0, 0);
     }
@@ -156,7 +163,7 @@
     $('#confirm-no').on('click', closeConfirm);
 
     // ───────────────────────── القائمة ─────────────────────────
-    function getName() { return ($('#player-name').val() || '').trim().slice(0, 20); }
+    function getName() { return account || ($('#player-name').val() || '').trim().slice(0, 20); }
     function getToken() { return lsGet('chess-token') || memToken; }
 
     function renderTimeGroups() {
@@ -347,6 +354,41 @@
         pzRetry() { if (pzCur) pzStart(pzCur); },
         pzHint() { pzHint(); },
         pzSolution() { pzSolution(); },
+        showAuth() { $('#auth-error').text(''); show('auth-screen'); $('#auth-user').trigger('focus'); },
+        authTab(el) { setAuthMode(el.dataset.mode); },
+        authSubmit() { authSubmit(); },
+        logout() {
+            askConfirm('هل تريد تسجيل الخروج من حسابك؟', () => { resetToMenu(); socket.emit('logout'); });
+        },
+        showFriends() {
+            $('#fr-msg').text('').removeClass('err good');
+            show('friends-screen');
+            socket.emit('friends_get');
+            if (friendsTimer) clearInterval(friendsTimer);
+            friendsTimer = setInterval(() => { if (socket.connected) socket.emit('friends_get'); }, 10000);
+        },
+        friendAdd() {
+            const u = $('#friend-input').val().trim();
+            if (!u) return;
+            socket.emit('friend_add', { username: u });
+            $('#friend-input').val('');
+        },
+        friendRespond(el) { socket.emit('friend_respond', { username: el.dataset.user, accept: el.dataset.accept === '1' }); },
+        friendRemove(el) {
+            const u = el.dataset.user;
+            askConfirm('إزالة ' + u + ' من قائمة أصدقائك؟', () => socket.emit('friend_remove', { username: u }));
+        },
+        friendInvite(el) { socket.emit('friend_invite', { username: el.dataset.user, tc: selectedTc }); },
+        inviteAccept() {
+            $('#invite-dialog').addClass('hidden');
+            if (pendingInvite) socket.emit('join_room', { roomId: pendingInvite.roomId });
+            pendingInvite = null;
+        },
+        inviteDecline() {
+            $('#invite-dialog').addClass('hidden');
+            if (pendingInvite) socket.emit('invite_decline', { username: pendingInvite.from });
+            pendingInvite = null;
+        },
         reload() { location.reload(); }
     };
 
@@ -395,6 +437,8 @@
         lsSet('chess-token', w.token);
         ratings = w.ratings || ratings;
         renderRatings();
+        account = w.user || null;
+        renderAccount();
         setOnline(w.online);
         if (!$('#player-name').val() && w.name) $('#player-name').val(w.name);
 
@@ -943,6 +987,109 @@
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     }
 
+
+
+    // ───────────────────────── الحساب والأصدقاء ─────────────────────────
+    function gtoast(text) {
+        $('#global-toast').text(text).removeClass('hidden');
+        clearTimeout(gtoastTimer);
+        gtoastTimer = setTimeout(() => $('#global-toast').addClass('hidden'), 4500);
+    }
+
+    function renderAccount() {
+        const logged = !!account;
+        $('#acc-info').text(logged ? 'مرحبًا، ' + account : 'أنت تلعب كضيف');
+        $('#acc-login').toggleClass('hidden', logged);
+        $('#acc-friends, #acc-logout').toggleClass('hidden', !logged);
+        const nameInput = $('#player-name');
+        if (logged) nameInput.val(account).prop('disabled', true);
+        else {
+            nameInput.prop('disabled', false);
+            if (nameInput.val() === '' || nameInput.data('wasAccount')) nameInput.val(lsGet('chess-name') || '');
+        }
+        nameInput.data('wasAccount', logged);
+        if (!logged) { friendsData = { friends: [], incoming: [], outgoing: [] }; renderFriends(); }
+    }
+
+    function setAuthMode(mode) {
+        authMode = mode;
+        $('#auth-tabs button').each(function () { $(this).attr('aria-pressed', String($(this).data('mode') === mode)); });
+        $('#auth-submit').text(mode === 'login' ? 'دخول' : 'إنشاء الحساب');
+        $('#auth-pass').attr('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
+        $('#auth-hint').toggleClass('hidden', mode === 'login');
+        $('#auth-note').toggleClass('hidden', mode === 'login');
+        $('#auth-error').text('');
+    }
+    function authSubmit() {
+        const username = $('#auth-user').val().trim();
+        const password = $('#auth-pass').val();
+        if (!username || !password) return $('#auth-error').text('أدخل اسم المستخدم وكلمة المرور.');
+        $('#auth-error').text('');
+        socket.emit(authMode, { username, password });
+    }
+    $('#auth-pass, #auth-user').on('keydown', (e) => { if (e.key === 'Enter') authSubmit(); });
+    $('#friend-input').on('keydown', (e) => { if (e.key === 'Enter') A.friendAdd(); });
+    setAuthMode('login');
+
+    socket.on('auth_error', (msg) => $('#auth-error').text(msg));
+    socket.on('auth_ok', () => {
+        $('#auth-pass').val('');
+        $('#auth-error').text('');
+        show('menu-screen');
+        gtoast(authMode === 'register' ? 'تم إنشاء حسابك. أهلًا بك!' : 'تم تسجيل الدخول.');
+    });
+    socket.on('logged_out', () => { show('menu-screen'); gtoast('تم تسجيل الخروج.'); });
+
+    const STATUS_TEXT = { online: 'متصل', playing: 'يلعب الآن', searching: 'يبحث عن خصم', offline: 'غير متصل' };
+
+    function renderFriends() {
+        const d = friendsData;
+        const inc = $('#fr-in').empty();
+        $('#fr-in-box').toggleClass('hidden', !d.incoming.length);
+        d.incoming.forEach((u) => {
+            inc.append($('<li>').append(
+                $('<span class="nm">').text(u),
+                $('<button class="btn primary">').text('قبول').attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '1' }),
+                $('<button class="btn ghost">').text('رفض').attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '0' })
+            ));
+        });
+        const list = $('#fr-list').empty();
+        if (!d.friends.length) list.append($('<li class="empty">').text('لا يوجد أصدقاء بعد. أضف صديقًا باسم المستخدم.'));
+        const order = { online: 0, searching: 1, playing: 2, offline: 3 };
+        d.friends.slice().sort((a, b) => order[a.status] - order[b.status] || a.username.localeCompare(b.username)).forEach((f) => {
+            const li = $('<li>').append(
+                $('<span class="sdot">').addClass(f.status),
+                $('<span class="nm">').text(f.username),
+                $('<span class="st">').text(STATUS_TEXT[f.status] || ''),
+                $('<span class="rt">').text(f.rating)
+            );
+            if (f.status === 'online' || f.status === 'searching') {
+                li.append($('<button class="btn secondary">').text('دعوة').attr({ 'data-action': 'friendInvite', 'data-user': f.username }));
+            }
+            li.append($('<button class="btn ghost">').text('إزالة').attr({ 'data-action': 'friendRemove', 'data-user': f.username }));
+            list.append(li);
+        });
+        const out = $('#fr-out').empty();
+        $('#fr-out-box').toggleClass('hidden', !d.outgoing.length);
+        d.outgoing.forEach((u) => out.append($('<li>').append($('<span class="nm">').text(u), $('<span class="st">').text('بانتظار الرد'))));
+        const n = d.incoming.length;
+        $('#friends-badge').text(n).toggleClass('hidden', !n);
+    }
+    socket.on('friends', (d) => { friendsData = d; renderFriends(); });
+    socket.on('friend_error', (m) => $('#fr-msg').text(m).removeClass('good').addClass('err'));
+    socket.on('friend_ok', (m) => $('#fr-msg').text(m).removeClass('err').addClass('good'));
+    socket.on('notify', (d) => gtoast(d.text));
+    socket.on('invite', (d) => {
+        if (currentScreen === 'game-screen' && state && !state.over) {
+            gtoast('دعوة من ' + d.from + ' (أنت في مباراة الآن)');
+            socket.emit('invite_decline', { username: d.from });
+            return;
+        }
+        pendingInvite = d;
+        $('#invite-text').text(d.from + ' يدعوك إلى مباراة ودّية (' + tcText(d.tc) + ')');
+        $('#invite-dialog').removeClass('hidden');
+        playSound('check');
+    });
 
     // ───────────────────────── الألغاز (تعمل في المتصفح بلا سيرفر) ─────────────────────────
     // f = وضعية البداية، n = كش مات في n حركات، s = الحركة الأولى الصحيحة، r = ردّ الخصم (للغز الحركتين)
