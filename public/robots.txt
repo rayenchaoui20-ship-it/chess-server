@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://chess-relay-server-y321.onrender.com/sitemap.xml
