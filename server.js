@@ -133,10 +133,10 @@ function eloUpdate(room, result) {
 const other = (c) => (c === 'w' ? 'b' : 'w');
 
 function cleanName(v) {
-    return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>‎‏‪-‮]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+    return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>\u200e\u200f\u202a-\u202e]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
 }
 function cleanChat(v) {
-    return String(v).replace(/[\u0000-\u001f\u007f‪-‮]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_CHAT_LENGTH);
+    return String(v).replace(/[\u0000-\u001f\u007f\u202a-\u202e]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_CHAT_LENGTH);
 }
 function makeRoomId() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
