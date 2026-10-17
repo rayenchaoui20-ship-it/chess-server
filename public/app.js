@@ -10,7 +10,7 @@
     };
     const CAT_NAMES = { bullet: 'بوليت', blitz: 'بليتز', rapid: 'رابيد' };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'game-screen'];
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'puzzle-screen', 'game-screen'];
     const REASONS = {
         checkmate: 'كش مات', timeout: 'انتهى الوقت', resign: 'استسلام', abandoned: 'غادر الخصم المباراة',
         stalemate: 'جمود (Stalemate)', insufficient: 'عدم كفاية القطع', repetition: 'تكرار الوضعية',
@@ -337,6 +337,16 @@
             socket.emit('chat', { message: msg });
             $('#chat-input').val('');
         },
+        showPuzzles() { show('puzzle-screen'); pzNext(false); },
+        pzLevel(el) {
+            pzLevelN = Number(el.dataset.n);
+            $('#pz-levels button').each(function () { $(this).attr('aria-pressed', String(Number($(this).data('n')) === pzLevelN)); });
+            pzNext(false);
+        },
+        pzNext() { pzNext(true); },
+        pzRetry() { if (pzCur) pzStart(pzCur); },
+        pzHint() { pzHint(); },
+        pzSolution() { pzSolution(); },
         reload() { location.reload(); }
     };
 
@@ -468,7 +478,7 @@
             onSnapEnd: () => { clearLegal(); board.position(game.fen()); }
         });
     }
-    $(window).on('resize', () => { if (board) board.resize(); });
+    $(window).on('resize', () => { if (board) board.resize(); if (pzBoard) pzBoard.resize(); });
 
     function clearLegal() { $('#board .square-55d63').removeClass('legal-move legal-capture'); }
     function showLegal(source) {
@@ -931,6 +941,351 @@
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
+
+
+    // ───────────────────────── الألغاز (تعمل في المتصفح بلا سيرفر) ─────────────────────────
+    // f = وضعية البداية، n = كش مات في n حركات، s = الحركة الأولى الصحيحة، r = ردّ الخصم (للغز الحركتين)
+    const PUZZLES = [
+        {id:1,n:1,d:800,f:"1r2kbnr/p3pp1p/8/1ppBN3/6QN/2PP4/PP3P2/R1B1K2R w - - 0 1",s:"g4d7",r:""},
+        {id:2,n:1,d:812,f:"r3kbnr/pp1n1p1p/8/1Bp3p1/4P1Q1/1q5P/P2P1P1P/RN2K1NR w - - 0 1",s:"g4d7",r:""},
+        {id:3,n:1,d:824,f:"rnb2qn1/1p1p4/p1k1p3/2pN1p2/P1P2Q1p/R2P1K1P/1P2P1P1/5BNR w - - 0 1",s:"f4c7",r:""},
+        {id:4,n:1,d:836,f:"r1b1kb1r/1p4p1/4p3/p2pK2p/P1p2N1q/5PP1/RPPB3P/1N1Q1B1R b - - 0 1",s:"h4f6",r:""},
+        {id:5,n:1,d:848,f:"5NQ1/4p3/1P1k4/3pb3/3P4/8/2P2P1R/1N2K1N1 w - - 0 1",s:"g8e6",r:""},
+        {id:6,n:1,d:860,f:"1n3bnr/1p2Qpkp/r1p4p/8/1p1p4/3P3P/P1P2K1P/RN3B1R w - - 0 1",s:"h1g1",r:""},
+        {id:7,n:1,d:872,f:"r3kb1Q/3p3p/bppp2p1/8/8/3Pq3/P1P5/3K3n b - - 0 1",s:"h1f2",r:""},
+        {id:8,n:1,d:884,f:"1nb1k3/1ppp4/4p1p1/5p1r/5N2/2PP2q1/RP2P1P1/1N1Q1BK1 b - - 0 1",s:"g3e3",r:""},
+        {id:9,n:1,d:896,f:"r1bq1bnr/ppp1p2p/2B3Q1/3p2p1/6k1/2N4N/PPPP1PPP/R1B1K2R w - - 0 1",s:"g6g5",r:""},
+        {id:10,n:1,d:908,f:"6n1/5p2/1p1b3p/2p2p2/2P1pk1P/2Q5/P2P1K2/5R2 w - - 0 1",s:"c3g3",r:""},
+        {id:11,n:1,d:920,f:"1n2kbn1/p3ppp1/p7/8/1P6/5q2/P1P5/R5Kb b - - 0 1",s:"f3g2",r:""},
+        {id:12,n:1,d:932,f:"6k1/3ppr1p/2p3p1/P1P2P2/5P2/P2P4/4P2P/1qB1KBb1 b - - 0 1",s:"b1c1",r:""},
+        {id:13,n:1,d:944,f:"6k1/3ppr1p/2p5/P1P2p2/P4P2/3P4/4P2P/1qB1KBb1 b - - 0 1",s:"b1c1",r:""},
+        {id:14,n:1,d:956,f:"2r5/1Bpk1p2/5Bp1/4p2p/1p6/3P3b/P2K1PPP/R1QR4 w - - 0 1",s:"c1c6",r:""},
+        {id:15,n:1,d:968,f:"rnb1kbnr/p3pppp/3p4/8/1PQ5/P3P3/3P1PPP/RNB1K1NR w - - 0 1",s:"c4c8",r:""},
+        {id:16,n:1,d:980,f:"rnb1kb1r/3p1ppp/p1p5/4p3/P3Pq2/8/RPPP2Pn/1NBQK1NR b - - 0 1",s:"f4f1",r:""},
+        {id:17,n:1,d:992,f:"r5r1/p3p1bp/1pp4k/1R6/5N2/2PK4/PP6/R1B5 w - - 0 1",s:"b5h5",r:""},
+        {id:18,n:1,d:1004,f:"5kn1/5p2/p5r1/2p4K/3r4/P6P/2P1P3/6Nb b - - 0 1",s:"g8f6",r:""},
+        {id:19,n:1,d:1016,f:"6r1/p3n3/7p/3pk3/7P/5r2/P1PP4/7K b - - 0 1",s:"f3h3",r:""},
+        {id:20,n:1,d:1028,f:"3k2nr/1K5p/5np1/5Q2/5p1P/BPP2N2/3P2PR/8 w - - 0 1",s:"f5c8",r:""},
+        {id:21,n:1,d:1040,f:"4k1r1/R3p2p/2p2p2/6p1/1QP3b1/4PP2/1PP5/2B1KBN1 w - - 0 1",s:"b4e7",r:""},
+        {id:22,n:1,d:1052,f:"4k1r1/2R4p/2p2p2/6p1/1QP3b1/4PP2/1PP5/2B1KBN1 w - - 0 1",s:"b4e7",r:""},
+        {id:23,n:1,d:1064,f:"r2q1bnr/p3p3/np4p1/3p1P1k/3pP3/5K2/PPP4P/1RBQ1BNR w - - 0 1",s:"f3g3",r:""},
+        {id:24,n:1,d:1076,f:"4k1r1/2pb3p/p3B2n/2P5/P1P1pP1P/2N5/1r5R/3K4 b - - 0 1",s:"g8g1",r:""},
+        {id:25,n:1,d:1088,f:"N1b1kbr1/p3pppp/p7/7n/1P6/4K2P/P1P2PP1/1RBQ2NR w - - 0 1",s:"a8c7",r:""},
+        {id:26,n:2,d:1250,f:"rn4nr/7p/6p1/p3p3/P2kP3/1P3P1P/5K1P/2R5 w - - 0 1",s:"f2e2",r:"g6g5"},
+        {id:27,n:2,d:1265,f:"1r6/ppp1pp2/P7/5b2/7b/1P1k4/7P/5K2 b - - 0 1",s:"b8g8",r:"h2h3"},
+        {id:28,n:2,d:1280,f:"1r6/pp2pp2/P1p5/5b2/7b/1P1k3P/8/5K2 b - - 0 1",s:"b8g8",r:"b3b4"},
+        {id:29,n:2,d:1295,f:"1r1qkb1r/pppb3p/4pn1p/8/2P5/7P/PP2PPP1/RN1K1B1R b - - 0 1",s:"d7a4",r:"d1e1"},
+        {id:30,n:2,d:1310,f:"1n6/rp5p/p5k1/2p2bqp/2P1n3/P4K1p/3P3P/8 b - - 0 1",s:"g5d2",r:"a3a4"},
+        {id:31,n:2,d:1325,f:"1n6/rp5p/p5k1/2p2b1p/2P1nK2/P6p/3P2qP/8 b - - 0 1",s:"g2d2",r:"f4f3"},
+        {id:32,n:2,d:1340,f:"1nbqkb2/2pp4/4p3/1P3p2/5Pn1/3P1B2/3BP2P/rN1QK2R b - - 0 1",s:"d8h4",r:"e1f1"},
+        {id:33,n:2,d:1355,f:"r7/2p1k3/pp1p4/4p3/3P4/P1P1P3/r7/4K3 b - - 0 1",s:"a8h8",r:"e1f1"},
+        {id:34,n:2,d:1370,f:"r7/2p1k3/pp1p4/8/3P4/P3P3/r7/4K3 b - - 0 1",s:"a8h8",r:"e1f1"},
+        {id:35,n:2,d:1385,f:"1nbqkbnr/2ppp1p1/1p5p/pN6/5P2/8/PPPP3P/R1BQK2R w - - 0 1",s:"d1h5",r:"g7g6"},
+        {id:36,n:2,d:1400,f:"rn5r/p1k4N/4ppp1/2p5/1P2P1P1/8/4PP1P/1qBK1BR1 b - - 0 1",s:"h8d8",r:"d1e1"},
+        {id:37,n:2,d:1415,f:"1Q6/3p4/2p1p3/1p6/1P2k2p/2P3PN/5P2/3K1B2 w - - 0 1",s:"b8f4",r:"e4d5"},
+        {id:38,n:2,d:1430,f:"r2q1b1r/4Rp1p/b2k4/p2p2p1/P5n1/8/1PPP1PPP/2B1K1NR b - - 0 1",s:"d8e7",r:"e1d1"},
+        {id:39,n:2,d:1445,f:"r6B/1p5p/4k3/pqp5/2P2p2/5P1b/P2P1K2/1N6 b - - 0 1",s:"b5b1",r:"a2a3"},
+        {id:40,n:2,d:1460,f:"1nbqk1r1/3p1pp1/1p6/2b1p2p/N5P1/5P2/P2BK2P/R2Q1BNR b - - 0 1",s:"c8a6",r:"e2e1"},
+        {id:41,n:2,d:1475,f:"1n2k2r/3ppp1p/7b/1p6/r5P1/3P3N/2PBP1RP/3K4 b - - 0 1",s:"a4a1",r:"d2c1"},
+        {id:42,n:2,d:1490,f:"rn1r4/ppk2p1p/4P3/P1p3p1/5b2/5P2/RPP1P1B1/4K3 b - - 0 1",s:"f4g3",r:"e1f1"},
+        {id:43,n:2,d:1505,f:"1n1bk1n1/rp3N1R/p7/2pPpb2/1P6/8/P2PPPP1/RNB1KB2 w - - 0 1",s:"f7d6",r:"e8f8"},
+        {id:44,n:2,d:1520,f:"1rbqk1nr/p1p1p3/2np4/1p4K1/P6p/5P2/1PPPP1PP/RNBQ1B1R b - - 0 1",s:"e7e5",r:"g5g6"},
+        {id:45,n:2,d:1535,f:"1rbqk1nr/p1p1p3/2np4/6K1/R6p/5P2/1PPPP1PP/1NBQ1B1R b - - 0 1",s:"e7e5",r:"g5g6"},
+        {id:46,n:2,d:1550,f:"7Q/p1p3pR/5k2/3p4/4Pp2/P1P2K2/P3P1P1/2B2BN1 w - - 0 1",s:"h8g7",r:"f6e6"},
+        {id:47,n:3,d:1000,f:"r1b1kbnr/p3pppp/1ppp1n2/1Q6/2P4P/P4P1R/1P1PPKP1/RNB2BN1 b - - 0 1",s:"c6b5",r:"c4b5",l:"c8h3",o:"c6b5"},
+        {id:48,n:3,d:1022,f:"rn2kbn1/ppp2ppr/8/4p3/P3P1b1/R1N3P1/1PPPQ3/2B1KBN1 b - - 0 1",s:"g4e2",r:"e1e2",l:"f8a3",o:"g4e2"},
+        {id:49,n:3,d:1044,f:"r2q1bn1/ppk1pppr/7p/1B1p4/1P1p1P2/4P2P/P3K2P/RNBQ3R w - - 0 1",s:"d1c2",r:"c7b8",l:"c2h7",o:"d1c2"},
+        {id:50,n:3,d:1066,f:"r2qkb1r/1p2p3/p1p2p2/3p4/1P4n1/3KP3/P1PP3P/RNB1N2R b - - 0 1",s:"g4f2",r:"d3d4",l:"f2h1",o:"g4f2"},
+        {id:51,n:3,d:1088,f:"rn3b2/ppN1nkpr/8/4pP2/P5b1/R5P1/1PPPQ3/2B1KBN1 b - - 0 1",s:"g4e2",r:"f1e2",l:"e7f5",o:"g4e2"},
+        {id:52,n:3,d:1110,f:"2rq1R2/3k4/4p3/pppp2p1/8/2P1K2B/P7/RN4N1 w - - 0 1",s:"f8d8",r:"c8d8",l:"b1d2",o:"f8d8"},
+        {id:53,n:3,d:1132,f:"1n1k2nr/1b1p2b1/6pp/4p3/1p2r3/3P1K2/5PPP/8 w - - 0 1",s:"d3e4",r:"g8f6",l:"g2g3",o:"d3e4"},
+        {id:54,n:3,d:1154,f:"1r1qkbnr/ppp1p3/6p1/3p4/1n3P2/2PPB2P/P6P/RN2KBNR b - - 0 1",s:"b4c2",r:"e1e2",l:"c2a1",o:"b4c2"},
+        {id:55,n:3,d:1176,f:"rnb1k2r/1p1pb3/p3pn1p/2p2Rp1/P1P1P3/6PP/1P1B4/RN1NKB2 b - - 0 1",s:"e6f5",r:"e4f5",l:"g5g4",o:"e6f5"},
+        {id:56,n:3,d:1198,f:"5k2/1p4pR/2ppp2p/5p2/QP3P2/1P1PK3/4PNPP/1NB2BR1 b - - 0 1",s:"f8g8",r:"f2e4",l:"g8h7",o:"f8g8"},
+        {id:57,n:3,d:1220,f:"r2q1bnr/Rpp1p1p1/3k3p/5p2/7P/1b1BP3/1PPPKPP1/1NB3NR w - - 0 1",s:"a7a8",r:"d8a8",l:"c2b3",o:"a7a8"},
+        {id:58,n:3,d:1242,f:"1nbq1b1B/7p/1p2p3/p1pB4/P1P2k1n/1P5P/3PPP2/RN1QK1NR b - - 0 1",s:"e6d5",r:"a1a2",l:"f4f5",o:"e6d5"},
+        {id:59,n:3,d:1264,f:"1nk2bnr/2p1pp1p/r2p4/p5p1/8/P1P2PqP/1P1PP3/RNBK1BNR b - - 0 1",s:"g3f2",r:"a1a2",l:"f2f1",o:"g3f2"},
+        {id:60,n:3,d:1286,f:"1nb1nb1r/4p2p/3pk3/1p4p1/5Q2/B1PP1P1P/2P1P1P1/4KBNR w - - 0 1",s:"f4g4",r:"e6e5",l:"g4c8",o:"f4g4"},
+        {id:61,n:3,d:1308,f:"1nk2bnr/2p1pp1p/r2p4/p5p1/q7/P1P2P1P/1P1PP1P1/RNB1KBNR b - - 0 1",s:"a4c2",r:"a1a2",l:"c2c1",o:"a4c2"},
+        {id:62,n:3,d:1330,f:"r4b1r/1p1kp3/p1p2p2/8/3KPN2/8/P6P/RN6 b - - 0 1",s:"e7e5",r:"d4d3",l:"e5f4",o:"e7e5"},
+        {id:63,n:3,d:1352,f:"rn2k2r/2p2ppp/p7/3P4/6n1/N3PN1b/PPPK1P1P/R3B2R b - - 0 1",s:"h3g2",r:"h1g1",l:"g2f3",o:"h3g2"},
+        {id:64,n:3,d:1374,f:"r2qkbnr/pp2pp1p/3pb2p/2pn4/2P5/PP3P2/4P1PP/RN1QKBNR w - - 0 1",s:"c4d5",r:"e6d7",l:"a1a2",o:"c4d5"},
+        {id:65,n:3,d:1396,f:"rn3k2/3p4/b1p3p1/pP2Pp2/4p3/PP2P1P1/4BKR1/4R1N1 w - - 0 1",s:"b5a6",r:"b8a6",l:"e1f1",o:"b5a6"},
+        {id:66,n:3,d:1418,f:"rnb1k1nr/pp1pbp2/7p/2p1P3/6QP/1P1PP3/2PK2B1/4R3 w - - 0 1",s:"g4g7",r:"e7h4",l:"g7h8",o:"g4g7"},
+        {id:67,n:3,d:1440,f:"r3kbr1/p1p1p1p1/n7/5p1p/4P1bP/PPP3P1/3N1P2/R1B1K1NR w - - 0 1",s:"f2f3",r:"g4f3",l:"g1f3",o:"f2f3"},
+        {id:68,n:3,d:1462,f:"rnbqk3/pppp1p2/6p1/3n3r/2P1pP2/BP2P3/P2P2PP/R3KBNR w - - 0 1",s:"c4d5",r:"h5d5",l:"a1b1",o:"c4d5"}
+    ];
+
+    let pzBoard = null;
+    let pzGame = null;
+    let pzCur = null;
+    let pzSide = 'w';
+    let pzStep = 0;
+    let pzBusy = false;
+    let pzDone = false;
+    let pzHelped = false;
+    let pzMistakes = 0;
+    let pzLevelN = 0;
+    let pzSel = null;
+    let pzTapSq = null;
+    let pzTapAt = 0;
+    let pzMsgTimer = null;
+    let pzSolved = new Set();
+    let pzStreak = Number(lsGet('chess-pz-streak')) || 0;
+    let pzRating = Number(lsGet('chess-pz-rating')) || 1000;
+    let pzRated = new Set();
+    let pzRun = 0;
+    try { pzRated = new Set(JSON.parse(lsGet('chess-pz-rated') || '[]')); } catch (e) { pzRated = new Set(); }
+    try { pzSolved = new Set(JSON.parse(lsGet('chess-pz-solved') || '[]')); } catch (e) { pzSolved = new Set(); }
+
+    function pzSave() {
+        lsSet('chess-pz-solved', JSON.stringify([...pzSolved]));
+        lsSet('chess-pz-streak', String(pzStreak));
+    }
+    // تصنيف الألغاز (محلي في متصفحك): يتغير مرة واحدة عند أول إنهاء لكل لغز
+    function pzApplyRating(score) {
+        if (!pzCur || pzRated.has(pzCur.id)) return '';
+        pzRated.add(pzCur.id);
+        const e = 1 / (1 + Math.pow(10, ((pzCur.d || 1000) - pzRating) / 400));
+        const delta = Math.round(24 * (score - e));
+        pzRating = Math.max(100, pzRating + delta);
+        lsSet('chess-pz-rating', String(pzRating));
+        lsSet('chess-pz-rated', JSON.stringify([...pzRated]));
+        return ' (' + (delta >= 0 ? '+' : '') + delta + ' تصنيف)';
+    }
+    function pzPool() { return PUZZLES.filter((p) => !pzLevelN || p.n === pzLevelN); }
+    function pzStats() {
+        const pool = pzPool();
+        const done = pool.filter((p) => pzSolved.has(p.id)).length;
+        $('#pz-stats').text('تصنيف الألغاز: ' + pzRating + ' · حللت ' + done + ' من ' + pool.length + ' · سلسلة متتالية: ' + pzStreak);
+    }
+    function pzSetText(text, tone, temp) {
+        clearTimeout(pzMsgTimer);
+        $('#pz-text').text(text);
+        $('#pz-card').attr('data-tone', tone || '');
+        if (temp) pzMsgTimer = setTimeout(pzPrompt, 2200);
+    }
+    function pzPrompt() {
+        if (!pzCur || pzDone) return;
+        const who = pzSide === 'w' ? 'الأبيض' : 'الأسود';
+        pzSetText(pzCur.n === 3 ? who + ' يلعب ويكسب مادة (ابحث عن أقوى حركة)'
+            : pzStep === 0
+            ? who + ' يلعب ويُكش مات في ' + (pzCur.n === 1 ? 'حركة واحدة' : 'حركتين')
+            : 'أحسنت! والآن أنهِ المباراة بكش مات.', 'mine');
+    }
+
+    // اللغز التالي: أول لغز لم يُحل بعد (من الأسهل إلى الأصعب)
+    function pzNext(advance) {
+        const pool = pzPool();
+        if (!pool.length) return;
+        let list = pool.filter((p) => !pzSolved.has(p.id));
+        if (!list.length) {
+            list = pool;
+            pzSetText('أنهيت كل ألغاز هذا النوع! سنعيدها من البداية.', 'draw');
+        }
+        // عند الضغط على «التالي» نتخطى اللغز الحالي إن لم يُحل
+        let next = list[0];
+        if (advance && pzCur && list.length > 1 && list[0].id === pzCur.id) next = list[1];
+        pzStart(next);
+    }
+
+    function pzStart(p) {
+        pzCur = p;
+        pzRun++;
+        pzGame = new Chess(p.f);
+        pzSide = pzGame.turn();
+        pzStep = 0;
+        pzBusy = false;
+        pzDone = false;
+        pzHelped = false;
+        pzMistakes = 0;
+        pzClear();
+        // تحقق احتياطي: إن لم تكن الحركة الأولى قانونية نتخطى اللغز
+        const legal = pzGame.moves({ verbose: true }).some((m) => m.from + m.to === p.s.slice(0, 4));
+        if (!legal) { pzSolved.add(p.id); return pzNext(true); }
+        if (pzBoard) pzBoard.destroy();
+        pzBoard = Chessboard('pboard', {
+            draggable: true,
+            position: p.f,
+            orientation: pzSide === 'b' ? 'black' : 'white',
+            pieceTheme: PIECE_THEME,
+            onDragStart: (source, piece) => {
+                if (!pzCanMove() || piece.charAt(0) !== pzSide) return false;
+                pzShowLegal(source);
+            },
+            onDrop: (source, target) => {
+                pzClearMarks();
+                if (source === target) { pzTap(source); return 'snapback'; }
+                return pzTryMove(source, target) ? undefined : 'snapback';
+            },
+            onSnapEnd: () => { pzClearMarks(); pzBoard.position(pzGame.fen()); }
+        });
+        $('#pz-meta').text('اللغز ' + p.id + ' من ' + PUZZLES.length + ' · ' + (p.n === 1 ? 'كش مات في حركة' : p.n === 2 ? 'كش مات في حركتين' : 'تكتيك: اكسب مادة') + ' · صعوبة ' + (p.d || ''));
+        $('#pz-hint').prop('disabled', false);
+        pzPrompt();
+        pzStats();
+    }
+
+    function pzCanMove() { return !!pzCur && !pzDone && !pzBusy && pzGame.turn() === pzSide; }
+    function pzClearMarks() { $('#pboard .square-55d63').removeClass('legal-move legal-capture selected-sq hint-sq'); }
+    function pzClear() { pzSel = null; if ($('#pboard').length) pzClearMarks(); }
+    function pzShowLegal(sq) {
+        pzClearMarks();
+        pzSel = sq;
+        $('#pboard .square-' + sq).addClass('selected-sq');
+        pzGame.moves({ square: sq, verbose: true }).forEach((m) => {
+            $('#pboard .square-' + m.to).addClass(m.captured ? 'legal-capture' : 'legal-move');
+        });
+    }
+    function pzTap(sq) {
+        const now = Date.now();
+        if (sq === pzTapSq && now - pzTapAt < 400) return;
+        pzTapSq = sq;
+        pzTapAt = now;
+        if (!pzCanMove()) { pzClear(); return; }
+        if (pzSel && pzSel !== sq) {
+            const from = pzSel;
+            pzClear();
+            if (pzTryMove(from, sq)) { pzBoard.position(pzGame.fen()); return; }
+        }
+        const piece = pzGame.get(sq);
+        if (piece && piece.color === pzSide) { if (pzSel === sq) pzClear(); else pzShowLegal(sq); }
+        else pzClear();
+    }
+    $('#pboard').on('click', '.square-55d63', function () { pzTap($(this).attr('data-square')); });
+
+    // يجرّب حركة اللاعب. true = حركة صحيحة (طُبّقت)، false = خاطئة أو غير قانونية (أُلغيت)
+    function pzTryMove(from, to) {
+        if (!pzCanMove()) return false;
+        const mv = pzGame.move({ from, to, promotion: 'q' });
+        if (!mv) return false;
+        const tactic = pzCur.n === 3;
+        const finalMove = !tactic && (pzCur.n === 1 || pzStep === 1);
+        const correct = tactic ? (pzCur.o || pzCur.s.slice(0, 4)).split(' ').indexOf(from + to) !== -1
+            : (finalMove ? pzGame.in_checkmate() : (from + to === pzCur.s.slice(0, 4)));
+        if (!correct) {
+            pzGame.undo();
+            pzMistakes++;
+            playSound('check');
+            pzSetText(tactic ? 'ليست أقوى حركة، ابحث عن طريقة لكسب مادة.' : finalMove ? 'ليست كش مات، حاول مرة أخرى.' : 'ليست الحركة الصحيحة، حاول مرة أخرى.', 'check', true);
+            return false;
+        }
+        playSound(mv.captured ? 'capture' : 'move');
+        if (tactic) { pzTactic(from + to); return true; }
+        if (finalMove) { pzFinish(); return true; }
+        // حركة أولى صحيحة: يردّ الخصم ثم يكمل اللاعب
+        pzStep = 1;
+        pzBusy = true;
+        const run = pzRun;
+        pzSetText('حركة صحيحة! الخصم يرد...', 'mine');
+        setTimeout(() => {
+            if (run !== pzRun) return;
+            const replies = pzGame.moves({ verbose: true });
+            const rep = replies.find((m) => m.from + m.to === (pzCur.r || '').slice(0, 4)) || replies[0];
+            if (rep) {
+                const rm = pzGame.move({ from: rep.from, to: rep.to, promotion: 'q' });
+                playSound(rm && rm.captured ? 'capture' : 'move');
+                pzBoard.position(pzGame.fen());
+            }
+            pzBusy = false;
+            pzPrompt();
+        }, 600);
+        return true;
+    }
+
+    // لغز تكتيكي: بعد الحركة الصحيحة نعرض بقية الخط المتوقع
+    function pzTactic(played) {
+        if (played !== pzCur.s.slice(0, 4) || !pzCur.r) { pzFinish(); return; }
+        const run = pzRun;
+        pzBusy = true;
+        pzSetText('حركة قوية! لنرَ كيف تستمر الخطة...', 'mine');
+        const step = (uci, next) => setTimeout(() => {
+            if (run !== pzRun) return;
+            const m = pzGame.moves({ verbose: true }).find((x) => x.from + x.to === uci.slice(0, 4));
+            if (m) {
+                const r = pzGame.move({ from: m.from, to: m.to, promotion: 'q' });
+                playSound(r && r.captured ? 'capture' : 'move');
+                pzBoard.position(pzGame.fen());
+            }
+            next();
+        }, 650);
+        step(pzCur.r, () => step(pzCur.l || '', () => { pzBusy = false; pzFinish(); }));
+    }
+
+    function pzFinish() {
+        pzDone = true;
+        pzClear();
+        playSound('end');
+        let delta = '';
+        if (!pzHelped) {
+            pzSolved.add(pzCur.id);
+            pzStreak = pzMistakes === 0 ? pzStreak + 1 : 0;
+            delta = pzApplyRating(pzMistakes === 0 ? 1 : 0.4);
+        } else {
+            pzStreak = 0;
+            delta = pzApplyRating(0.2);
+        }
+        pzSave();
+        pzStats();
+        const what = pzCur.n === 3 ? 'كسبت مادة!' : 'كش مات!';
+        const msg = pzHelped ? what + ' (بمساعدة التلميح، لن يُحتسب لغزًا محلولًا)' + delta
+            : pzMistakes === 0 ? 'ممتاز! ' + what + ' من أول محاولة.' + delta : what + ' أحسنت.' + delta;
+        pzSetText(msg, 'win');
+    }
+
+    // أول حركة تعطي كش مات من الوضعية الحالية
+    function pzFindMate() {
+        const g = new Chess(pzGame.fen());
+        const ms = g.moves({ verbose: true });
+        for (const m of ms) {
+            g.move({ from: m.from, to: m.to, promotion: m.promotion });
+            const mate = g.in_checkmate();
+            g.undo();
+            if (mate) return m;
+        }
+        return null;
+    }
+
+    function pzHint() {
+        if (!pzCanMove()) return;
+        pzHelped = true;
+        pzClear();
+        let from = null;
+        if (pzCur.n === 3) from = pzCur.s.slice(0, 2);
+        else if (pzCur.n === 1 || pzStep === 1) { const m = pzFindMate(); from = m && m.from; }
+        else from = pzCur.s.slice(0, 2);
+        if (from) $('#pboard .square-' + from).addClass('hint-sq');
+        pzSetText('القطعة المضيئة بالأخضر هي التي يجب تحريكها.', 'mine');
+    }
+
+    function pzSolution() {
+        if (!pzCur || pzDone || pzBusy) return;
+        pzHelped = true;
+        const g = new Chess(pzGame.fen());
+        const san = [];
+        const play = (m) => { const r = g.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' }); if (r) san.push(r.san); return r; };
+        const pick = (uci) => g.moves({ verbose: true }).find((m) => m.from + m.to === uci.slice(0, 4));
+        if (pzCur.n === 3) {
+            [pzCur.s, pzCur.r, pzCur.l].forEach((u) => { const m = u && pick(u); if (m) play(m); });
+        } else if (pzCur.n === 1 || pzStep === 1) {
+            const m = (function () { for (const x of g.moves({ verbose: true })) { g.move({ from: x.from, to: x.to, promotion: x.promotion }); const ok = g.in_checkmate(); g.undo(); if (ok) return x; } return null; })();
+            if (m) play(m);
+        } else {
+            const m1 = pick(pzCur.s);
+            if (m1) play(m1);
+            const rep = pick(pzCur.r) || g.moves({ verbose: true })[0];
+            if (rep) play(rep);
+            const m2 = (function () { for (const x of g.moves({ verbose: true })) { g.move({ from: x.from, to: x.to, promotion: x.promotion }); const ok = g.in_checkmate(); g.undo(); if (ok) return x; } return null; })();
+            if (m2) play(m2);
+        }
+        pzDone = true;
+        pzStreak = 0;
+        const delta = pzApplyRating(0);
+        pzSave();
+        pzStats();
+        pzClear();
+        pzSetText('الحل: ' + san.join('  ') + delta, 'draw');
     }
 
     // تحذير قبل إغلاق الصفحة أثناء مباراة جارية
