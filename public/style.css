@@ -280,3 +280,18 @@ body[data-theme="slate"] { --sq-light: #DDE1E6; --sq-dark: #6F7C8C; }
 .actions .full { grid-column: 1 / -1; }
 
 button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ═════════ الألغاز ═════════ */
+#pboard { width: 100%; direction: ltr; }
+#pboard .board-b72b1 { border: 0; }
+#pboard .white-1e1d7 { background-color: var(--sq-light); color: var(--sq-dark); }
+#pboard .black-3c85d { background-color: var(--sq-dark); color: var(--sq-light); }
+#pboard .highlight-last { box-shadow: inset 0 0 0 100px rgba(226, 177, 75, .55); }
+#pboard .legal-move { background-image: radial-gradient(circle, rgba(11, 19, 36, .38) 0, rgba(11, 19, 36, .38) 18%, transparent 20%); }
+#pboard .legal-capture { background-image: radial-gradient(circle, transparent 0, transparent 60%, rgba(11, 19, 36, .38) 62%, rgba(11, 19, 36, .38) 80%, transparent 82%); }
+#pboard .selected-sq { box-shadow: inset 0 0 0 4px var(--gold); }
+#pboard .square-55d63 { cursor: pointer; }
+#pboard .square-55d63.legal-move, #pboard .square-55d63.legal-capture { position: relative; }
+#pboard .hint-sq { box-shadow: inset 0 0 0 4px var(--win); }
+.status-card[data-tone="draw"] { border-inline-start-color: var(--gold); }
+#pz-levels { grid-template-columns: repeat(2, 1fr); }
