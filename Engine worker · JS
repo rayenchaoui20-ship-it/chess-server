@@ -1,9 +1,0 @@
-'use strict';
-const { parentPort, workerData } = require('worker_threads');
-const { pickMove } = require('./engine');
-
-try {
-    parentPort.postMessage({ move: pickMove(workerData.fen, workerData.level, workerData.timeMs) });
-} catch (e) {
-    parentPort.postMessage({ move: null, error: String(e && e.message) });
-}
