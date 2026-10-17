@@ -49,21 +49,37 @@ const queues = {};                  // tcId -> [{ token, rating, since }]
 Object.keys(TIME_CONTROLS).forEach((id) => { queues[id] = []; });
 
 // ───────────────────────── قاعدة اللاعبين (ملف JSON) ─────────────────────────
-let db = { players: {} };
+let db = { players: {}, users: {} };
 let dirty = false;
 let saveTimer = null;
+let mongoColl = null;
 
-function loadDb() {
-    try {
-        db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-        if (!db || typeof db.players !== 'object') db = { players: {} };
-    } catch (e) {
-        db = { players: {} };
+async function loadDb() {
+    // تخزين دائم اختياري: اضبط MONGODB_URI (مثلًا من MongoDB Atlas المجاني)
+    if (process.env.MONGODB_URI) {
+        try {
+            const { MongoClient } = require('mongodb');
+            const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
+            await client.connect();
+            mongoColl = client.db(process.env.MONGODB_DB || 'chess').collection('state');
+            const doc = await mongoColl.findOne({ _id: 'db' });
+            if (doc && doc.json) db = JSON.parse(doc.json);
+            console.log('Storage: MongoDB');
+        } catch (e) {
+            console.error('MongoDB unavailable, falling back to file storage:', e.message);
+            mongoColl = null;
+        }
     }
-    // تنظيف الحسابات الفارغة القديمة
+    if (!mongoColl) {
+        try { db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { db = { players: {}, users: {} }; }
+        console.log('Storage: file ' + DB_FILE);
+    }
+    if (!db || typeof db.players !== 'object') db = { players: {}, users: {} };
+    if (!db.users || typeof db.users !== 'object') db.users = {};
+    // تنظيف حسابات الضيوف الفارغة القديمة (الحسابات المسجلة لا تُحذف أبدًا)
     const cutoff = Date.now() - 14 * 86400000;
     for (const [t, p] of Object.entries(db.players)) {
-        if (!p.games && (p.last || 0) < cutoff) delete db.players[t];
+        if (!p.games && !p.user && (p.last || 0) < cutoff) delete db.players[t];
     }
 }
 function saveSoon() {
@@ -71,13 +87,19 @@ function saveSoon() {
     if (saveTimer) return;
     saveTimer = setTimeout(() => { saveTimer = null; flushDb(); }, 2000);
 }
-function flushDb() {
+async function flushDb() {
     if (!dirty) return;
     dirty = false;
+    const json = JSON.stringify(db);
+    if (mongoColl) {
+        try { await mongoColl.updateOne({ _id: 'db' }, { $set: { json } }, { upsert: true }); }
+        catch (e) { dirty = true; console.error('DB save error:', e.message); }
+        return;
+    }
     try {
         fs.mkdirSync(DATA_DIR, { recursive: true });
         const tmp = DB_FILE + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(db));
+        fs.writeFileSync(tmp, json);
         fs.renameSync(tmp, DB_FILE);
     } catch (e) {
         console.error('DB save error:', e.message);
@@ -531,6 +553,7 @@ function onDisconnect(socket) {
     if (!l || l.socketId !== socket.id) return;     // استُبدل باتصال أحدث
     removeFromQueues(token);
     l.socketId = null;
+    pushToFriends(token);
 
     const room = rooms.get(l.roomId);
     const spec = rooms.get(l.specId);
@@ -634,6 +657,138 @@ app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online
 app.get('/api/leaderboard', (req, res) => res.json({ cat: req.query.cat, rows: leaderboard(String(req.query.cat || 'blitz')) }));
 
 // ───────────────────────── Socket.IO ─────────────────────────
+// ───────────────────────── الحسابات والأصدقاء ─────────────────────────
+const scryptAsync = (pw, salt) => new Promise((res, rej) => {
+    crypto.scrypt(pw, salt, 32, { N: 16384, r: 8, p: 1 }, (e, k) => (e ? rej(e) : res(k)));
+});
+async function hashPassword(pw) {
+    const salt = crypto.randomBytes(16);
+    const key = await scryptAsync(pw, salt);
+    return { s: salt.toString('hex'), h: key.toString('hex') };
+}
+async function verifyPassword(pw, rec) {
+    const key = await scryptAsync(pw, Buffer.from(rec.s, 'hex'));
+    const want = Buffer.from(rec.h, 'hex');
+    return key.length === want.length && crypto.timingSafeEqual(key, want);
+}
+function cleanUser(v) {
+    return String(v == null ? '' : v).normalize('NFC').replace(/[^\w\u0600-\u06FF]/g, '').slice(0, 20);
+}
+function validateCreds(u, pw) {
+    if (u.length < 3) return 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل (حروف وأرقام و _ فقط).';
+    if (typeof pw !== 'string' || pw.length < 6) return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
+    if (pw.length > 100) return 'كلمة المرور طويلة جدًا.';
+    return null;
+}
+const loginFails = new Map();           // مفتاح -> { n, until }
+function tooManyFails(key) {
+    const f = loginFails.get(key);
+    if (!f) return false;
+    if (Date.now() > f.until) { loginFails.delete(key); return false; }
+    return f.n >= 6;
+}
+function addFail(key) {
+    const f = loginFails.get(key);
+    if (!f || Date.now() > f.until) loginFails.set(key, { n: 1, until: Date.now() + 10 * 60000 });
+    else f.n++;
+}
+const uname = (t) => (db.players[t] && db.players[t].user) || null;
+function ensureSocial(rec) {
+    rec.friends = rec.friends || [];
+    rec.reqIn = rec.reqIn || [];
+    rec.reqOut = rec.reqOut || [];
+}
+function statusOf(t) {
+    const l = live.get(t);
+    if (!l || !l.socketId) return 'offline';
+    const room = rooms.get(l.roomId);
+    if (room && room.matched && !room.over) return 'playing';
+    for (const id of Object.keys(queues)) if (queues[id].some((e) => e.token === t)) return 'searching';
+    return 'online';
+}
+function friendsPayload(token) {
+    const rec = db.players[token];
+    ensureSocial(rec);
+    return {
+        friends: rec.friends.filter(uname).map((t) => ({ username: uname(t), status: statusOf(t), rating: ratingOf(t, 'blitz') })),
+        incoming: rec.reqIn.map(uname).filter(Boolean),
+        outgoing: rec.reqOut.map(uname).filter(Boolean)
+    };
+}
+function pushFriends(token) {
+    const rec = db.players[token];
+    const l = live.get(token);
+    if (rec && rec.user && l && l.socketId) io.to(l.socketId).emit('friends', friendsPayload(token));
+}
+function pushToFriends(token) {
+    const rec = db.players[token];
+    if (rec && rec.user && rec.friends) rec.friends.forEach(pushFriends);
+}
+function unlink(a, b) {
+    [[a, b], [b, a]].forEach(([x, y]) => {
+        const r = db.players[x];
+        if (!r) return;
+        ensureSocial(r);
+        r.friends = r.friends.filter((t) => t !== y);
+        r.reqIn = r.reqIn.filter((t) => t !== y);
+        r.reqOut = r.reqOut.filter((t) => t !== y);
+    });
+}
+function link(a, b) {
+    unlink(a, b);
+    db.players[a].friends.push(b);
+    db.players[b].friends.push(a);
+}
+
+function sendWelcome(socket, token, rec) {
+    socket.emit('welcome', {
+        token, name: rec.name, user: rec.user || null,
+        ratings: publicRatings(token), online: io.engine.clientsCount
+    });
+}
+
+// يربط اتصالًا بسجل لاعب (وهو أيضًا ما يستأنف المباراة الجارية)
+function attach(socket, token, rec) {
+    const prev = live.get(token);
+    let entry;
+    if (prev) {
+        clearTimeout(prev.grace);
+        prev.grace = null;
+        if (prev.socketId && prev.socketId !== socket.id) {
+            const old = io.sockets.sockets.get(prev.socketId);
+            if (old) { old.data.token = null; old.emit('replaced'); old.disconnect(true); }
+        }
+        entry = prev;
+        entry.socketId = socket.id;
+    } else {
+        entry = { socketId: socket.id, roomId: null, color: null, specId: null, grace: null };
+        live.set(token, entry);
+    }
+    socket.data.token = token;
+    sendWelcome(socket, token, rec);
+    if (rec.user) { pushFriends(token); pushToFriends(token); }
+
+    const room = rooms.get(entry.roomId);
+    if (room && !room.closed) {
+        socket.join(room.id);
+        const color = entry.color;
+        room.disc[color] = null;
+        if (room.matched) {
+            socket.emit('game_start', gameStartPayload(room, color, true));
+            socket.emit('state', publicState(room));
+            if (room.drawOffer && room.drawOffer !== color) socket.emit('draw_offered');
+            emitPlayers(room, 'opp_reconnected');
+            broadcast(room);
+        } else {
+            socket.emit('room_created', { roomId: room.id, tc: room.tcId });
+        }
+    } else if (entry.roomId) {
+        entry.roomId = null;
+        entry.color = null;
+    }
+    if (!rooms.get(entry.specId)) entry.specId = null;
+}
+
 function playerCtx(socket) {
     const token = socket.data.token;
     if (!token) return null;
@@ -664,56 +819,17 @@ io.on('connection', (socket) => {
         data = data && typeof data === 'object' ? data : {};
         let token = typeof data.token === 'string' && TOKEN_RE.test(data.token) ? data.token : null;
         let rec = token ? db.players[token] : null;
+        let changed = false;
         if (!rec) {
             token = crypto.randomBytes(18).toString('base64url');
             rec = db.players[token] = newPlayer();
+            changed = true;
         }
         const nm_ = cleanName(data.name);
-        if (nm_) rec.name = nm_;
+        if (nm_ && !rec.user && rec.name !== nm_) { rec.name = nm_; changed = true; }
         rec.last = Date.now();
-        saveSoon();
-
-        // اتصال سابق لنفس اللاعب (تبويب آخر): يُستبدل
-        const prev = live.get(token);
-        let entry;
-        if (prev) {
-            clearTimeout(prev.grace);
-            prev.grace = null;
-            if (prev.socketId && prev.socketId !== socket.id) {
-                const old = io.sockets.sockets.get(prev.socketId);
-                if (old) { old.data.token = null; old.emit('replaced'); old.disconnect(true); }
-            }
-            entry = prev;
-            entry.socketId = socket.id;
-        } else {
-            entry = { socketId: socket.id, roomId: null, color: null, specId: null, grace: null };
-            live.set(token, entry);
-        }
-        socket.data.token = token;
-
-        socket.emit('welcome', { token, name: rec.name, ratings: publicRatings(token), tcs: TIME_CONTROLS, online: io.engine.clientsCount });
-
-        // استئناف مباراة جارية
-        const room = rooms.get(entry.roomId);
-        if (room && !room.closed) {
-            socket.join(room.id);
-            const color = entry.color;
-            room.disc[color] = null;
-            if (room.matched) {
-                socket.emit('game_start', gameStartPayload(room, color, true));
-                socket.emit('state', publicState(room));
-                if (room.drawOffer && room.drawOffer !== color) socket.emit('draw_offered');
-                emitPlayers(room, 'opp_reconnected');
-                broadcast(room);
-            } else {
-                socket.emit('room_created', { roomId: room.id, tc: room.tcId });
-            }
-        } else if (entry.roomId) {
-            entry.roomId = null;
-            entry.color = null;
-        }
-        const spec = rooms.get(entry.specId);
-        if (!spec) entry.specId = null;
+        if (changed) saveSoon();
+        attach(socket, token, rec);
     });
 
     socket.on('get_online', () => socket.emit('online', { online: io.engine.clientsCount, rooms: rooms.size }));
@@ -722,6 +838,7 @@ io.on('connection', (socket) => {
         const ctx = playerCtx(socket);
         if (!ctx) return;
         const n = cleanName(data && data.name);
+        if (db.players[ctx.token].user) return;      // اسم الحساب المسجل ثابت
         db.players[ctx.token].name = n;
         saveSoon();
     });
@@ -904,12 +1021,187 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ───── تسجيل الحساب والدخول ─────
+    socket.on('register', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        data = data && typeof data === 'object' ? data : {};
+        const token = ctx.token;
+        const rec = db.players[token];
+        if (rec.user) return socket.emit('auth_error', 'لديك حساب بالفعل.');
+        const u = cleanUser(data.username);
+        const pw = typeof data.password === 'string' ? data.password : '';
+        const err = validateCreds(u, pw);
+        if (err) return socket.emit('auth_error', err);
+        if (db.users[u.toLowerCase()]) return socket.emit('auth_error', 'اسم المستخدم مستخدم، اختر اسمًا آخر.');
+        let h;
+        try { h = await hashPassword(pw); } catch (e) { return socket.emit('auth_error', 'تعذّر إنشاء الحساب، حاول مرة أخرى.'); }
+        if (db.users[u.toLowerCase()]) return socket.emit('auth_error', 'اسم المستخدم مستخدم، اختر اسمًا آخر.');
+        if (!playerCtx(socket) || playerCtx(socket).token !== token) return;
+        rec.user = u;
+        rec.pass = h;
+        rec.name = u;
+        ensureSocial(rec);
+        db.users[u.toLowerCase()] = token;
+        saveSoon();
+        sendWelcome(socket, token, rec);
+        pushFriends(token);
+        socket.emit('auth_ok', { user: u });
+    });
+
+    socket.on('login', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        data = data && typeof data === 'object' ? data : {};
+        const u = cleanUser(data.username);
+        const pw = typeof data.password === 'string' ? data.password.slice(0, 100) : '';
+        const key = u.toLowerCase();
+        socket.data.fails = socket.data.fails || 0;
+        if (tooManyFails(key) || socket.data.fails >= 8) return socket.emit('auth_error', 'محاولات كثيرة، حاول بعد عشر دقائق.');
+        const token = db.users[key];
+        const rec = token && db.players[token];
+        let ok = false;
+        try { ok = !!(rec && rec.pass && await verifyPassword(pw, rec.pass)); } catch (e) { ok = false; }
+        if (!ok) {
+            addFail(key);
+            socket.data.fails++;
+            return socket.emit('auth_error', 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+        }
+        const cur = playerCtx(socket);
+        if (!cur) return;
+        socket.data.fails = 0;
+        loginFails.delete(key);
+        const old = cur.token;
+        if (old !== token) {
+            // نغادر مقعد الضيف الحالي ثم ننتقل إلى الحساب
+            removeFromQueues(old);
+            leaveRoom(old, true);
+            const lo = live.get(old);
+            if (lo) clearTimeout(lo.grace);
+            live.delete(old);
+            socket.data.token = null;
+        }
+        rec.last = Date.now();
+        attach(socket, token, rec);
+        socket.emit('auth_ok', { user: rec.user });
+    });
+
+    socket.on('logout', () => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const old = ctx.token;
+        removeFromQueues(old);
+        leaveRoom(old, true);
+        const lo = live.get(old);
+        if (lo) clearTimeout(lo.grace);
+        live.delete(old);
+        pushToFriends(old);
+        const token = crypto.randomBytes(18).toString('base64url');
+        const rec = db.players[token] = newPlayer();
+        saveSoon();
+        socket.data.token = null;
+        attach(socket, token, rec);
+        socket.emit('logged_out');
+    });
+
+    // ───── الأصدقاء ─────
+    function accountCtx() {
+        const ctx = playerCtx(socket);
+        if (!ctx) return null;
+        const rec = db.players[ctx.token];
+        if (!rec || !rec.user) { socket.emit('friend_error', 'سجّل الدخول أولًا لاستخدام قائمة الأصدقاء.'); return null; }
+        ensureSocial(rec);
+        return { ...ctx, rec };
+    }
+
+    socket.on('friends_get', () => {
+        const a = accountCtx();
+        if (a) pushFriends(a.token);
+    });
+
+    socket.on('friend_add', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target) return socket.emit('friend_error', 'لا يوجد مستخدم بهذا الاسم.');
+        if (target === a.token) return socket.emit('friend_error', 'لا يمكنك إضافة نفسك.');
+        const other_ = db.players[target];
+        ensureSocial(other_);
+        if (a.rec.friends.includes(target)) return socket.emit('friend_error', 'هو صديقك بالفعل.');
+        if (a.rec.reqOut.includes(target)) return socket.emit('friend_error', 'أرسلت له طلبًا بالفعل.');
+        if (a.rec.reqIn.includes(target)) {
+            link(a.token, target);                       // طلب متبادل: صداقة فورية
+            emitTo(target, 'notify', { text: a.rec.user + ' قبل طلب صداقتك.' });
+        } else {
+            if (other_.reqIn.length >= 100) return socket.emit('friend_error', 'لدى هذا المستخدم طلبات كثيرة معلّقة.');
+            a.rec.reqOut.push(target);
+            other_.reqIn.push(a.token);
+            emitTo(target, 'notify', { text: 'طلب صداقة جديد من ' + a.rec.user });
+        }
+        saveSoon();
+        pushFriends(a.token);
+        pushFriends(target);
+        socket.emit('friend_ok', 'تم إرسال الطلب.');
+    });
+
+    socket.on('friend_respond', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target || !a.rec.reqIn.includes(target)) return;
+        if (data.accept) {
+            link(a.token, target);
+            emitTo(target, 'notify', { text: a.rec.user + ' قبل طلب صداقتك.' });
+        } else {
+            unlink(a.token, target);
+        }
+        saveSoon();
+        pushFriends(a.token);
+        pushFriends(target);
+    });
+
+    socket.on('friend_remove', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target) return;
+        unlink(a.token, target);
+        saveSoon();
+        pushFriends(a.token);
+        pushFriends(target);
+    });
+
+    // دعوة صديق إلى مباراة ودّية
+    socket.on('friend_invite', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target || !a.rec.friends.includes(target)) return socket.emit('friend_error', 'هذا المستخدم ليس في قائمة أصدقائك.');
+        const st = statusOf(target);
+        if (st === 'offline') return socket.emit('friend_error', 'صديقك غير متصل الآن.');
+        if (st === 'playing') return socket.emit('friend_error', 'صديقك في مباراة الآن.');
+        const tcId = resolveTc(data) || DEFAULT_TC;
+        removeFromQueues(a.token);
+        leaveRoom(a.token, true);
+        const room = newRoom('multi', tcId);
+        seat(a.token, room, 'w');
+        socket.emit('room_created', { roomId: room.id, tc: tcId });
+        emitTo(target, 'invite', { from: a.rec.user, roomId: room.id, tc: tcId });
+    });
+
+    socket.on('invite_decline', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (target) emitTo(target, 'notify', { text: a.rec.user + ' رفض دعوتك.' });
+    });
+
     socket.on('disconnect', () => onDisconnect(socket));
 });
 
 // ───────────────────────── التشغيل والإيقاف ─────────────────────────
-function start(port) {
-    loadDb();
+async function start(port) {
+    await loadDb();
     return new Promise((resolve) => {
         server.listen(port === undefined ? PORT : port, () => {
             console.log(`Server running on port ${server.address().port}`);
@@ -919,11 +1211,11 @@ function start(port) {
 }
 
 function shutdown() {
-    flushDb();
+    const flushed = flushDb();
     clearInterval(matchTimer);
     clearInterval(sweepTimer);
     io.close();
-    server.close(() => process.exit(0));
+    server.close(() => Promise.resolve(flushed).finally(() => process.exit(0)));
     setTimeout(() => process.exit(0), 3000).unref();
 }
 
