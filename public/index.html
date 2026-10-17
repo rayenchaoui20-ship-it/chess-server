@@ -60,6 +60,10 @@
                     <span class="t">ادعُ صديقًا</span>
                     <span class="d">مباراة ودّية: أنشئ غرفة وأرسل الرابط لصديقك</span>
                 </button>
+                <button class="mode-row" data-action="showPuzzles">
+                    <span class="t">حل الألغاز</span>
+                    <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
+                </button>
                 <button class="mode-row" data-action="showLeaderboard">
                     <span class="t">المتصدرون</span>
                     <span class="d">أفضل اللاعبين في كل نظام</span>
@@ -140,6 +144,38 @@
             </div>
             <ol id="lb-list" class="lb-list"></ol>
             <button class="btn ghost block" style="margin-top:14px" data-action="goMenu">رجوع</button>
+        </div>
+    </section>
+
+    <!-- الألغاز -->
+    <section id="puzzle-screen" class="hidden">
+        <div class="game">
+            <div class="board-col">
+                <div class="board-wrap"><div id="pboard"></div></div>
+            </div>
+            <aside class="side">
+                <div class="status-card" id="pz-card" data-tone="">
+                    <p id="pz-meta" class="muted small"></p>
+                    <p id="pz-text" aria-live="polite">...</p>
+                </div>
+                <div class="panel">
+                    <h3>النوع</h3>
+                    <div class="seg" role="group" aria-label="نوع اللغز" id="pz-levels">
+                        <button type="button" data-action="pzLevel" data-n="0" aria-pressed="true">الكل</button>
+                        <button type="button" data-action="pzLevel" data-n="1" aria-pressed="false">مات في حركة</button>
+                        <button type="button" data-action="pzLevel" data-n="2" aria-pressed="false">مات في حركتين</button>
+                        <button type="button" data-action="pzLevel" data-n="3" aria-pressed="false">تكتيك</button>
+                    </div>
+                    <p id="pz-stats" class="muted small" style="margin-top:10px"></p>
+                </div>
+                <div class="actions">
+                    <button class="btn ghost" id="pz-hint" data-action="pzHint">تلميح</button>
+                    <button class="btn ghost" data-action="pzSolution">أظهر الحل</button>
+                    <button class="btn secondary" data-action="pzRetry">أعد المحاولة</button>
+                    <button class="btn primary" id="pz-next" data-action="pzNext">اللغز التالي</button>
+                    <button class="btn ghost full" data-action="goMenu">العودة إلى القائمة</button>
+                </div>
+            </aside>
         </div>
     </section>
 
