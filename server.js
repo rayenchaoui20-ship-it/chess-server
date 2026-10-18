@@ -190,7 +190,29 @@ function socketOf(token) {
     return l && l.socketId ? io.sockets.sockets.get(l.socketId) : null;
 }
 
-function newRoom(type, tcId) {
+// شطرنج فيشر (960): ترتيب عشوائي للصف الخلفي، الفيلان على لونين مختلفين، الملك بين القلعتين.
+// تُلعب بدون تبييت (حقل التبييت في FEN هو «-») لأن مكتبة اللعب لا تدعم تبييت 960.
+function chess960Fen() {
+    const row = new Array(8).fill(null);
+    const pick = (arr) => arr[crypto.randomInt(arr.length)];
+    const free = () => row.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
+    row[pick([0, 2, 4, 6])] = 'b';
+    row[pick([1, 3, 5, 7])] = 'b';
+    row[pick(free())] = 'q';
+    row[pick(free())] = 'n';
+    row[pick(free())] = 'n';
+    const f = free();
+    row[f[0]] = 'r'; row[f[1]] = 'k'; row[f[2]] = 'r';
+    const back = row.join('');
+    return back + '/pppppppp/8/8/8/8/PPPPPPPP/' + back.toUpperCase() + ' w - - 0 1';
+}
+function resolveVariant(data) { return data && data.variant === '960' ? '960' : 'std'; }
+function freshGame(room) {
+    room.startFen = room.variant === '960' ? chess960Fen() : null;
+    return room.startFen ? new Chess(room.startFen) : new Chess();
+}
+
+function newRoom(type, tcId, variant) {
     const tc = TIME_CONTROLS[tcId];
     const room = {
         id: makeRoomId(),
@@ -201,8 +223,10 @@ function newRoom(type, tcId) {
         timeSec: tc.base,
         incMs: tc.inc * 1000,
         rated: false,
+        variant: variant === '960' ? '960' : 'std',
+        startFen: null,
         createdAt: Date.now(),
-        game: new Chess(),
+        game: null,
         players: { w: null, b: null },   // tokens
         names: { w: '', b: '' },
         ratings: { w: null, b: null },
@@ -227,6 +251,7 @@ function newRoom(type, tcId) {
         drawOffer: null,
         lastDrawPly: { w: -9, b: -9 }
     };
+    room.game = freshGame(room);
     rooms.set(room.id, room);
     return room;
 }
@@ -252,7 +277,7 @@ function startMatch(room) {
 function gameStartPayload(room, color, resumed) {
     return {
         color, mode: room.type, roomId: room.id, tc: room.tcId, rated: room.rated,
-        cat: room.cat, ratings: room.ratings, resumed: !!resumed
+        cat: room.cat, ratings: room.ratings, variant: room.variant, resumed: !!resumed
     };
 }
 
@@ -265,7 +290,7 @@ function resetForRematch(room) {
         const l = live.get(room.players[c]);
         if (l) l.color = c;
     }
-    room.game = new Chess();
+    room.game = freshGame(room);
     room.clocks = { w: room.tc.base * 1000, b: room.tc.base * 1000 };
     room.running = false;
     room.plies = 0;
@@ -282,6 +307,8 @@ function resetForRematch(room) {
 function publicState(room) {
     return {
         fen: room.game.fen(),
+        startFen: room.startFen,
+        variant: room.variant,
         turn: room.game.turn(),
         check: room.game.inCheck(),
         lastMove: room.lastMove,
@@ -855,9 +882,9 @@ io.on('connection', (socket) => {
         if (!tcId) return socket.emit('room_error', 'نظام الوقت غير صالح.');
         removeFromQueues(ctx.token);
         leaveRoom(ctx.token, true);
-        const room = newRoom('multi', tcId);
+        const room = newRoom('multi', tcId, resolveVariant(data));
         seat(ctx.token, room, 'w');
-        socket.emit('room_created', { roomId: room.id, tc: tcId });
+        socket.emit('room_created', { roomId: room.id, tc: tcId, variant: room.variant });
     });
 
     socket.on('join_room', (payload) => {
@@ -905,7 +932,7 @@ io.on('connection', (socket) => {
 
         removeFromQueues(ctx.token);
         leaveRoom(ctx.token, true);
-        const room = newRoom('ai', tcId);
+        const room = newRoom('ai', tcId, resolveVariant(data));
         room.matched = true;
         room.aiLevel = level;
         room.aiColor = other(color);
@@ -1183,10 +1210,10 @@ io.on('connection', (socket) => {
         const tcId = resolveTc(data) || DEFAULT_TC;
         removeFromQueues(a.token);
         leaveRoom(a.token, true);
-        const room = newRoom('multi', tcId);
+        const room = newRoom('multi', tcId, resolveVariant(data));
         seat(a.token, room, 'w');
-        socket.emit('room_created', { roomId: room.id, tc: tcId });
-        emitTo(target, 'invite', { from: a.rec.user, roomId: room.id, tc: tcId });
+        socket.emit('room_created', { roomId: room.id, tc: tcId, variant: room.variant });
+        emitTo(target, 'invite', { from: a.rec.user, roomId: room.id, tc: tcId, variant: room.variant });
     });
 
     socket.on('invite_decline', (data) => {
