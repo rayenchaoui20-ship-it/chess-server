@@ -64,6 +64,10 @@
 
         <div>
             <h2 class="section-title">كيف تريد أن تلعب؟</h2>
+            <button type="button" class="variant-toggle" id="variant-toggle" data-action="toggleVariant" aria-pressed="false">
+                <span class="vt-t">شطرنج فيشر (960): <span id="variant-state">متوقف</span></span>
+                <span class="vt-d">ترتيب عشوائي للقطع الخلفية، بدون تبييت. يعمل مع «العب ضد الحاسوب» و«ادعُ صديقًا»، أما البحث عن خصم فيبقى شطرنجًا عاديًا.</span>
+            </button>
             <div class="mode-list">
                 <button class="mode-row primary" data-action="findMatch">
                     <span class="t">ابحث عن خصم</span>
@@ -97,6 +101,12 @@
             </div>
             <div class="error" id="menu-error" role="alert"></div>
             <p class="muted small center" id="online-count"></p>
+        </div>
+
+        <div class="panel support-card hidden" id="support-card">
+            <h3 class="sub-title" style="color:var(--gold)">ادعم المطوّر</h3>
+            <p class="muted small" id="support-msg" style="margin:0 0 10px"></p>
+            <div class="support-links" id="support-links"></div>
         </div>
     </section>
 
