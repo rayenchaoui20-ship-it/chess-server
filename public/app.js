@@ -29,6 +29,7 @@
     let spectating = false;
     let flipped = false;
     let selectedTc = '3+0';
+    let variant = lsGet('chess-variant') === '960' ? '960' : 'std';
     let state = null;
     let positions = [{ fen: '', from: null, to: null, cap: null, color: null }];
     let reviewIndex = null;
@@ -182,6 +183,10 @@
             box.append(g.append(row));
         });
     }
+    function renderVariant() {
+        $('#variant-toggle').attr('aria-pressed', String(variant === '960'));
+        $('#variant-state').text(variant === '960' ? 'مفعّل' : 'متوقف');
+    }
     function renderRatings() {
         const box = $('#ratings').empty();
         ['bullet', 'blitz', 'rapid'].forEach((c) => {
@@ -196,6 +201,7 @@
 
     const saved = lsGet('chess-tc');
     if (saved && TCS[saved]) selectedTc = saved;
+    renderVariant();
     const savedName = lsGet('chess-name');
     if (savedName) $('#player-name').val(savedName);
     const savedTheme = lsGet('chess-theme');
@@ -243,8 +249,13 @@
             $('.time-card').each(function () { $(this).attr('aria-pressed', String($(this).data('tc') === selectedTc)); });
             $('#menu-error').text('');
         },
+        toggleVariant() {
+            variant = variant === '960' ? 'std' : '960';
+            lsSet('chess-variant', variant);
+            renderVariant();
+        },
         findMatch() { $('#menu-error').text(''); socket.emit('find_match', { tc: selectedTc }); },
-        createRoom() { socket.emit('create_room', { tc: selectedTc }); },
+        createRoom() { socket.emit('create_room', { tc: selectedTc, variant }); },
         joinRoom() {
             const roomId = $('#join-room-input').val().trim();
             if (!roomId) return $('#menu-error').text('أدخل كود الغرفة أولًا.');
@@ -264,8 +275,8 @@
         startAIGame() {
             let color = $('#ai-options-screen').data('color') || 'w';
             if (color === 'r') color = Math.random() < 0.5 ? 'w' : 'b';
-            lastAI = { level: $('#ai-level').val(), tc: selectedTc };
-            socket.emit('create_ai_room', { color, level: lastAI.level, tc: lastAI.tc });
+            lastAI = { level: $('#ai-level').val(), tc: selectedTc, variant };
+            socket.emit('create_ai_room', { color, level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
         },
         goMenu() { show('menu-screen'); },
         leaveWaiting() { socket.emit('leave_room'); resetToMenu(); },
@@ -297,7 +308,7 @@
             if (!state || !state.over || spectating) return;
             if (gameMode === 'ai') {
                 if (!lastAI) return;
-                socket.emit('create_ai_room', { color: myColor === 'w' ? 'b' : 'w', level: lastAI.level, tc: lastAI.tc });
+                socket.emit('create_ai_room', { color: myColor === 'w' ? 'b' : 'w', level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
                 return;
             }
             if (rematchSent) return;
@@ -378,7 +389,7 @@
             const u = el.dataset.user;
             askConfirm('إزالة ' + u + ' من قائمة أصدقائك؟', () => socket.emit('friend_remove', { username: u }));
         },
-        friendInvite(el) { socket.emit('friend_invite', { username: el.dataset.user, tc: selectedTc }); },
+        friendInvite(el) { socket.emit('friend_invite', { username: el.dataset.user, tc: selectedTc, variant }); },
         inviteAccept() {
             $('#invite-dialog').addClass('hidden');
             if (pendingInvite) socket.emit('join_room', { roomId: pendingInvite.roomId });
@@ -636,8 +647,8 @@
         if (state && state.over) reviewTo(Number($(this).attr('data-ply')));
     });
 
-    function buildPositions(history) {
-        const g = new Chess();
+    function buildPositions(history, startFen) {
+        const g = startFen ? new Chess(startFen) : new Chess();
         const pos = [{ fen: g.fen(), from: null, to: null, cap: null, color: null }];
         history.forEach((san) => {
             const mv = g.move(san);
@@ -751,6 +762,7 @@
         $('#status-card').attr('data-tone', tone);
 
         let meta = gameMode === 'ai' ? 'ضد الحاسوب' : (state.rated ? 'مباراة مصنَّفة' : 'مباراة ودّية');
+        if (state.variant === '960') meta += ' · شطرنج فيشر 960 (بدون تبييت)';
         meta += ' · ' + tcText(state.tc);
         if (state.spectators) meta += ' · ' + state.spectators + ' مشاهد';
         $('#game-meta').text(meta);
@@ -872,7 +884,7 @@
             $('#opp-rating').text(s.ratings[opp] ? '(' + s.ratings[opp] + ')' : '');
         }
 
-        positions = buildPositions(s.history || []);
+        positions = buildPositions(s.history || [], s.startFen);
         reviewIndex = null;
         renderHistory(s.history || []);
         renderCaptured(positions.length - 1);
@@ -971,7 +983,8 @@
         const d = new Date();
         const pad = (n) => String(n).padStart(2, '0');
         const t = TCS[state.tc];
-        const g = new Chess();
+        const g = state.startFen ? new Chess(state.startFen) : new Chess();
+        if (state.startFen) g.header('Variant', 'Chess960', 'SetUp', '1', 'FEN', state.startFen);
         g.header('Event', 'Online game', 'Site', location.host, 'Date',
             d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()),
             'White', nm.w || 'Player', 'Black', nm.b || 'Player', 'Result', res,
@@ -988,6 +1001,22 @@
     }
 
 
+
+    // ───────────────────────── دعم المطوّر (يُضبط من الملف support.json) ─────────────────────────
+    function loadSupport() {
+        $.getJSON('/support.json').done((d) => {
+            const links = (d && Array.isArray(d.links) ? d.links : [])
+                .filter((l) => l && l.label && typeof l.url === 'string' && /^https:\/\//i.test(l.url)).slice(0, 4);
+            if (!links.length) return;
+            $('#support-msg').text(String((d && d.message) || '').slice(0, 300));
+            const box = $('#support-links').empty();
+            links.forEach((l) => box.append(
+                $('<a class="btn secondary" target="_blank" rel="noopener noreferrer">').attr('href', l.url).text(String(l.label).slice(0, 40))
+            ));
+            $('#support-card').removeClass('hidden');
+        });
+    }
+    loadSupport();
 
     // ───────────────────────── الحساب والأصدقاء ─────────────────────────
     function gtoast(text) {
@@ -1086,7 +1115,7 @@
             return;
         }
         pendingInvite = d;
-        $('#invite-text').text(d.from + ' يدعوك إلى مباراة ودّية (' + tcText(d.tc) + ')');
+        $('#invite-text').text(d.from + ' يدعوك إلى مباراة ودّية (' + tcText(d.tc) + ')' + (d.variant === '960' ? ' بشطرنج فيشر 960' : ''));
         $('#invite-dialog').removeClass('hidden');
         playSound('check');
     });
@@ -1259,11 +1288,12 @@
             pieceTheme: PIECE_THEME,
             onDragStart: (source, piece) => {
                 if (!pzCanMove() || piece.charAt(0) !== pzSide) return false;
-                pzShowLegal(source);
+                pzShowLegal(source, true);
             },
             onDrop: (source, target) => {
                 pzClearMarks();
                 if (source === target) { pzTap(source); return 'snapback'; }
+                pzSel = null;
                 return pzTryMove(source, target) ? undefined : 'snapback';
             },
             onSnapEnd: () => { pzClearMarks(); pzBoard.position(pzGame.fen()); }
@@ -1277,10 +1307,13 @@
     function pzCanMove() { return !!pzCur && !pzDone && !pzBusy && pzGame.turn() === pzSide; }
     function pzClearMarks() { $('#pboard .square-55d63').removeClass('legal-move legal-capture selected-sq hint-sq'); }
     function pzClear() { pzSel = null; if ($('#pboard').length) pzClearMarks(); }
-    function pzShowLegal(sq) {
+    // drag = true: مجرد إظهار الحركات أثناء السحب دون تثبيت التحديد (وإلا يُلغى عند الإفلات على نفس المربع)
+    function pzShowLegal(sq, drag) {
         pzClearMarks();
-        pzSel = sq;
-        $('#pboard .square-' + sq).addClass('selected-sq');
+        if (!drag) {
+            pzSel = sq;
+            $('#pboard .square-' + sq).addClass('selected-sq');
+        }
         pzGame.moves({ square: sq, verbose: true }).forEach((m) => {
             $('#pboard .square-' + m.to).addClass(m.captured ? 'legal-capture' : 'legal-move');
         });
