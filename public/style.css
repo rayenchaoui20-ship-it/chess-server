@@ -331,3 +331,26 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .support-card { margin-top: 16px; border-color: var(--gold); }
 .support-links { display: flex; gap: 8px; flex-wrap: wrap; }
 .support-links .btn { text-decoration: none; }
+
+/* ═════════ تحليل المباراة ═════════ */
+.c-brilliant { color: #26c2a3; } .c-best { color: #96bc4b; } .c-excellent { color: #96bc4b; } .c-good { color: var(--muted); }
+.c-inaccuracy { color: #f7c631; } .c-mistake { color: #e58f2a; } .c-blunder { color: #ef5d5d; }
+.bd { font-size: .72rem; margin-inline-start: 3px; font-weight: 700; }
+#board .square-55d63[data-sym] { position: relative; }
+#board .square-55d63[data-sym]::after { content: attr(data-sym); position: absolute; top: 2px; right: 2px; min-width: 1.5em; padding: 0 4px; border-radius: 999px; font-size: .72rem; font-weight: 700; line-height: 1.55em; text-align: center; color: #fff; background: #777; z-index: 5; pointer-events: none; box-shadow: 0 1px 3px rgba(0, 0, 0, .5); }
+#board .square-55d63[data-cls="brilliant"]::after { background: #1baca6; }
+#board .square-55d63[data-cls="best"]::after, #board .square-55d63[data-cls="excellent"]::after { background: #5d9948; }
+#board .square-55d63[data-cls="good"]::after { background: #6b7899; }
+#board .square-55d63[data-cls="inaccuracy"]::after { background: #d4a017; color: #1b1405; }
+#board .square-55d63[data-cls="mistake"]::after { background: #d9822b; }
+#board .square-55d63[data-cls="blunder"]::after { background: #ca3431; }
+.analysis-box { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.analysis-box .err { color: var(--loss); }
+.pbar { height: 6px; background: var(--bg); border-radius: 999px; overflow: hidden; margin: 8px 0; }
+.pbar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .3s; }
+.analysis-note { margin: 8px 0; font-weight: 600; }
+.analysis-note:empty { display: none; }
+.an-table { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 6px; }
+.an-table th, .an-table td { padding: 4px 6px; text-align: center; border-bottom: 1px solid var(--line); }
+.an-table th:first-child, .an-table td:first-child { text-align: start; }
+.an-table td { font-variant-numeric: tabular-nums; }
