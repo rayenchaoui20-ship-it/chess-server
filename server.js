@@ -8,6 +8,7 @@ const { Worker } = require('worker_threads');
 const { Server } = require('socket.io');
 const axios = require('axios');
 const { Chess } = require('chess.js');
+const { analyzeGame } = require('./analysis');
 
 const app = express();
 const server = http.createServer(app);
@@ -466,6 +467,7 @@ function applyMove(room, color, { from, to, promotion }) {
 
 // ───────────────────────── الذكاء الاصطناعي ─────────────────────────
 let stockfishDownUntil = 0;
+let analysisRunning = 0;
 
 async function fetchStockfish(room) {
     if (Date.now() < stockfishDownUntil) return null;
@@ -663,7 +665,8 @@ app.use((req, res, next) => {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', [
         "default-src 'self'",
-        "script-src 'self' https://code.jquery.com https://cdnjs.cloudflare.com https://unpkg.com",
+        "script-src 'self' 'wasm-unsafe-eval' https://code.jquery.com https://cdnjs.cloudflare.com https://unpkg.com",
+        "worker-src 'self' blob:",
         "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
         "img-src 'self' data: blob: https://cdn.jsdelivr.net",
@@ -678,6 +681,46 @@ const nm = (p) => path.join(__dirname, 'node_modules', p);
 app.use('/vendor/jquery', express.static(nm('jquery/dist'), { maxAge: '7d' }));
 app.use('/vendor/chessboard', express.static(nm('@chrisoakman/chessboardjs/dist'), { maxAge: '7d' }));
 app.use('/vendor/chess', express.static(nm('chess-legacy'), { maxAge: '7d' }));
+// Stockfish (WASM) لتحليل المباريات داخل متصفح اللاعب. الحزمة اختيارية، فإن غابت يعمل التحليل على الخادم.
+function findStockfish() {
+    const root = nm('stockfish');
+    try {
+        if (!fs.existsSync(root)) return null;
+        const files = [];
+        const walk = (dir, depth) => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (e.name === 'node_modules') continue;
+                const full = path.join(dir, e.name);
+                if (e.isDirectory()) { if (depth < 3) walk(full, depth + 1); }
+                else if (/\.js$/i.test(e.name)) files.push(path.relative(root, full).split(path.sep).join('/'));
+            }
+        };
+        walk(root, 0);
+        let best = null;
+        for (const rel of files) {
+            const base = path.basename(rel).toLowerCase();
+            if (/thread|multi|worker|test|index|cli|node/.test(base)) continue;      // نريد نسخة أحادية الخيط تعمل داخل Worker
+            const hasWasm = fs.existsSync(path.join(root, rel.replace(/\.js$/i, '.wasm')));
+            let score = 0;
+            if (hasWasm && /single/.test(base) && /lite/.test(base)) score = 4;
+            else if (hasWasm && /single/.test(base)) score = 3;
+            else if (/asm/.test(base)) score = 2;
+            else if (base === 'stockfish.js' && !hasWasm && /(^|\/)src\//.test(rel) && fs.statSync(path.join(root, rel)).size > 300000) score = 1;
+            if (score && (!best || score > best.score || (score === best.score && rel > best.rel))) best = { rel, score };
+        }
+        return best ? best.rel : null;
+    } catch (e) {
+        console.error('stockfish discovery failed:', e.message);
+        return null;
+    }
+}
+let sfFile;
+app.get('/vendor/stockfish/manifest.json', (req, res) => {
+    if (sfFile === undefined) { sfFile = findStockfish(); console.log('Browser Stockfish: ' + (sfFile || 'not installed')); }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json({ file: sfFile });
+});
+app.use('/vendor/stockfish', express.static(nm('stockfish'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online: io.engine.clientsCount }));
@@ -868,6 +911,37 @@ io.on('connection', (socket) => {
         if (db.players[ctx.token].user) return;      // اسم الحساب المسجل ثابت
         db.players[ctx.token].name = n;
         saveSoon();
+    });
+
+    // تحليل مباراة منتهية: يرسل العميل السجل فقط والخادم يعيد تقييم كل حركة
+    socket.on('analyze', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        if (socket.data.analyzing) return socket.emit('analysis_error', 'التحليل جارٍ بالفعل.');
+        if (analysisRunning >= 3) return socket.emit('analysis_error', 'الخادم مشغول بتحليلات أخرى، حاول بعد قليل.');
+        const hist = data && data.history;
+        const okHist = Array.isArray(hist) && hist.length >= 1 && hist.length <= 400 && hist.every((m) => typeof m === 'string' && /^[A-Za-z0-9+#=\-]{2,10}$/.test(m));
+        let startFen = data && typeof data.startFen === 'string' ? data.startFen.slice(0, 100) : null;
+        if (!okHist) return socket.emit('analysis_error', 'بيانات المباراة غير صالحة.');
+        if (startFen) { try { new Chess(startFen); } catch (e) { startFen = null; } }
+        // تقييمات محسوبة في متصفح اللاعب (اختيارية): { cp, best } لكل مركز
+        let evals = null;
+        if (data && Array.isArray(data.evals) && data.evals.length === hist.length + 1) {
+            const good = data.evals.every((e) => e && Number.isFinite(e.cp) && (e.best == null || /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(e.best)));
+            if (good) evals = data.evals.map((e) => ({ cp: Math.max(-10000, Math.min(10000, Math.round(e.cp))), best: e.best || null }));
+        }
+        socket.data.analyzing = true;
+        analysisRunning++;
+        try {
+            const result = await analyzeGame(startFen, hist, (done, total) => socket.emit('analysis_progress', { done, total }), evals);
+            socket.emit('analysis_result', result);
+        } catch (e) {
+            console.error('analysis error:', e.message);
+            socket.emit('analysis_error', 'تعذّر تحليل هذه المباراة.');
+        } finally {
+            analysisRunning--;
+            socket.data.analyzing = false;
+        }
     });
 
     socket.on('leaderboard', (data) => {
