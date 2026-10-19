@@ -33,6 +33,17 @@
     let state = null;
     let positions = [{ fen: '', from: null, to: null, cap: null, color: null }];
     let reviewIndex = null;
+    let analysis = null;
+    let analyzing = false;
+    const CLS = {
+        brilliant: { sym: '!!', name: 'رائعة (بريليانت)' },
+        best: { sym: '★', name: 'الأفضل' },
+        excellent: { sym: '!', name: 'ممتازة' },
+        good: { sym: '✓', name: 'جيدة' },
+        inaccuracy: { sym: '?!', name: 'دقة ضعيفة' },
+        mistake: { sym: '?', name: 'خطأ' },
+        blunder: { sym: '??', name: 'خطأ فادح (بلندر)' }
+    };
     let serverOffset = 0;
     let pendingMove = null;
     let lastSoundCount = 0;
@@ -400,6 +411,19 @@
             if (pendingInvite) socket.emit('invite_decline', { username: pendingInvite.from });
             pendingInvite = null;
         },
+        analyzeGame() {
+            if (!state || !state.over || analyzing) return;
+            if (!(state.history || []).length) return gtoast('لا توجد حركات لتحليلها.');
+            analyzing = true;
+            analysis = null;
+            $('#analysis-box').removeClass('hidden');
+            $('#analysis-summary, #analysis-note').empty();
+            $('#analysis-bar').removeClass('hidden');
+            $('#analysis-fill').css('width', '3%');
+            $('#analysis-status').text('جارٍ التحليل... قد يستغرق دقيقة').removeClass('err');
+            $('#analyze-btn').prop('disabled', true);
+            socket.emit('analyze', { history: state.history, startFen: state.startFen || null });
+        },
         reload() { location.reload(); }
     };
 
@@ -521,6 +545,10 @@
 
     // ───────────────────────── اللوحة ─────────────────────────
     function initBoard() {
+        analysis = null;
+        analyzing = false;
+        $('#analysis-box').addClass('hidden');
+        $('#analysis-summary, #analysis-note').empty();
         if (board) board.destroy();
         game.reset();
         board = Chessboard('board', {
@@ -633,6 +661,8 @@
             [history[i], history[i + 1]].forEach((san, k) => {
                 const ply = i + k + 1;
                 const el = $('<span class="mv">').text(san || '');
+                const an = analysis && analysis.plies[ply - 1];
+                if (san && an && CLS[an.cls] && an.cls !== 'good') el.append($('<b class="bd">').addClass('c-' + an.cls).text(CLS[an.cls].sym));
                 if (san) el.attr('data-ply', ply);
                 if (san && ply === current) el.addClass('last');
                 row.append(el);
@@ -663,6 +693,7 @@
         const p = positions[i];
         board.position(p.fen);
         highlightLastMove(p.from ? { from: p.from, to: p.to } : null);
+        markAnalysis(i);
         renderHistory(state.history || [], i);
         renderCaptured(i);
     }
@@ -675,6 +706,63 @@
         else if (where === 'next') reviewTo(cur + 1);
         else reviewTo(last);
     }
+
+    // ───────────────────────── تحليل المباراة ─────────────────────────
+    function fmtEval(cp) {
+        if (Math.abs(cp) >= 9000) return cp > 0 ? 'كش مات للأبيض' : 'كش مات للأسود';
+        return (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
+    }
+    function markAnalysis(i) {
+        $('#board .square-55d63').removeAttr('data-sym').removeAttr('data-cls');
+        const note = $('#analysis-note').empty();
+        if (!analysis || i < 1 || !positions[i]) return;
+        const an = analysis.plies[i - 1];
+        const c = an && CLS[an.cls];
+        if (!c) return;
+        $('#board .square-' + positions[i].to).attr({ 'data-sym': c.sym, 'data-cls': an.cls });
+        const num = Math.ceil(i / 2) + (i % 2 ? '.' : '...');
+        const line = $('<div>').append($('<b>').addClass('c-' + an.cls).text(num + ' ' + an.san + ' ' + c.sym), document.createTextNode(' ' + c.name));
+        const extra = ['التقييم: ' + fmtEval(an.cp)];
+        if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push('الأفضل كان: ' + an.best);
+        note.append(line, $('<div class="muted small">').text(extra.join(' · ')));
+    }
+    function renderAnalysisSummary(res) {
+        const nm = (state && state.names) || {};
+        const rows = [['accuracy', 'الدقة']].concat(Object.keys(CLS).map((k) => [k, CLS[k].sym + ' ' + CLS[k].name]));
+        const tbl = $('<table class="an-table">');
+        tbl.append($('<tr>').append($('<th>'), $('<th>').text(nm.w || 'الأبيض'), $('<th>').text(nm.b || 'الأسود')));
+        rows.forEach(([k, label]) => {
+            let w;
+            let b;
+            if (k === 'accuracy') { w = res.accuracy.w == null ? '-' : res.accuracy.w + '%'; b = res.accuracy.b == null ? '-' : res.accuracy.b + '%'; }
+            else { w = res.counts.w[k] || 0; b = res.counts.b[k] || 0; if (!w && !b) return; }
+            tbl.append($('<tr>').append($('<td>').text(label).addClass(k === 'accuracy' ? '' : 'c-' + k), $('<td>').text(w), $('<td>').text(b)));
+        });
+        $('#analysis-summary').empty().append(tbl);
+    }
+    socket.on('analysis_progress', (d) => {
+        if (!analyzing) return;
+        $('#analysis-fill').css('width', Math.max(3, Math.round((d.done / d.total) * 100)) + '%');
+        $('#analysis-status').text('جارٍ التحليل... ' + d.done + ' من ' + d.total);
+    });
+    socket.on('analysis_result', (res) => {
+        analyzing = false;
+        analysis = res;
+        $('#analyze-btn').prop('disabled', false);
+        $('#analysis-bar').addClass('hidden');
+        $('#analysis-status').text(res.source === 'local'
+            ? 'تحليل مبسّط: محرك Stockfish غير متاح الآن، لذا النتائج أقل دقة.'
+            : 'انتهى التحليل. اضغط على أي حركة أو استعمل الأسهم لرؤية تقييمها.').removeClass('err');
+        renderAnalysisSummary(res);
+        if (state) renderHistory(state.history || [], state.history ? state.history.length : 0);
+        reviewTo(positions.length - 1);
+    });
+    socket.on('analysis_error', (msg) => {
+        analyzing = false;
+        $('#analyze-btn').prop('disabled', false);
+        $('#analysis-bar').addClass('hidden');
+        $('#analysis-status').text(msg).addClass('err');
+    });
 
     // ───────────────────────── القطع المأكولة (من سجل الحركات، فتصح مع الترقية) ─────────────────────────
     function renderCaptured(idx) {
@@ -914,7 +1002,7 @@
 
     function updateGameButtons(s) {
         $('#game-screen').toggleClass('reviewable', !!s.over);
-        $('#review-bar, #pgn-btn').toggleClass('hidden', !s.over);
+        $('#review-bar, #pgn-btn, #analyze-btn').toggleClass('hidden', !s.over);
         if (spectating) {
             $('#resign-btn, #abort-btn, #draw-btn, #rematch-btn').addClass('hidden');
             return;
