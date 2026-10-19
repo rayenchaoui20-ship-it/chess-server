@@ -25,5 +25,8 @@
   },
   "devDependencies": {
     "socket.io-client": "^4.7.2"
+  },
+  "optionalDependencies": {
+    "stockfish": ">=16.0.0"
   }
 }
