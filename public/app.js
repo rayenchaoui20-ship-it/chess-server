@@ -422,7 +422,14 @@
             $('#analysis-fill').css('width', '3%');
             $('#analysis-status').text('جارٍ التحليل... قد يستغرق دقيقة').removeClass('err');
             $('#analyze-btn').prop('disabled', true);
-            socket.emit('analyze', { history: state.history, startFen: state.startFen || null });
+            const history = state.history.slice();
+            const startFen = state.startFen || null;
+            $('#analysis-status').text('جارٍ تحميل محرك Stockfish...');
+            browserEvals(positions.map((p) => p.fen), (done, total) => setAnalysisProgress(done, total, 'جارٍ التحليل على جهازك... ')).then((evals) => {
+                if (!analyzing) return;
+                if (!evals) $('#analysis-status').text('جارٍ التحليل على الخادم... قد يستغرق دقيقة');
+                socket.emit('analyze', { history, startFen, evals: evals || undefined });
+            });
         },
         reload() { location.reload(); }
     };
@@ -740,11 +747,83 @@
         });
         $('#analysis-summary').empty().append(tbl);
     }
-    socket.on('analysis_progress', (d) => {
+    function setAnalysisProgress(done, total, label) {
         if (!analyzing) return;
-        $('#analysis-fill').css('width', Math.max(3, Math.round((d.done / d.total) * 100)) + '%');
-        $('#analysis-status').text('جارٍ التحليل... ' + d.done + ' من ' + d.total);
-    });
+        $('#analysis-fill').css('width', Math.max(3, Math.round((done / total) * 100)) + '%');
+        $('#analysis-status').text(label + done + ' من ' + total);
+    }
+    socket.on('analysis_progress', (d) => setAnalysisProgress(d.done, d.total, 'جارٍ التحليل على الخادم... '));
+
+    // تقييم المراكز بمحرك Stockfish يعمل داخل المتصفح (Web Worker). يعيد null إن لم يتوفر فنرجع للخادم.
+    function browserEvals(fens, onProgress) {
+        return new Promise((resolve) => {
+            let finished = false;
+            const workers = [];
+            let guard = null;
+            const finish = (v) => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(guard);
+                workers.forEach((w) => { try { w.terminate(); } catch (e) { /* ignore */ } });
+                resolve(v);
+            };
+            if (typeof Worker === 'undefined') return finish(null);
+            guard = setTimeout(() => finish(null), 150000);
+            $.getJSON('/vendor/stockfish/manifest.json').done((m) => {
+                if (!m || !m.file) return finish(null);
+                const url = '/vendor/stockfish/' + m.file.split('/').map(encodeURIComponent).join('/');
+                const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
+                const results = new Array(fens.length).fill(null);
+                let next = 0;
+                let done = 0;
+                const start = () => {
+                    let w;
+                    try { w = new Worker(url); } catch (e) { return finish(null); }
+                    workers.push(w);
+                    let phase = 'init';
+                    let job = -1;
+                    let score = null;
+                    let best = null;
+                    const send = (s) => w.postMessage(s);
+                    const initTimer = setTimeout(() => { if (phase === 'init') finish(null); }, 25000);
+                    const nextJob = () => {
+                        if (next >= fens.length) return;
+                        job = next++;
+                        score = null;
+                        best = null;
+                        send('position fen ' + fens[job]);
+                        send('go depth 14 movetime 1500');
+                    };
+                    w.onerror = () => finish(null);
+                    w.onmessage = (ev) => {
+                        const line = typeof ev.data === 'string' ? ev.data : '';
+                        if (phase === 'init') {
+                            if (line.indexOf('uciok') === 0) { send('setoption name Hash value 16'); send('isready'); }
+                            else if (line.indexOf('readyok') === 0) { phase = 'run'; clearTimeout(initTimer); nextJob(); }
+                            return;
+                        }
+                        if (line.indexOf('info') === 0 && line.indexOf(' score ') > 0 && line.indexOf('bound') < 0) {
+                            const s = /score (cp|mate) (-?\d+)/.exec(line);
+                            if (s) score = s[1] === 'cp' ? Number(s[2]) : (Number(s[2]) > 0 ? 10000 : -10000);
+                            const pv = / pv ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
+                            if (pv) best = pv[1];
+                        } else if (line.indexOf('bestmove') === 0) {
+                            const bm = /^bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
+                            const mv = bm ? bm[1] : best;
+                            const white = fens[job].split(' ')[1] === 'w';
+                            const cp = score == null ? 0 : (white ? score : -score);
+                            results[job] = { cp: Math.max(-10000, Math.min(10000, cp)), best: mv || null };
+                            done++;
+                            onProgress(done, fens.length);
+                            if (done >= fens.length) finish(results); else nextJob();
+                        }
+                    };
+                    send('uci');
+                };
+                for (let k = 0; k < n; k++) start();
+            }).fail(() => finish(null));
+        });
+    }
     socket.on('analysis_result', (res) => {
         analyzing = false;
         analysis = res;
