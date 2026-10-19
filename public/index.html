@@ -302,6 +302,13 @@
                             <button class="btn ghost" data-action="reviewGo" data-where="end" aria-label="إلى النهاية">&raquo;</button>
                         </div>
                     </div>
+                    <button id="analyze-btn" class="btn secondary block hidden" data-action="analyzeGame" style="margin-top:10px">حلّل المباراة</button>
+                    <div id="analysis-box" class="analysis-box hidden">
+                        <div id="analysis-status" class="muted small" role="status"></div>
+                        <div id="analysis-bar" class="pbar hidden"><i id="analysis-fill"></i></div>
+                        <div id="analysis-note" class="analysis-note"></div>
+                        <div id="analysis-summary"></div>
+                    </div>
                 </div>
 
                 <div id="chat-container" class="panel hidden">
