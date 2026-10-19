@@ -165,7 +165,7 @@ function terminalValue(g) {
 }
 
 // history: قائمة SAN، startFen: مركز البداية (أو null). onProgress(done, total)
-async function analyzeGame(startFen, history, onProgress) {
+async function analyzeGame(startFen, history, onProgress, clientEvals) {
     if (!Array.isArray(history) || !history.length || history.length > MAX_PLIES) throw new Error('bad history');
     const g = startFen ? new Chess(startFen) : new Chess();
     const fens = [g.fen()];
@@ -184,9 +184,16 @@ async function analyzeGame(startFen, history, onProgress) {
     let step = 0;
     const tick = () => { step++; if (onProgress) onProgress(Math.min(step, total), total); };
 
-    let evals = await evalWithStockfish(fens, terminal, tick);
-    let source = 'stockfish';
+    let evals = null;
+    let source = 'browser';
+    if (Array.isArray(clientEvals) && clientEvals.length === fens.length) {
+        evals = clientEvals.map((e, i) => (terminal[i] !== null ? { cp: terminal[i], best: null } : { cp: e.cp, best: e.best || null }));
+    } else {
+        source = 'stockfish';
+        evals = await evalWithStockfish(fens, terminal, tick);
+    }
     if (!evals || evals.some((e) => !e)) {
+        source = 'stockfish';
         if (onProgress) onProgress(total, total);
         const loc = await evalLocal(fens, terminal);
         if (!loc) throw new Error('analysis failed');
