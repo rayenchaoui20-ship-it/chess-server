@@ -10,7 +10,7 @@
     };
     const CAT_NAMES = { bullet: 'بوليت', blitz: 'بليتز', rapid: 'رابيد' };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'puzzle-screen', 'game-screen'];
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'game-screen'];
     const REASONS = {
         checkmate: 'كش مات', timeout: 'انتهى الوقت', resign: 'استسلام', abandoned: 'غادر الخصم المباراة',
         stalemate: 'جمود (Stalemate)', insufficient: 'عدم كفاية القطع', repetition: 'تكرار الوضعية',
@@ -37,9 +37,11 @@
     let analyzing = false;
     const CLS = {
         brilliant: { sym: '!!', name: 'رائعة (بريليانت)' },
+        great: { sym: '!', name: 'رائعة جدًا' },
         best: { sym: '★', name: 'الأفضل' },
-        excellent: { sym: '!', name: 'ممتازة' },
-        good: { sym: '✓', name: 'جيدة' },
+        excellent: { sym: '✓', name: 'ممتازة' },
+        good: { sym: '•', name: 'جيدة' },
+        book: { sym: '📖', name: 'نظرية' },
         inaccuracy: { sym: '?!', name: 'دقة ضعيفة' },
         mistake: { sym: '?', name: 'خطأ' },
         blunder: { sym: '??', name: 'خطأ فادح (بلندر)' }
@@ -290,6 +292,13 @@
             socket.emit('create_ai_room', { color, level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
         },
         goMenu() { show('menu-screen'); },
+        showGames() {
+            $('#games-list').empty();
+            $('#games-empty').text('جارٍ التحميل...').removeClass('hidden');
+            show('games-screen');
+            socket.emit('games_get');
+        },
+        openGame(el) { socket.emit('game_get', { id: el.dataset.id }); },
         leaveWaiting() { socket.emit('leave_room'); resetToMenu(); },
         cancelSearch() { socket.emit('cancel_search'); },
         copyRoomCode() { copyText($('#room-code').text(), '#copy-btn', 'انسخ الكود'); },
@@ -328,7 +337,7 @@
             socket.emit('rematch');
         },
         downloadPGN() { downloadPGN(); },
-        flipBoard() { flipped = !flipped; if (board) board.flip(); },
+        flipBoard() { flipped = !flipped; if (board) board.flip(); setEvalBar(reviewIndex === null ? positions.length - 1 : reviewIndex); },
         toggleSound() {
             soundOn = !soundOn;
             lsSet('chess-sound', soundOn ? 'on' : 'off');
@@ -423,12 +432,13 @@
             $('#analysis-status').text('جارٍ التحليل... قد يستغرق دقيقة').removeClass('err');
             $('#analyze-btn').prop('disabled', true);
             const history = state.history.slice();
+            const gameId = state.gameId || null;
             const startFen = state.startFen || null;
             $('#analysis-status').text('جارٍ تحميل محرك Stockfish...');
             browserEvals(positions.map((p) => p.fen), (done, total) => setAnalysisProgress(done, total, 'جارٍ التحليل على جهازك... ')).then((evals) => {
                 if (!analyzing) return;
                 if (!evals) $('#analysis-status').text('جارٍ التحليل على الخادم... قد يستغرق دقيقة');
-                socket.emit('analyze', { history, startFen, evals: evals || undefined });
+                socket.emit('analyze', { history, startFen, evals: evals || undefined, gameId: gameId || undefined });
             });
         },
         reload() { location.reload(); }
@@ -481,6 +491,7 @@
         renderRatings();
         account = w.user || null;
         renderAccount();
+        if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
         setOnline(w.online);
         if (!$('#player-name').val() && w.name) $('#player-name').val(w.name);
 
@@ -554,6 +565,7 @@
     function initBoard() {
         analysis = null;
         analyzing = false;
+        $('#eval-bar').addClass('hidden');
         $('#analysis-box').addClass('hidden');
         $('#analysis-summary, #analysis-note').empty();
         if (board) board.destroy();
@@ -714,14 +726,111 @@
         else reviewTo(last);
     }
 
+    // ───────────────────────── مبارياتي (المحفوظة في الحساب) ─────────────────────────
+    socket.on('games', (list) => {
+        const ul = $('#games-list').empty();
+        $('#games-empty').text('لا توجد مباريات محفوظة بعد. تُحفظ آخر 20 مباراة تلعبها وأنت مسجّل الدخول.').toggleClass('hidden', !!list.length);
+        list.forEach((g) => {
+            const mine = g.c || 'w';
+            const opp = g.ai ? 'الحاسوب' : (mine === 'w' ? g.b : g.w);
+            const res = !g.res || !g.res.winner ? 'تعادل' : (g.res.winner === mine ? 'فوز' : 'خسارة');
+            const tone = res === 'فوز' ? 'win' : res === 'خسارة' ? 'loss' : '';
+            const d = new Date(g.t);
+            const info = [tcText(g.tc), g.n + ' حركة', d.toLocaleDateString('ar') + ' ' + d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' })];
+            if (g.v === '960') info.push('فيشر 960');
+            if (g.an) info.push('محلّلة');
+            ul.append($('<li>').append(
+                $('<button type="button" class="game-row">').attr({ 'data-action': 'openGame', 'data-id': g.id }).append(
+                    $('<span class="gr-res">').addClass(tone).text(res),
+                    $('<span class="gr-main">').append($('<b>').text('ضد ' + opp), $('<small class="muted">').text(info.join(' · ')))
+                )
+            ));
+        });
+    });
+    socket.on('games_error', (m) => gtoast(m));
+    socket.on('game_data', (g) => openArchive(g));
+
+    // فتح مباراة محفوظة في شاشة اللعب بوضع المراجعة (للقراءة فقط)
+    function openArchive(g) {
+        spectating = true;
+        gameMode = g.ai ? 'ai' : 'multi';
+        myColor = g.c || 'w';
+        flipped = false;
+        $('#chat-box').empty();
+        resetGameUi();
+        const opp = myColor === 'w' ? 'b' : 'w';
+        const nm = { w: g.w, b: g.b };
+        oppName = nm[opp] || 'الخصم';
+        $('#opp-name').text(oppName);
+        $('#my-name').text(nm[myColor] || 'أنت');
+        $('#chat-container').addClass('hidden');
+        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
+        show('game-screen');
+        initBoard();
+        positions = buildPositions(g.h || [], g.sf || null);
+        const fen = positions[positions.length - 1].fen;
+        state = {
+            fen, startFen: g.sf || null, variant: g.v, gameId: g.id, turn: fen.split(' ')[1], check: false, lastMove: null,
+            history: g.h || [], names: nm, ratings: {}, rated: !!g.rated, tc: g.tc, moveCount: (g.h || []).length,
+            clocks: { w: 0, b: 0 }, running: false, over: true, result: g.res || { winner: null, reason: 'draw' },
+            drawOffer: null, disc: {}, spectators: 0, rematch: {}, serverNow: Date.now()
+        };
+        serverOffset = 0;
+        lastOver = true;
+        firstState = false;
+        game.load(fen);
+        if (board) board.position(fen);
+        reviewIndex = null;
+        renderHistory(state.history);
+        renderCaptured(positions.length - 1);
+        updateGameButtons(state);
+        updateStatus();
+        renderClocks();
+        $('#my-timer, #opponent-timer').text('--:--');
+        if (g.an && Array.isArray(g.an.plies) && g.an.plies.length === state.history.length) {
+            analysis = g.an;
+            $('#analysis-box').removeClass('hidden');
+            $('#analysis-bar').addClass('hidden');
+            $('#analysis-status').text('تحليل محفوظ لهذه المباراة. استعمل الأسهم أو اضغط على أي حركة.').removeClass('err');
+            renderAnalysisSummary(analysis);
+            renderHistory(state.history, state.history.length);
+            reviewTo(positions.length - 1);
+        }
+    }
+
     // ───────────────────────── تحليل المباراة ─────────────────────────
     function fmtEval(cp) {
         if (Math.abs(cp) >= 9000) return cp > 0 ? 'كش مات للأبيض' : 'كش مات للأسود';
         return (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
     }
+    function winPctJs(cp) {
+        const c = Math.max(-1500, Math.min(1500, cp));
+        return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * c)) - 1);
+    }
+    function evalAt(i) {
+        if (!analysis) return null;
+        if (i <= 0) return analysis.startCp == null ? 20 : analysis.startCp;
+        const p = analysis.plies[i - 1];
+        return p ? p.cp : null;
+    }
+    // شريط التقييم بجانب اللوحة (الأبيض فاتح، الأسود داكن)
+    function setEvalBar(i) {
+        const cp = evalAt(i);
+        const bar = $('#eval-bar');
+        const show = cp != null;
+        const was = !bar.hasClass('hidden');
+        bar.toggleClass('hidden', !show);
+        if (show !== was && board) setTimeout(() => { if (board) board.resize(); }, 0);
+        if (!show) return;
+        bar.toggleClass('flip', (myColor === 'b') !== flipped);
+        $('#eval-fill').css('height', winPctJs(cp).toFixed(1) + '%');
+        $('#eval-text').text(Math.abs(cp) >= 9000 ? 'M' : (Math.abs(cp) / 100).toFixed(1)).attr('data-lead', cp >= 0 ? 'w' : 'b');
+        bar.attr('title', 'التقييم: ' + fmtEval(cp));
+    }
     function markAnalysis(i) {
         $('#board .square-55d63').removeAttr('data-sym').removeAttr('data-cls');
         const note = $('#analysis-note').empty();
+        setEvalBar(i);
         if (!analysis || i < 1 || !positions[i]) return;
         const an = analysis.plies[i - 1];
         const c = an && CLS[an.cls];
@@ -783,6 +892,7 @@
                     let phase = 'init';
                     let job = -1;
                     let score = null;
+                    let score2 = null;
                     let best = null;
                     const send = (s) => w.postMessage(s);
                     const initTimer = setTimeout(() => { if (phase === 'init') finish(null); }, 25000);
@@ -790,6 +900,7 @@
                         if (next >= fens.length) return;
                         job = next++;
                         score = null;
+                        score2 = null;
                         best = null;
                         send('position fen ' + fens[job]);
                         send('go depth 14 movetime 1500');
@@ -798,21 +909,24 @@
                     w.onmessage = (ev) => {
                         const line = typeof ev.data === 'string' ? ev.data : '';
                         if (phase === 'init') {
-                            if (line.indexOf('uciok') === 0) { send('setoption name Hash value 16'); send('isready'); }
+                            if (line.indexOf('uciok') === 0) { send('setoption name Hash value 16'); send('setoption name MultiPV value 2'); send('isready'); }
                             else if (line.indexOf('readyok') === 0) { phase = 'run'; clearTimeout(initTimer); nextJob(); }
                             return;
                         }
                         if (line.indexOf('info') === 0 && line.indexOf(' score ') > 0 && line.indexOf('bound') < 0) {
                             const s = /score (cp|mate) (-?\d+)/.exec(line);
-                            if (s) score = s[1] === 'cp' ? Number(s[2]) : (Number(s[2]) > 0 ? 10000 : -10000);
+                            const mp = /multipv (\d+)/.exec(line);
+                            const sc = s ? (s[1] === 'cp' ? Number(s[2]) : (Number(s[2]) > 0 ? 10000 : -10000)) : null;
+                            if (sc !== null) { if (mp && mp[1] === '2') score2 = sc; else score = sc; }
                             const pv = / pv ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
-                            if (pv) best = pv[1];
+                            if (pv && !(mp && mp[1] === '2')) best = pv[1];
                         } else if (line.indexOf('bestmove') === 0) {
                             const bm = /^bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
                             const mv = bm ? bm[1] : best;
                             const white = fens[job].split(' ')[1] === 'w';
                             const cp = score == null ? 0 : (white ? score : -score);
-                            results[job] = { cp: Math.max(-10000, Math.min(10000, cp)), best: mv || null };
+                            const alt = score2 == null ? null : Math.max(-10000, Math.min(10000, white ? score2 : -score2));
+                            results[job] = { cp: Math.max(-10000, Math.min(10000, cp)), best: mv || null, alt };
                             done++;
                             onProgress(done, fens.length);
                             if (done >= fens.length) finish(results); else nextJob();
@@ -1196,7 +1310,7 @@
         const logged = !!account;
         $('#acc-info').text(logged ? 'مرحبًا، ' + account : 'أنت تلعب كضيف');
         $('#acc-login').toggleClass('hidden', logged);
-        $('#acc-friends, #acc-logout').toggleClass('hidden', !logged);
+        $('#acc-friends, #acc-games, #acc-logout').toggleClass('hidden', !logged);
         const nameInput = $('#player-name');
         if (logged) nameInput.val(account).prop('disabled', true);
         else {
@@ -1385,6 +1499,27 @@
     function pzSave() {
         lsSet('chess-pz-solved', JSON.stringify([...pzSolved]));
         lsSet('chess-pz-streak', String(pzStreak));
+        pzSync();
+    }
+    // حفظ تقدّم الألغاز في الحساب (للمسجّلين فقط)
+    function pzSync() {
+        if (!account || !socket.connected) return;
+        socket.emit('pz_save', { solved: [...pzSolved], rated: [...pzRated], rating: pzRating, streak: pzStreak });
+    }
+    // دمج ما في الحساب مع ما في هذا المتصفح: اتحاد الألغاز، والتصنيف من الجهة التي لعبت أكثر
+    function pzMerge(s) {
+        const sSolved = Array.isArray(s.s) ? s.s : [];
+        const sRated = Array.isArray(s.d) ? s.d : [];
+        const serverWins = sRated.length >= pzRated.size;
+        sSolved.forEach((id) => pzSolved.add(id));
+        sRated.forEach((id) => pzRated.add(id));
+        if (serverWins && Number.isFinite(s.r)) { pzRating = s.r; pzStreak = Number(s.k) || 0; }
+        lsSet('chess-pz-rating', String(pzRating));
+        lsSet('chess-pz-rated', JSON.stringify([...pzRated]));
+        lsSet('chess-pz-solved', JSON.stringify([...pzSolved]));
+        lsSet('chess-pz-streak', String(pzStreak));
+        pzSync();
+        if (currentScreen === 'puzzle-screen') pzStats();
     }
     // تصنيف الألغاز (محلي في متصفحك): يتغير مرة واحدة عند أول إنهاء لكل لغز
     function pzApplyRating(score) {
