@@ -46,6 +46,7 @@
             <span id="acc-info" class="muted small">أنت تلعب كضيف</span>
             <span class="acc-actions">
                 <button class="btn secondary hidden" id="acc-friends" data-action="showFriends">الأصدقاء<span id="friends-badge" class="badge hidden">0</span></button>
+                <button class="btn secondary hidden" id="acc-games" data-action="showGames">مبارياتي</button>
                 <button class="btn ghost" id="acc-login" data-action="showAuth">دخول / حساب جديد</button>
                 <button class="btn ghost hidden" id="acc-logout" data-action="logout">خروج</button>
             </span>
@@ -214,6 +215,16 @@
         </div>
     </section>
 
+    <!-- مبارياتي -->
+    <section id="games-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0">مبارياتي</h2>
+            <p class="muted small" id="games-empty"></p>
+            <ul class="fr-list" id="games-list"></ul>
+            <button class="btn ghost block" data-action="goMenu">رجوع</button>
+        </div>
+    </section>
+
     <!-- المتصدرون -->
     <section id="leaderboard-screen" class="narrow hidden">
         <div class="panel">
@@ -268,7 +279,10 @@
                     <span class="pname"><span class="dot b" id="opp-dot"></span><span id="opp-name">الخصم</span><span class="rating" id="opp-rating"></span><span class="captured" id="opp-captured"></span></span>
                     <span class="clock" id="opponent-timer">--:--</span>
                 </div>
-                <div class="board-wrap"><div id="board"></div></div>
+                <div class="board-row">
+                    <div id="eval-bar" class="eval-bar hidden" role="img" aria-label="شريط التقييم"><div id="eval-fill"></div><span id="eval-text"></span></div>
+                    <div class="board-wrap"><div id="board"></div></div>
+                </div>
                 <div class="player-bar">
                     <span class="pname"><span class="dot w" id="my-dot"></span><span id="my-name">أنت</span><span class="rating" id="my-rating"></span><span class="captured" id="my-captured"></span></span>
                     <span class="clock" id="my-timer">--:--</span>
