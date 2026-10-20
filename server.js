@@ -1,1777 +1,1411 @@
-(function () {
-    'use strict';
+'use strict';
+const express = require('express');
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const { Worker } = require('worker_threads');
+const { Server } = require('socket.io');
+const axios = require('axios');
+const { Chess } = require('chess.js');
+const { analyzeGame } = require('./analysis');
 
-    // ───────────────────────── الثوابت ─────────────────────────
-    const PIECE_THEME = 'https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@master/website/img/chesspieces/wikipedia/{piece}.png';
-    const TCS = {
-        '1+0': { base: 60, inc: 0 }, '2+1': { base: 120, inc: 1 },
-        '3+0': { base: 180, inc: 0 }, '3+2': { base: 180, inc: 2 }, '5+0': { base: 300, inc: 0 },
-        '10+0': { base: 600, inc: 0 }, '15+10': { base: 900, inc: 10 }
-    };
-    const CAT_NAMES = { bullet: 'بوليت', blitz: 'بليتز', rapid: 'رابيد' };
-    const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'game-screen'];
-    const REASONS = {
-        checkmate: 'كش مات', timeout: 'انتهى الوقت', resign: 'استسلام', abandoned: 'غادر الخصم المباراة',
-        stalemate: 'جمود (Stalemate)', insufficient: 'عدم كفاية القطع', repetition: 'تكرار الوضعية',
-        fifty: 'قاعدة الخمسين حركة', agreement: 'اتفاق على التعادل', aborted: 'أُلغيت المباراة',
-        timevsinsufficient: 'انتهى الوقت، لكن الخصم لا يملك قطعًا كافية للكش مات'
-    };
-    const START_COUNT = { p: 8, n: 2, b: 2, r: 2, q: 1 };
-    const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { maxHttpBufferSize: 1e4, pingInterval: 10000, pingTimeout: 10000 });
 
-    // ───────────────────────── الحالة ─────────────────────────
-    const socket = io();
-    const game = new Chess();          // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
-    let board = null;
-    let myColor = 'w';
-    let gameMode = '';
-    let spectating = false;
-    let flipped = false;
-    let selectedTc = '3+0';
-    let variant = lsGet('chess-variant') === '960' ? '960' : 'std';
-    let state = null;
-    let positions = [{ fen: '', from: null, to: null, cap: null, color: null }];
-    let reviewIndex = null;
-    let analysis = null;
-    let analyzing = false;
-    const CLS = {
-        brilliant: { sym: '!!', name: 'رائعة (بريليانت)' },
-        great: { sym: '!', name: 'رائعة جدًا' },
-        best: { sym: '★', name: 'الأفضل' },
-        excellent: { sym: '✓', name: 'ممتازة' },
-        good: { sym: '•', name: 'جيدة' },
-        book: { sym: '📖', name: 'نظرية' },
-        inaccuracy: { sym: '?!', name: 'دقة ضعيفة' },
-        mistake: { sym: '?', name: 'خطأ' },
-        blunder: { sym: '??', name: 'خطأ فادح (بلندر)' }
-    };
-    let serverOffset = 0;
-    let pendingMove = null;
-    let lastSoundCount = 0;
-    let lastOver = false;
-    let firstState = true;
-    let searchInterval = null;
-    let resultTimer = null;
-    let flashTimer = null;
-    let resumeTimer = null;
-    let awaitResume = false;
-    let rematchSent = false;
-    let oppLeft = false;
-    let oppName = 'الخصم';
-    let lastAI = null;
-    let currentScreen = 'menu-screen';
-    let ratings = { bullet: 1200, blitz: 1200, rapid: 1200 };
-    let lbCat = 'blitz';
-    let pendingJoin = null;
-    let replaced = false;
-    let confirmYes = null;
-    let memToken = null;
-    let account = null;
-    let authMode = 'login';
-    let friendsTimer = null;
-    let friendsData = { friends: [], incoming: [], outgoing: [] };
-    let pendingInvite = null;
-    let gtoastTimer = null;
+// ───────────────────────── الإعدادات ─────────────────────────
+const PORT = process.env.PORT || 10000;
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DB_FILE = path.join(DATA_DIR, 'players.json');
 
-    // ───────────────────────── تخزين المتصفح (اختياري) ─────────────────────────
-    function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
-    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+// أنظمة الوقت: base بالثواني، inc زيادة بالثواني لكل حركة
+const TIME_CONTROLS = {
+    '1+0':  { base: 60,  inc: 0,  label: '1+0' },
+    '2+1':  { base: 120, inc: 1,  label: '2+1' },
+    '3+0':  { base: 180, inc: 0,  label: '3+0' },
+    '3+2':  { base: 180, inc: 2,  label: '3+2' },
+    '5+0':  { base: 300, inc: 0,  label: '5+0' },
+    '10+0': { base: 600, inc: 0,  label: '10+0' },
+    '15+10': { base: 900, inc: 10, label: '15+10' }
+};
+const DEFAULT_TC = '3+0';
+// الفئة (للتصنيف) حسب المدة التقديرية: base + 40*inc
+function categoryOf(tc) {
+    const est = tc.base + 40 * tc.inc;
+    return est < 180 ? 'bullet' : est < 480 ? 'blitz' : 'rapid';
+}
+const CATEGORIES = ['bullet', 'blitz', 'rapid'];
 
-    function show(id) {
-        currentScreen = id;
-        if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
-        SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
-        window.scrollTo(0, 0);
-    }
+const MAX_CHAT_LENGTH = 200;
+const STOCKFISH_URL = 'https://stockfish.online/api/s/v2.php';
+const GRACE_PLAYING_MS = 30000;     // مهلة إعادة الاتصال أثناء المباراة
+const GRACE_IDLE_MS = 90000;        // أثناء الانتظار أو ضد الحاسوب
+const START_RATING = 1200;
+const TOKEN_RE = /^[A-Za-z0-9_-]{20,40}$/;
 
-    function catOf(id) {
-        const t = TCS[id];
-        if (!t) return 'blitz';
-        const est = t.base + 40 * t.inc;
-        return est < 180 ? 'bullet' : est < 480 ? 'blitz' : 'rapid';
-    }
-    function tcText(id) {
-        const t = TCS[id];
-        return t ? id + ' (' + CAT_NAMES[catOf(id)] + ')' : '';
-    }
+const rooms = new Map();            // roomId -> room
+const live = new Map();             // token -> { socketId, roomId, color, specId, grace }
+const queues = {};                  // tcId -> [{ token, rating, since }]
+Object.keys(TIME_CONTROLS).forEach((id) => { queues[id] = []; });
 
-    // ───────────────────────── الأصوات ─────────────────────────
-    let audioCtx = null;
-    let soundOn = lsGet('chess-sound') !== 'off';
+// ───────────────────────── قاعدة اللاعبين (ملف JSON) ─────────────────────────
+let db = { players: {}, users: {} };
+let dirty = false;
+let saveTimer = null;
+let mongoColl = null;
 
-    function ensureAudio() {
+async function loadDb() {
+    // تخزين دائم اختياري: اضبط MONGODB_URI (مثلًا من MongoDB Atlas المجاني)
+    if (process.env.MONGODB_URI) {
         try {
-            if (!audioCtx) {
-                const AC = window.AudioContext || window.webkitAudioContext;
-                if (AC) audioCtx = new AC();
-            }
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-        } catch (e) { /* ignore */ }
+            const { MongoClient } = require('mongodb');
+            const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
+            await client.connect();
+            mongoColl = client.db(process.env.MONGODB_DB || 'chess').collection('state');
+            const doc = await mongoColl.findOne({ _id: 'db' });
+            if (doc && doc.json) db = JSON.parse(doc.json);
+            console.log('Storage: MongoDB');
+        } catch (e) {
+            console.error('MongoDB unavailable, falling back to file storage:', e.message);
+            mongoColl = null;
+        }
     }
-    ['pointerdown', 'keydown', 'touchstart'].forEach((ev) => document.addEventListener(ev, ensureAudio));
+    if (!mongoColl) {
+        try { db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) { db = { players: {}, users: {} }; }
+        console.log('Storage: file ' + DB_FILE);
+    }
+    if (!db || typeof db.players !== 'object') db = { players: {}, users: {} };
+    if (!db.users || typeof db.users !== 'object') db.users = {};
+    // تنظيف حسابات الضيوف الفارغة القديمة (الحسابات المسجلة لا تُحذف أبدًا)
+    const cutoff = Date.now() - 14 * 86400000;
+    for (const [t, p] of Object.entries(db.players)) {
+        if (!p.games && !p.user && (p.last || 0) < cutoff) delete db.players[t];
+    }
+}
+function saveSoon() {
+    dirty = true;
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => { saveTimer = null; flushDb(); }, 2000);
+}
+async function flushDb() {
+    if (!dirty) return;
+    dirty = false;
+    let json = JSON.stringify(db);
+    if (json.length > 12e6) {        // حد مستند MongoDB الواحد 16MB: نقلّص المباريات المحفوظة
+        for (const p of Object.values(db.players)) {
+            if (Array.isArray(p.hist)) { p.hist = p.hist.slice(0, 5); p.hist.forEach((g) => { g.an = null; }); }
+        }
+        json = JSON.stringify(db);
+        console.warn('DB pruned: saved games trimmed (size ' + json.length + ')');
+    }
+    if (mongoColl) {
+        try { await mongoColl.updateOne({ _id: 'db' }, { $set: { json } }, { upsert: true }); }
+        catch (e) { dirty = true; console.error('DB save error:', e.message); }
+        return;
+    }
+    try {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        const tmp = DB_FILE + '.tmp';
+        fs.writeFileSync(tmp, json);
+        fs.renameSync(tmp, DB_FILE);
+    } catch (e) {
+        console.error('DB save error:', e.message);
+    }
+}
+function newPlayer() {
+    const r = {};
+    CATEGORIES.forEach((c) => { r[c] = { r: START_RATING, n: 0 }; });
+    return { name: '', created: Date.now(), last: Date.now(), r, w: 0, l: 0, d: 0, games: 0 };
+}
+function ratingOf(token, cat) {
+    const p = db.players[token];
+    return p && p.r[cat] ? p.r[cat].r : START_RATING;
+}
+function publicRatings(token) {
+    const p = db.players[token];
+    const out = {};
+    CATEGORIES.forEach((c) => { out[c] = p && p.r[c] ? p.r[c].r : START_RATING; });
+    return out;
+}
+function leaderboard(cat) {
+    if (!CATEGORIES.includes(cat)) cat = 'blitz';
+    const rows = [];
+    for (const p of Object.values(db.players)) {
+        if (p.r[cat] && p.r[cat].n > 0) {
+            rows.push({ name: p.name || 'لاعب مجهول', rating: p.r[cat].r, games: p.r[cat].n });
+        }
+    }
+    rows.sort((a, b) => b.rating - a.rating || b.games - a.games);
+    return rows.slice(0, 20);
+}
+// تحديث إيلو
+function eloUpdate(room, result) {
+    const cat = room.cat;
+    const tw = room.players.w, tb = room.players.b;
+    const pw = db.players[tw], pb = db.players[tb];
+    if (!pw || !pb) return null;
+    const rw = pw.r[cat], rb = pb.r[cat];
+    const sw = result.winner === 'w' ? 1 : result.winner === 'b' ? 0 : 0.5;
+    const ew = 1 / (1 + Math.pow(10, (rb.r - rw.r) / 400));
+    const kw = rw.n < 20 ? 40 : 32, kb = rb.n < 20 ? 40 : 32;
+    const dw = Math.round(kw * (sw - ew));
+    const db_ = Math.round(kb * ((1 - sw) - (1 - ew)));
+    rw.r = Math.max(100, rw.r + dw); rw.n++;
+    rb.r = Math.max(100, rb.r + db_); rb.n++;
+    pw.games++; pb.games++;
+    if (sw === 1) { pw.w++; pb.l++; } else if (sw === 0) { pw.l++; pb.w++; } else { pw.d++; pb.d++; }
+    saveSoon();
+    return { w: dw, b: db_, ratings: { w: rw.r, b: rb.r } };
+}
 
-    function tone(freq, start, dur, vol, type, endFreq) {
-        const t0 = audioCtx.currentTime + start;
-        const osc = audioCtx.createOscillator();
-        const g = audioCtx.createGain();
-        osc.type = type || 'sine';
-        osc.frequency.setValueAtTime(freq, t0);
-        if (endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
-        g.gain.setValueAtTime(0.0001, t0);
-        g.gain.exponentialRampToValueAtTime(vol, t0 + 0.005);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-        osc.connect(g);
-        g.connect(audioCtx.destination);
-        osc.start(t0);
-        osc.stop(t0 + dur + 0.02);
-    }
-    function noise(start, dur, vol, cutoff) {
-        const t0 = audioCtx.currentTime + start;
-        const len = Math.max(1, Math.floor(audioCtx.sampleRate * dur));
-        const buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
-        const data = buf.getChannelData(0);
-        for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-        const src = audioCtx.createBufferSource();
-        src.buffer = buf;
-        const filter = audioCtx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = cutoff;
-        const g = audioCtx.createGain();
-        g.gain.value = vol;
-        src.connect(filter);
-        filter.connect(g);
-        g.connect(audioCtx.destination);
-        src.start(t0);
-    }
-    function playSound(type) {
-        if (!soundOn) return;
-        try {
-            ensureAudio();
-            if (!audioCtx) return;
-            if (type === 'move') { tone(220, 0, 0.08, 0.5, 'triangle', 120); noise(0, 0.05, 0.6, 1800); }
-            else if (type === 'capture') { tone(160, 0, 0.12, 0.7, 'triangle', 80); noise(0, 0.09, 1.0, 2600); noise(0.05, 0.06, 0.5, 1500); }
-            else if (type === 'check') { tone(660, 0, 0.12, 0.3, 'sine'); tone(880, 0.1, 0.16, 0.3, 'sine'); }
-            else if (type === 'end') { [523, 659, 784].forEach((f, i) => tone(f, i * 0.14, 0.3, 0.35, 'sine')); }
-        } catch (e) { /* ignore */ }
-    }
-    function updateSoundButton() {
-        $('#sound-btn').text(soundOn ? 'الصوت مفعّل' : 'الصوت مكتوم').attr('aria-pressed', String(soundOn));
-    }
-    updateSoundButton();
+// ───────────────────────── أدوات مساعدة ─────────────────────────
+const other = (c) => (c === 'w' ? 'b' : 'w');
 
-    // ───────────────────────── رسائل ونوافذ ─────────────────────────
-    function flash(msg) {
-        $('#flash-text').text(msg);
-        clearTimeout(flashTimer);
-        flashTimer = setTimeout(() => $('#flash-text').text(''), 5000);
-    }
-    function askConfirm(text, onYes) {
-        confirmYes = onYes;
-        $('#confirm-text').text(text);
-        $('#confirm-dialog').removeClass('hidden');
-        $('#confirm-no').trigger('focus');
-    }
-    function closeConfirm() { confirmYes = null; $('#confirm-dialog').addClass('hidden'); }
-    $('#confirm-yes').on('click', () => { const f = confirmYes; closeConfirm(); if (f) f(); });
-    $('#confirm-no').on('click', closeConfirm);
+function cleanName(v) {
+    return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f<>\u200e\u200f\u202a-\u202e]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
+}
+function cleanChat(v) {
+    return String(v).replace(/[\u0000-\u001f\u007f\u202a-\u202e]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_CHAT_LENGTH);
+}
+function makeRoomId() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let id;
+    do {
+        id = Array.from({ length: 6 }, () => chars[crypto.randomInt(chars.length)]).join('');
+    } while (rooms.has(id));
+    return id;
+}
+function resolveTc(data) {
+    let id = data && typeof data.tc === 'string' ? data.tc : null;
+    if (!id && data && data.timeSec) id = (Number(data.timeSec) / 60) + '+0';   // توافق مع الصيغة القديمة
+    return TIME_CONTROLS[id] ? id : null;
+}
 
-    // ───────────────────────── القائمة ─────────────────────────
-    function getName() { return account || ($('#player-name').val() || '').trim().slice(0, 20); }
-    function getToken() { return lsGet('chess-token') || memToken; }
+function emitTo(token, ev, payload) {
+    const l = live.get(token);
+    if (l && l.socketId) io.to(l.socketId).emit(ev, payload);
+}
+function emitPlayers(room, ev, payload) {
+    ['w', 'b'].forEach((c) => { if (room.players[c]) emitTo(room.players[c], ev, payload); });
+}
+function isConnected(token) {
+    const l = live.get(token);
+    return !!(l && l.socketId);
+}
+function socketOf(token) {
+    const l = live.get(token);
+    return l && l.socketId ? io.sockets.sockets.get(l.socketId) : null;
+}
 
-    function renderTimeGroups() {
-        const box = $('#time-groups').empty();
-        ['bullet', 'blitz', 'rapid'].forEach((cat) => {
-            const g = $('<div class="time-group">').append($('<div class="gname">').text(CAT_NAMES[cat]));
-            const row = $('<div class="time-row">');
-            Object.keys(TCS).filter((id) => catOf(id) === cat).forEach((id) => {
-                const t = TCS[id];
-                const unit = (t.base / 60) + ' د' + (t.inc ? ' + ' + t.inc + ' ث' : '');
-                row.append(
-                    $('<button class="time-card">').attr({ 'data-action': 'selectTc', 'data-tc': id, 'aria-pressed': String(id === selectedTc) })
-                        .append($('<span class="num">').text(id), $('<span class="unit">').text(unit))
-                );
-            });
-            box.append(g.append(row));
-        });
-    }
-    function renderVariant() {
-        $('#variant-toggle').attr('aria-pressed', String(variant === '960'));
-        $('#variant-state').text(variant === '960' ? 'مفعّل' : 'متوقف');
-    }
-    function renderRatings() {
-        const box = $('#ratings').empty();
-        ['bullet', 'blitz', 'rapid'].forEach((c) => {
-            box.append($('<span class="chip">').text(CAT_NAMES[c]).append($('<b>').text(ratings[c])));
-        });
-    }
-    function levelName(v) { return v <= 5 ? 'مبتدئ' : (v <= 10 ? 'متوسط' : 'متقدم'); }
-    function updateLevelLabel() {
-        const v = Number($('#ai-level').val());
-        $('#ai-level-label').text('المستوى ' + v + ' (' + levelName(v) + ')');
-    }
+// شطرنج فيشر (960): ترتيب عشوائي للصف الخلفي، الفيلان على لونين مختلفين، الملك بين القلعتين.
+// تُلعب بدون تبييت (حقل التبييت في FEN هو «-») لأن مكتبة اللعب لا تدعم تبييت 960.
+function chess960Fen() {
+    const row = new Array(8).fill(null);
+    const pick = (arr) => arr[crypto.randomInt(arr.length)];
+    const free = () => row.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
+    row[pick([0, 2, 4, 6])] = 'b';
+    row[pick([1, 3, 5, 7])] = 'b';
+    row[pick(free())] = 'q';
+    row[pick(free())] = 'n';
+    row[pick(free())] = 'n';
+    const f = free();
+    row[f[0]] = 'r'; row[f[1]] = 'k'; row[f[2]] = 'r';
+    const back = row.join('');
+    return back + '/pppppppp/8/8/8/8/PPPPPPPP/' + back.toUpperCase() + ' w - - 0 1';
+}
+function resolveVariant(data) { return data && data.variant === '960' ? '960' : 'std'; }
+function freshGame(room) {
+    room.startFen = room.variant === '960' ? chess960Fen() : null;
+    return room.startFen ? new Chess(room.startFen) : new Chess();
+}
 
-    const saved = lsGet('chess-tc');
-    if (saved && TCS[saved]) selectedTc = saved;
-    renderVariant();
-    const savedName = lsGet('chess-name');
-    if (savedName) $('#player-name').val(savedName);
-    const savedTheme = lsGet('chess-theme');
-    if (savedTheme && THEMES.includes(savedTheme)) document.body.setAttribute('data-theme', savedTheme);
-    renderTimeGroups();
-    renderRatings();
-    updateLevelLabel();
-    $('#ai-level').on('input', updateLevelLabel);
-    $('#player-name').on('input', () => lsSet('chess-name', getName()));
-    $('#player-name').on('change', () => socket.emit('set_name', { name: getName() }));
-    $('#join-room-input').on('keydown', (e) => { if (e.key === 'Enter') A.joinRoom(); });
-    $('#chat-input').on('keydown', (e) => { if (e.key === 'Enter') A.sendChat(); });
+function makeGameId() { return crypto.randomBytes(6).toString('hex'); }
 
-    // رابط دعوة: /?room=ABC123
-    (function () {
-        try {
-            const code = new URLSearchParams(location.search).get('room');
-            if (code && /^[A-Za-z0-9]{6}$/.test(code)) {
-                pendingJoin = code.toUpperCase();
-                $('#join-room-input').val(pendingJoin);
-                history.replaceState(null, '', location.pathname);
-            }
-        } catch (e) { /* ignore */ }
-    })();
-
-    function resetToMenu() {
-        clearTimeout(resultTimer);
-        clearTimeout(resumeTimer);
-        awaitResume = false;
-        stopSearchTimer();
-        state = null;
-        spectating = false;
-        $('#disc-text').addClass('hidden');
-        $('#result-dialog, #promotion-dialog').addClass('hidden');
-        closeConfirm();
-        if (board) { board.destroy(); board = null; }
-        show('menu-screen');
-    }
-
-    // ───────────────────────── الإجراءات (أزرار الواجهة) ─────────────────────────
-    const A = {
-        selectTc(el) {
-            selectedTc = el.dataset.tc;
-            lsSet('chess-tc', selectedTc);
-            $('.time-card').each(function () { $(this).attr('aria-pressed', String($(this).data('tc') === selectedTc)); });
-            $('#menu-error').text('');
-        },
-        toggleVariant() {
-            variant = variant === '960' ? 'std' : '960';
-            lsSet('chess-variant', variant);
-            renderVariant();
-        },
-        findMatch() { $('#menu-error').text(''); socket.emit('find_match', { tc: selectedTc }); },
-        createRoom() { socket.emit('create_room', { tc: selectedTc, variant }); },
-        joinRoom() {
-            const roomId = $('#join-room-input').val().trim();
-            if (!roomId) return $('#menu-error').text('أدخل كود الغرفة أولًا.');
-            socket.emit('join_room', { roomId });
-        },
-        spectateRoom() {
-            const roomId = $('#join-room-input').val().trim();
-            if (!roomId) return $('#menu-error').text('أدخل كود الغرفة التي تريد مشاهدتها.');
-            socket.emit('spectate', { roomId });
-        },
-        showAIOptions() { show('ai-options-screen'); },
-        setAiColor(el) {
-            const c = el.dataset.color;
-            $('#ai-options-screen').data('color', c);
-            $('#ai-options-screen .seg button').each(function () { $(this).attr('aria-pressed', String($(this).data('color') === c)); });
-        },
-        startAIGame() {
-            let color = $('#ai-options-screen').data('color') || 'w';
-            if (color === 'r') color = Math.random() < 0.5 ? 'w' : 'b';
-            lastAI = { level: $('#ai-level').val(), tc: selectedTc, variant };
-            socket.emit('create_ai_room', { color, level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
-        },
-        goMenu() { show('menu-screen'); },
-        showGames() {
-            $('#games-list').empty();
-            $('#games-empty').text('جارٍ التحميل...').removeClass('hidden');
-            show('games-screen');
-            socket.emit('games_get');
-        },
-        openGame(el) { socket.emit('game_get', { id: el.dataset.id }); },
-        leaveWaiting() { socket.emit('leave_room'); resetToMenu(); },
-        cancelSearch() { socket.emit('cancel_search'); },
-        copyRoomCode() { copyText($('#room-code').text(), '#copy-btn', 'انسخ الكود'); },
-        copyRoomLink() { copyText(location.origin + '/?room=' + $('#room-code').text(), '#copy-link-btn', 'انسخ الرابط'); },
-        showLeaderboard() { show('leaderboard-screen'); requestLeaderboard(); },
-        lbTab(el) {
-            lbCat = el.dataset.cat;
-            $('#lb-tabs button').each(function () { $(this).attr('aria-pressed', String($(this).data('cat') === lbCat)); });
-            requestLeaderboard();
-        },
-        // اللعب
-        resign() {
-            if (!state || state.over || spectating) return;
-            askConfirm('هل تريد الاستسلام؟', () => socket.emit('resign'));
-        },
-        abort() { socket.emit('abort'); },
-        offerDraw() {
-            if (!state || state.over || gameMode !== 'multi' || spectating) return;
-            if (state.moveCount < 2) return flash('يمكن اقتراح التعادل بعد أول حركتين.');
-            socket.emit('offer_draw');
-        },
-        respondDraw(el) {
-            $('#draw-banner').addClass('hidden');
-            socket.emit('respond_draw', { accept: el.dataset.accept === '1' });
-        },
-        requestRematch() {
-            if (!state || !state.over || spectating) return;
-            if (gameMode === 'ai') {
-                if (!lastAI) return;
-                socket.emit('create_ai_room', { color: myColor === 'w' ? 'b' : 'w', level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
-                return;
-            }
-            if (rematchSent) return;
-            rematchSent = true;
-            $('#result-rematch, #rematch-btn').prop('disabled', true).text('بانتظار الخصم...');
-            socket.emit('rematch');
-        },
-        downloadPGN() { downloadPGN(); },
-        flipBoard() { flipped = !flipped; if (board) board.flip(); setEvalBar(reviewIndex === null ? positions.length - 1 : reviewIndex); },
-        toggleSound() {
-            soundOn = !soundOn;
-            lsSet('chess-sound', soundOn ? 'on' : 'off');
-            updateSoundButton();
-            if (soundOn) playSound('move');
-        },
-        cycleTheme() {
-            const cur = document.body.getAttribute('data-theme') || 'classic';
-            const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
-            document.body.setAttribute('data-theme', next);
-            lsSet('chess-theme', next);
-        },
-        exitGame() {
-            const leave = () => { socket.emit('leave_room'); resetToMenu(); };
-            if (spectating || !state || state.over) return leave();
-            if (state.moveCount < 2 && gameMode === 'multi') return leave();
-            askConfirm('مغادرة المباراة الجارية تُحتسب خسارة. هل تريد المغادرة؟', leave);
-        },
-        reviewGo(el) { reviewGo(el.dataset.where); },
-        promotePiece(el) {
-            $('#promotion-dialog').addClass('hidden');
-            if (pendingMove) {
-                submitMove({ from: pendingMove.from, to: pendingMove.to, promotion: el.dataset.p });
-                board.position(game.fen());
-                pendingMove = null;
-            }
-        },
-        cancelPromotion() { cancelPromotion(); },
-        closeResult() { closeResult(); },
-        sendChat() {
-            if (spectating) return;
-            const msg = $('#chat-input').val().trim();
-            if (!msg) return;
-            appendChat('أنت', msg);
-            socket.emit('chat', { message: msg });
-            $('#chat-input').val('');
-        },
-        showPuzzles() { show('puzzle-screen'); pzNext(false); },
-        pzLevel(el) {
-            pzLevelN = Number(el.dataset.n);
-            $('#pz-levels button').each(function () { $(this).attr('aria-pressed', String(Number($(this).data('n')) === pzLevelN)); });
-            pzNext(false);
-        },
-        pzNext() { pzNext(true); },
-        pzRetry() { if (pzCur) pzStart(pzCur); },
-        pzHint() { pzHint(); },
-        pzSolution() { pzSolution(); },
-        showAuth() { $('#auth-error').text(''); show('auth-screen'); $('#auth-user').trigger('focus'); },
-        authTab(el) { setAuthMode(el.dataset.mode); },
-        authSubmit() { authSubmit(); },
-        logout() {
-            askConfirm('هل تريد تسجيل الخروج من حسابك؟', () => { resetToMenu(); socket.emit('logout'); });
-        },
-        showFriends() {
-            $('#fr-msg').text('').removeClass('err good');
-            show('friends-screen');
-            socket.emit('friends_get');
-            if (friendsTimer) clearInterval(friendsTimer);
-            friendsTimer = setInterval(() => { if (socket.connected) socket.emit('friends_get'); }, 10000);
-        },
-        friendAdd() {
-            const u = $('#friend-input').val().trim();
-            if (!u) return;
-            socket.emit('friend_add', { username: u });
-            $('#friend-input').val('');
-        },
-        friendRespond(el) { socket.emit('friend_respond', { username: el.dataset.user, accept: el.dataset.accept === '1' }); },
-        friendRemove(el) {
-            const u = el.dataset.user;
-            askConfirm('إزالة ' + u + ' من قائمة أصدقائك؟', () => socket.emit('friend_remove', { username: u }));
-        },
-        friendInvite(el) { socket.emit('friend_invite', { username: el.dataset.user, tc: selectedTc, variant }); },
-        inviteAccept() {
-            $('#invite-dialog').addClass('hidden');
-            if (pendingInvite) socket.emit('join_room', { roomId: pendingInvite.roomId });
-            pendingInvite = null;
-        },
-        inviteDecline() {
-            $('#invite-dialog').addClass('hidden');
-            if (pendingInvite) socket.emit('invite_decline', { username: pendingInvite.from });
-            pendingInvite = null;
-        },
-        analyzeGame() {
-            if (!state || !state.over || analyzing) return;
-            if (!(state.history || []).length) return gtoast('لا توجد حركات لتحليلها.');
-            analyzing = true;
-            analysis = null;
-            $('#analysis-box').removeClass('hidden');
-            $('#analysis-summary, #analysis-note').empty();
-            $('#analysis-bar').removeClass('hidden');
-            $('#analysis-fill').css('width', '3%');
-            $('#analysis-status').text('جارٍ التحليل... قد يستغرق دقيقة').removeClass('err');
-            $('#analyze-btn').prop('disabled', true);
-            const history = state.history.slice();
-            const gameId = state.gameId || null;
-            const startFen = state.startFen || null;
-            $('#analysis-status').text('جارٍ تحميل محرك Stockfish...');
-            browserEvals(positions.map((p) => p.fen), (done, total) => setAnalysisProgress(done, total, 'جارٍ التحليل على جهازك... ')).then((evals) => {
-                if (!analyzing) return;
-                if (!evals) $('#analysis-status').text('جارٍ التحليل على الخادم... قد يستغرق دقيقة');
-                socket.emit('analyze', { history, startFen, evals: evals || undefined, gameId: gameId || undefined });
-            });
-        },
-        reload() { location.reload(); }
+function newRoom(type, tcId, variant) {
+    const tc = TIME_CONTROLS[tcId];
+    const room = {
+        id: makeRoomId(),
+        type,                       // 'multi' | 'ai'
+        tcId,
+        tc,
+        cat: categoryOf(tc),
+        timeSec: tc.base,
+        incMs: tc.inc * 1000,
+        rated: false,
+        variant: variant === '960' ? '960' : 'std',
+        startFen: null,
+        gameId: makeGameId(),
+        createdAt: Date.now(),
+        game: null,
+        players: { w: null, b: null },   // tokens
+        names: { w: '', b: '' },
+        ratings: { w: null, b: null },
+        disc: { w: null, b: null },      // وقت انتهاء مهلة إعادة الاتصال
+        spectators: new Set(),
+        matched: false,
+        aiColor: null,
+        aiLevel: 10,
+        aiBusy: false,
+        notifiedFallback: false,
+        clocks: { w: tc.base * 1000, b: tc.base * 1000 },
+        running: false,
+        plies: 0,
+        lastTick: Date.now(),
+        timer: null,
+        lastMove: null,
+        over: false,
+        overAt: 0,
+        result: null,
+        closed: false,
+        rematch: { w: false, b: false },
+        drawOffer: null,
+        lastDrawPly: { w: -9, b: -9 }
     };
+    room.game = freshGame(room);
+    rooms.set(room.id, room);
+    return room;
+}
 
-    document.addEventListener('click', (e) => {
-        const el = e.target.closest('[data-action]');
-        if (!el) return;
-        const fn = A[el.dataset.action];
-        if (fn) fn(el, e);
-    });
+function seat(token, room, color) {
+    const p = db.players[token];
+    room.players[color] = token;
+    room.names[color] = (p && p.name) || '';
+    const l = live.get(token);
+    l.roomId = room.id;
+    l.color = color;
+    const s = socketOf(token);
+    if (s) s.join(room.id);
+}
 
-    function copyText(text, btnSel, original) {
-        const done = () => { $(btnSel).text('تم النسخ'); setTimeout(() => $(btnSel).text(original), 1800); };
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => {});
-        else done();
+function startMatch(room) {
+    room.matched = true;
+    ['w', 'b'].forEach((c) => { room.ratings[c] = ratingOf(room.players[c], room.cat); });
+    ['w', 'b'].forEach((c) => emitTo(room.players[c], 'game_start', gameStartPayload(room, c)));
+    broadcast(room);
+}
+
+function gameStartPayload(room, color, resumed) {
+    return {
+        color, mode: room.type, roomId: room.id, tc: room.tcId, rated: room.rated,
+        cat: room.cat, ratings: room.ratings, variant: room.variant, resumed: !!resumed
+    };
+}
+
+function resetForRematch(room) {
+    clearTimeout(room.timer);
+    [room.players.w, room.players.b] = [room.players.b, room.players.w];
+    [room.names.w, room.names.b] = [room.names.b, room.names.w];
+    [room.disc.w, room.disc.b] = [room.disc.b, room.disc.w];
+    for (const c of ['w', 'b']) {
+        const l = live.get(room.players[c]);
+        if (l) l.color = c;
     }
+    room.game = freshGame(room);
+    room.gameId = makeGameId();
+    room.clocks = { w: room.tc.base * 1000, b: room.tc.base * 1000 };
+    room.running = false;
+    room.plies = 0;
+    room.lastTick = Date.now();
+    room.lastMove = null;
+    room.over = false;
+    room.overAt = 0;
+    room.result = null;
+    room.rematch = { w: false, b: false };
+    room.drawOffer = null;
+    room.lastDrawPly = { w: -9, b: -9 };
+}
 
-    function requestLeaderboard() {
-        $('#lb-list').empty().append($('<li class="lb-empty">').text('جارٍ التحميل...'));
-        socket.emit('leaderboard', { cat: lbCat });
+function publicState(room) {
+    return {
+        fen: room.game.fen(),
+        startFen: room.startFen,
+        variant: room.variant,
+        gameId: room.gameId,
+        turn: room.game.turn(),
+        check: room.game.inCheck(),
+        lastMove: room.lastMove,
+        history: room.game.history(),
+        names: room.names,
+        ratings: room.ratings,
+        rated: room.rated,
+        tc: room.tcId,
+        inc: room.incMs,
+        moveCount: room.plies,
+        clocks: room.clocks,
+        tickAt: room.lastTick,
+        serverNow: Date.now(),
+        running: room.running,
+        frozen: room.type === 'ai' && room.game.turn() === room.aiColor,   // ساعة الحاسوب لا تعدّ أثناء التفكير
+        over: room.over,
+        result: room.result,
+        drawOffer: room.drawOffer,
+        disc: room.disc,
+        spectators: room.spectators.size,
+        rematch: room.rematch
+    };
+}
+function broadcast(room) {
+    io.to(room.id).emit('state', publicState(room));
+}
+
+function closeRoom(room) {
+    if (room.closed) return;
+    clearTimeout(room.timer);
+    room.closed = true;
+    io.to(room.id).emit('room_closed');
+    for (const t of room.spectators) {
+        const l = live.get(t);
+        if (l) l.specId = null;
     }
-    socket.on('leaderboard', (d) => {
-        if (d.cat !== lbCat) return;
-        const list = $('#lb-list').empty();
-        if (!d.rows.length) return list.append($('<li class="lb-empty">').text('لا توجد مباريات مصنَّفة بعد. كن أول المتصدرين!'));
-        d.rows.forEach((r, i) => {
-            list.append($('<li>').append(
-                $('<span class="rk">').text(i + 1),
-                $('<span class="nm">').text(r.name),
-                $('<span class="rt">').text(r.rating),
-                $('<span class="gm">').text(r.games + ' مباراة')
-            ));
+    io.in(room.id).socketsLeave(room.id);
+    rooms.delete(room.id);
+}
+
+// ───────────────────────── الساعة ─────────────────────────
+function scheduleFlag(room) {
+    clearTimeout(room.timer);
+    if (room.over || !room.running) return;
+    const side = room.game.turn();
+    if (room.type === 'ai' && side === room.aiColor) return;   // الحاسوب لا يخسر بسبب بطء الشبكة
+    room.timer = setTimeout(() => onFlag(room, side), Math.max(0, room.clocks[side]) + 5);
+}
+
+// هل يستطيع هذا اللون نظريًا إنهاء المباراة بكش مات؟ (للتعادل عند نفاد وقت الخصم)
+function canMate(fen, color) {
+    const placement = fen.split(' ')[0];
+    let minors = 0;
+    for (const ch of placement) {
+        const isMine = color === 'w' ? ch === ch.toUpperCase() : ch === ch.toLowerCase();
+        if (!isMine || !/[a-z]/i.test(ch)) continue;
+        const t = ch.toLowerCase();
+        if (t === 'p' || t === 'r' || t === 'q') return true;
+        if (t === 'n' || t === 'b') minors++;
+    }
+    return minors >= 2;
+}
+
+function timeoutResult(room, loser) {
+    const winner = other(loser);
+    if (!canMate(room.game.fen(), winner)) return { winner: null, reason: 'timevsinsufficient' };
+    return { winner, reason: 'timeout' };
+}
+
+function onFlag(room, side) {
+    if (room.over || room.closed || room.game.turn() !== side) return;
+    room.clocks[side] = 0;
+    endGame(room, timeoutResult(room, side));
+}
+
+const MAX_SAVED_GAMES = 20;
+function saveGameRecords(room) {
+    if (room.plies < 2 || !room.result || room.result.reason === 'aborted') return;
+    const hist = room.game.history();
+    ['w', 'b'].forEach((c) => {
+        const t = room.players[c];
+        const rec = t && db.players[t];
+        if (!rec || !rec.user) return;
+        if (!Array.isArray(rec.hist)) rec.hist = [];
+        rec.hist.unshift({
+            id: room.gameId, t: Date.now(), w: room.names.w || 'الأبيض', b: room.names.b || 'الأسود', c,
+            tc: room.tcId, rated: !!room.rated, v: room.variant, sf: room.startFen, h: hist,
+            res: { winner: room.result.winner || null, reason: room.result.reason }, ai: room.type === 'ai', an: null
         });
+        if (rec.hist.length > MAX_SAVED_GAMES) rec.hist.length = MAX_SAVED_GAMES;
     });
+    saveSoon();
+}
 
-    // ───────────────────────── الاتصال وإعادة الاتصال ─────────────────────────
-    socket.on('connect', () => {
-        $('#conn-banner').addClass('hidden');
-        socket.emit('hello', { token: getToken(), name: getName() });
+function endGame(room, result) {
+    if (room.over) return;
+    room.over = true;
+    room.overAt = Date.now();
+    room.result = result;
+    room.drawOffer = null;
+    clearTimeout(room.timer);
+    room.lastTick = Date.now();
+    if (room.rated && room.matched && room.plies >= 2 && result.reason !== 'aborted') {
+        const ch = eloUpdate(room, result);
+        if (ch) {
+            room.result.delta = { w: ch.w, b: ch.b };
+            room.result.newRatings = ch.ratings;
+        }
+    }
+    saveGameRecords(room);
+    broadcast(room);
+    // أبلغ الغرفة بأن زر الإعادة لم يعد متاحًا إن غاب أحد الطرفين
+    ['w', 'b'].forEach((c) => {
+        if (!room.players[c] && room.type === 'multi') emitPlayers(room, 'opponent_left');
     });
-    socket.on('disconnect', () => { if (!replaced) $('#conn-banner').removeClass('hidden'); });
-    socket.on('replaced', () => { replaced = true; $('#conn-banner').addClass('hidden'); $('#replaced-dialog').removeClass('hidden'); });
-    socket.on('error', () => { /* تجاوز حد المعدل: نتجاهل */ });
+}
 
-    socket.on('welcome', (w) => {
-        memToken = w.token;
-        lsSet('chess-token', w.token);
-        ratings = w.ratings || ratings;
-        renderRatings();
-        account = w.user || null;
-        renderAccount();
-        if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
-        setOnline(w.online);
-        if (!$('#player-name').val() && w.name) $('#player-name').val(w.name);
+// ───────────────────────── تطبيق الحركة ─────────────────────────
+function applyMove(room, color, { from, to, promotion }) {
+    if (room.over || room.closed || !room.matched || room.game.turn() !== color) return false;
 
-        const inLiveGame = currentScreen === 'game-screen' && state && !state.over && !spectating;
-        if (currentScreen === 'searching-screen' || currentScreen === 'waiting-screen') {
-            stopSearchTimer();
-            show('menu-screen');       // إن بقيت الغرفة فسيعيد السيرفر room_created
-        }
-        if (spectating) resetToMenu();
-        if (inLiveGame) {
-            // ننتظر أن يستأنف السيرفر المباراة، وإلا فقد انتهت أثناء الانقطاع
-            awaitResume = true;
-            clearTimeout(resumeTimer);
-            resumeTimer = setTimeout(() => {
-                if (!awaitResume) return;
-                awaitResume = false;
-                alert('انتهت المباراة أثناء انقطاع الاتصال.');
-                resetToMenu();
-            }, 2500);
-        }
-        if (pendingJoin) {
-            socket.emit('join_room', { roomId: pendingJoin });
-            pendingJoin = null;
-        }
-    });
-
-    function setOnline(n) {
-        $('#online-count').text(n ? n + ' لاعب متصل الآن' : '');
-    }
-    socket.on('online', (d) => setOnline(d.online));
-    setInterval(() => { if (socket.connected && currentScreen === 'menu-screen') socket.emit('get_online'); }, 20000);
-
-    // ───────────────────────── البحث عن خصم ─────────────────────────
-    function stopSearchTimer() {
-        if (searchInterval) { clearInterval(searchInterval); searchInterval = null; }
-    }
-    socket.on('searching', ({ tc }) => {
-        $('#search-info').text('النظام: ' + tcText(tc));
-        $('#search-timer').text('00:00');
-        show('searching-screen');
-        stopSearchTimer();
-        const startedAt = Date.now();
-        searchInterval = setInterval(() => {
-            const s = Math.floor((Date.now() - startedAt) / 1000);
-            $('#search-timer').text(String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'));
-        }, 1000);
-    });
-    socket.on('search_cancelled', () => { stopSearchTimer(); show('menu-screen'); });
-    socket.on('left', () => { if (currentScreen !== 'menu-screen') resetToMenu(); });
-
-    socket.on('room_created', ({ roomId }) => {
-        $('#room-code').text(roomId);
-        $('#copy-btn').text('انسخ الكود');
-        $('#copy-link-btn').text('انسخ الرابط');
-        show('waiting-screen');
-    });
-    socket.on('room_error', (msg) => {
-        $('#menu-error').text(msg);
-        if (currentScreen !== 'menu-screen' && currentScreen !== 'game-screen') { alert(msg); }
-    });
-    socket.on('room_closed', () => {
-        if (currentScreen === 'game-screen' && !(state && state.over)) {
-            alert('أُغلقت الغرفة.');
-            resetToMenu();
-        } else if (currentScreen === 'waiting-screen') {
-            resetToMenu();
-        }
-    });
-
-    // ───────────────────────── اللوحة ─────────────────────────
-    function initBoard() {
-        analysis = null;
-        analyzing = false;
-        $('#eval-bar').addClass('hidden');
-        $('#analysis-box').addClass('hidden');
-        $('#analysis-summary, #analysis-note').empty();
-        if (board) board.destroy();
-        game.reset();
-        board = Chessboard('board', {
-            draggable: !spectating,
-            position: 'start',
-            orientation: (myColor === 'b') !== flipped ? 'black' : 'white',
-            pieceTheme: PIECE_THEME,
-            onDragStart,
-            onDrop,
-            onSnapEnd: () => { clearLegal(); board.position(game.fen()); }
-        });
-    }
-    $(window).on('resize', () => { if (board) board.resize(); if (pzBoard) pzBoard.resize(); });
-
-    function clearLegal() { $('#board .square-55d63').removeClass('legal-move legal-capture'); }
-    function showLegal(source) {
-        clearLegal();
-        game.moves({ square: source, verbose: true }).forEach((m) => {
-            const isCapture = m.captured || m.flags.indexOf('e') !== -1;
-            $('#board .square-' + m.to).addClass(isCapture ? 'legal-capture' : 'legal-move');
-        });
-    }
-    function canPlay() { return !!state && !state.over && !spectating && reviewIndex === null && game.turn() === myColor; }
-
-    function onDragStart(source, piece) {
-        if (!canPlay()) return false;
-        if (piece.charAt(0) !== myColor) return false;
-        showLegal(source);
-    }
-    function onDrop(source, target) {
-        clearLegal();
-        if (source === target) { handleSquareTap(source); return 'snapback'; }
-        clearSelection();
-        return attemptMove(source, target) === 'moved' ? undefined : 'snapback';
-    }
-    function attemptMove(source, target) {
-        const legal = game.moves({ square: source, verbose: true }).filter((m) => m.to === target);
-        if (!legal.length) return false;
-        if (legal[0].flags.indexOf('p') !== -1) {
-            pendingMove = { from: source, to: target };
-            $('#promotion-dialog img').each(function () {
-                $(this).attr('src', PIECE_THEME.replace('{piece}', myColor + $(this).data('piece')));
-            });
-            $('#promotion-dialog').removeClass('hidden');
-            return 'promo';
-        }
-        return submitMove({ from: source, to: target }) ? 'moved' : false;
-    }
-
-    let selectedSquare = null;
-    let lastTapSq = null;
-    let lastTapAt = 0;
-
-    function clearSelection() {
-        selectedSquare = null;
-        $('#board .square-55d63').removeClass('selected-sq');
-        clearLegal();
-    }
-    function selectSquare(sq) {
-        clearSelection();
-        selectedSquare = sq;
-        $('#board .square-' + sq).addClass('selected-sq');
-        showLegal(sq);
-    }
-    function handleSquareTap(sq) {
-        const now = Date.now();
-        if (sq === lastTapSq && now - lastTapAt < 400) return;
-        lastTapSq = sq;
-        lastTapAt = now;
-        if (!canPlay()) { clearSelection(); return; }
-        if (selectedSquare && selectedSquare !== sq) {
-            if (attemptMove(selectedSquare, sq)) {
-                clearSelection();
-                if (!pendingMove) board.position(game.fen());
-                return;
-            }
-        }
-        const piece = game.get(sq);
-        if (piece && piece.color === myColor) {
-            if (selectedSquare === sq) clearSelection(); else selectSquare(sq);
-        } else {
-            clearSelection();
-        }
-    }
-    $('#board').on('click', '.square-55d63', function () { handleSquareTap($(this).attr('data-square')); });
-
-    function submitMove(m) {
-        const move = { from: m.from, to: m.to, promotion: m.promotion || 'q' };
-        if (game.move(move) === null) return false;
-        socket.emit('move', move);
-        return true;
-    }
-    function cancelPromotion() { $('#promotion-dialog').addClass('hidden'); pendingMove = null; }
-
-    function highlightLastMove(lm) {
-        $('#board .square-55d63').removeClass('highlight-last');
-        if (!lm) return;
-        $('#board .square-' + lm.from).addClass('highlight-last');
-        $('#board .square-' + lm.to).addClass('highlight-last');
-    }
-
-    // ───────────────────────── سجل الحركات والمراجعة ─────────────────────────
-    function renderHistory(history, current) {
-        if (current === undefined) current = history.length;
-        const box = $('#move-list').empty();
-        if (!history.length) { box.append($('<p class="empty">').text('ستظهر الحركات هنا')); return; }
-        for (let i = 0; i < history.length; i += 2) {
-            const row = $('<div class="mrow">');
-            row.append($('<span class="num">').text(i / 2 + 1));
-            [history[i], history[i + 1]].forEach((san, k) => {
-                const ply = i + k + 1;
-                const el = $('<span class="mv">').text(san || '');
-                const an = analysis && analysis.plies[ply - 1];
-                if (san && an && CLS[an.cls] && an.cls !== 'good') el.append($('<b class="bd">').addClass('c-' + an.cls).text(CLS[an.cls].sym));
-                if (san) el.attr('data-ply', ply);
-                if (san && ply === current) el.addClass('last');
-                row.append(el);
-            });
-            box.append(row);
-        }
-        const cur = box.find('.mv.last')[0];
-        if (cur && current !== history.length) cur.scrollIntoView({ block: 'nearest' });
-        else box.scrollTop(box[0].scrollHeight);
-    }
-    $('#move-list').on('click', '.mv[data-ply]', function () {
-        if (state && state.over) reviewTo(Number($(this).attr('data-ply')));
-    });
-
-    function buildPositions(history, startFen) {
-        const g = startFen ? new Chess(startFen) : new Chess();
-        const pos = [{ fen: g.fen(), from: null, to: null, cap: null, color: null }];
-        history.forEach((san) => {
-            const mv = g.move(san);
-            if (mv) pos.push({ fen: g.fen(), from: mv.from, to: mv.to, cap: mv.captured || null, color: mv.color });
-        });
-        return pos;
-    }
-    function reviewTo(i) {
-        if (!state || !state.over || !board) return;
-        i = Math.max(0, Math.min(positions.length - 1, i));
-        reviewIndex = i === positions.length - 1 ? null : i;
-        const p = positions[i];
-        board.position(p.fen);
-        highlightLastMove(p.from ? { from: p.from, to: p.to } : null);
-        markAnalysis(i);
-        renderHistory(state.history || [], i);
-        renderCaptured(i);
-    }
-    function reviewGo(where) {
-        if (!state || !state.over) return;
-        const last = positions.length - 1;
-        const cur = reviewIndex === null ? last : reviewIndex;
-        if (where === 'start') reviewTo(0);
-        else if (where === 'prev') reviewTo(cur - 1);
-        else if (where === 'next') reviewTo(cur + 1);
-        else reviewTo(last);
-    }
-
-    // ───────────────────────── مبارياتي (المحفوظة في الحساب) ─────────────────────────
-    socket.on('games', (list) => {
-        const ul = $('#games-list').empty();
-        $('#games-empty').text('لا توجد مباريات محفوظة بعد. تُحفظ آخر 20 مباراة تلعبها وأنت مسجّل الدخول.').toggleClass('hidden', !!list.length);
-        list.forEach((g) => {
-            const mine = g.c || 'w';
-            const opp = g.ai ? 'الحاسوب' : (mine === 'w' ? g.b : g.w);
-            const res = !g.res || !g.res.winner ? 'تعادل' : (g.res.winner === mine ? 'فوز' : 'خسارة');
-            const tone = res === 'فوز' ? 'win' : res === 'خسارة' ? 'loss' : '';
-            const d = new Date(g.t);
-            const info = [tcText(g.tc), g.n + ' حركة', d.toLocaleDateString('ar') + ' ' + d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' })];
-            if (g.v === '960') info.push('فيشر 960');
-            if (g.an) info.push('محلّلة');
-            ul.append($('<li>').append(
-                $('<button type="button" class="game-row">').attr({ 'data-action': 'openGame', 'data-id': g.id }).append(
-                    $('<span class="gr-res">').addClass(tone).text(res),
-                    $('<span class="gr-main">').append($('<b>').text('ضد ' + opp), $('<small class="muted">').text(info.join(' · ')))
-                )
-            ));
-        });
-    });
-    socket.on('games_error', (m) => gtoast(m));
-    socket.on('game_data', (g) => openArchive(g));
-
-    // فتح مباراة محفوظة في شاشة اللعب بوضع المراجعة (للقراءة فقط)
-    function openArchive(g) {
-        spectating = true;
-        gameMode = g.ai ? 'ai' : 'multi';
-        myColor = g.c || 'w';
-        flipped = false;
-        $('#chat-box').empty();
-        resetGameUi();
-        const opp = myColor === 'w' ? 'b' : 'w';
-        const nm = { w: g.w, b: g.b };
-        oppName = nm[opp] || 'الخصم';
-        $('#opp-name').text(oppName);
-        $('#my-name').text(nm[myColor] || 'أنت');
-        $('#chat-container').addClass('hidden');
-        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
-        show('game-screen');
-        initBoard();
-        positions = buildPositions(g.h || [], g.sf || null);
-        const fen = positions[positions.length - 1].fen;
-        state = {
-            fen, startFen: g.sf || null, variant: g.v, gameId: g.id, turn: fen.split(' ')[1], check: false, lastMove: null,
-            history: g.h || [], names: nm, ratings: {}, rated: !!g.rated, tc: g.tc, moveCount: (g.h || []).length,
-            clocks: { w: 0, b: 0 }, running: false, over: true, result: g.res || { winner: null, reason: 'draw' },
-            drawOffer: null, disc: {}, spectators: 0, rematch: {}, serverNow: Date.now()
-        };
-        serverOffset = 0;
-        lastOver = true;
-        firstState = false;
-        game.load(fen);
-        if (board) board.position(fen);
-        reviewIndex = null;
-        renderHistory(state.history);
-        renderCaptured(positions.length - 1);
-        updateGameButtons(state);
-        updateStatus();
-        renderClocks();
-        $('#my-timer, #opponent-timer').text('--:--');
-        if (g.an && Array.isArray(g.an.plies) && g.an.plies.length === state.history.length) {
-            analysis = g.an;
-            $('#analysis-box').removeClass('hidden');
-            $('#analysis-bar').addClass('hidden');
-            $('#analysis-status').text('تحليل محفوظ لهذه المباراة. استعمل الأسهم أو اضغط على أي حركة.').removeClass('err');
-            renderAnalysisSummary(analysis);
-            renderHistory(state.history, state.history.length);
-            reviewTo(positions.length - 1);
-        }
-    }
-
-    // ───────────────────────── تحليل المباراة ─────────────────────────
-    function fmtEval(cp) {
-        if (Math.abs(cp) >= 9000) return cp > 0 ? 'كش مات للأبيض' : 'كش مات للأسود';
-        return (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
-    }
-    function winPctJs(cp) {
-        const c = Math.max(-1500, Math.min(1500, cp));
-        return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * c)) - 1);
-    }
-    function evalAt(i) {
-        if (!analysis) return null;
-        if (i <= 0) return analysis.startCp == null ? 20 : analysis.startCp;
-        const p = analysis.plies[i - 1];
-        return p ? p.cp : null;
-    }
-    // شريط التقييم بجانب اللوحة (الأبيض فاتح، الأسود داكن)
-    function setEvalBar(i) {
-        const cp = evalAt(i);
-        const bar = $('#eval-bar');
-        const show = cp != null;
-        const was = !bar.hasClass('hidden');
-        bar.toggleClass('hidden', !show);
-        if (show !== was && board) setTimeout(() => { if (board) board.resize(); }, 0);
-        if (!show) return;
-        bar.toggleClass('flip', (myColor === 'b') !== flipped);
-        $('#eval-fill').css('height', winPctJs(cp).toFixed(1) + '%');
-        $('#eval-text').text(Math.abs(cp) >= 9000 ? 'M' : (Math.abs(cp) / 100).toFixed(1)).attr('data-lead', cp >= 0 ? 'w' : 'b');
-        bar.attr('title', 'التقييم: ' + fmtEval(cp));
-    }
-    function markAnalysis(i) {
-        $('#board .square-55d63').removeAttr('data-sym').removeAttr('data-cls');
-        const note = $('#analysis-note').empty();
-        setEvalBar(i);
-        if (!analysis || i < 1 || !positions[i]) return;
-        const an = analysis.plies[i - 1];
-        const c = an && CLS[an.cls];
-        if (!c) return;
-        $('#board .square-' + positions[i].to).attr({ 'data-sym': c.sym, 'data-cls': an.cls });
-        const num = Math.ceil(i / 2) + (i % 2 ? '.' : '...');
-        const line = $('<div>').append($('<b>').addClass('c-' + an.cls).text(num + ' ' + an.san + ' ' + c.sym), document.createTextNode(' ' + c.name));
-        const extra = ['التقييم: ' + fmtEval(an.cp)];
-        if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push('الأفضل كان: ' + an.best);
-        note.append(line, $('<div class="muted small">').text(extra.join(' · ')));
-    }
-    function renderAnalysisSummary(res) {
-        const nm = (state && state.names) || {};
-        const rows = [['accuracy', 'الدقة']].concat(Object.keys(CLS).map((k) => [k, CLS[k].sym + ' ' + CLS[k].name]));
-        const tbl = $('<table class="an-table">');
-        tbl.append($('<tr>').append($('<th>'), $('<th>').text(nm.w || 'الأبيض'), $('<th>').text(nm.b || 'الأسود')));
-        rows.forEach(([k, label]) => {
-            let w;
-            let b;
-            if (k === 'accuracy') { w = res.accuracy.w == null ? '-' : res.accuracy.w + '%'; b = res.accuracy.b == null ? '-' : res.accuracy.b + '%'; }
-            else { w = res.counts.w[k] || 0; b = res.counts.b[k] || 0; if (!w && !b) return; }
-            tbl.append($('<tr>').append($('<td>').text(label).addClass(k === 'accuracy' ? '' : 'c-' + k), $('<td>').text(w), $('<td>').text(b)));
-        });
-        $('#analysis-summary').empty().append(tbl);
-    }
-    function setAnalysisProgress(done, total, label) {
-        if (!analyzing) return;
-        $('#analysis-fill').css('width', Math.max(3, Math.round((done / total) * 100)) + '%');
-        $('#analysis-status').text(label + done + ' من ' + total);
-    }
-    socket.on('analysis_progress', (d) => setAnalysisProgress(d.done, d.total, 'جارٍ التحليل على الخادم... '));
-
-    // تقييم المراكز بمحرك Stockfish يعمل داخل المتصفح (Web Worker). يعيد null إن لم يتوفر فنرجع للخادم.
-    function browserEvals(fens, onProgress) {
-        return new Promise((resolve) => {
-            let finished = false;
-            const workers = [];
-            let guard = null;
-            const finish = (v) => {
-                if (finished) return;
-                finished = true;
-                clearTimeout(guard);
-                workers.forEach((w) => { try { w.terminate(); } catch (e) { /* ignore */ } });
-                resolve(v);
-            };
-            if (typeof Worker === 'undefined') return finish(null);
-            guard = setTimeout(() => finish(null), 150000);
-            $.getJSON('/vendor/stockfish/manifest.json').done((m) => {
-                if (!m || !m.file) return finish(null);
-                const url = '/vendor/stockfish/' + m.file.split('/').map(encodeURIComponent).join('/');
-                const n = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1));
-                const results = new Array(fens.length).fill(null);
-                let next = 0;
-                let done = 0;
-                const start = () => {
-                    let w;
-                    try { w = new Worker(url); } catch (e) { return finish(null); }
-                    workers.push(w);
-                    let phase = 'init';
-                    let job = -1;
-                    let score = null;
-                    let score2 = null;
-                    let best = null;
-                    const send = (s) => w.postMessage(s);
-                    const initTimer = setTimeout(() => { if (phase === 'init') finish(null); }, 25000);
-                    const nextJob = () => {
-                        if (next >= fens.length) return;
-                        job = next++;
-                        score = null;
-                        score2 = null;
-                        best = null;
-                        send('position fen ' + fens[job]);
-                        send('go depth 14 movetime 1500');
-                    };
-                    w.onerror = () => finish(null);
-                    w.onmessage = (ev) => {
-                        const line = typeof ev.data === 'string' ? ev.data : '';
-                        if (phase === 'init') {
-                            if (line.indexOf('uciok') === 0) { send('setoption name Hash value 16'); send('setoption name MultiPV value 2'); send('isready'); }
-                            else if (line.indexOf('readyok') === 0) { phase = 'run'; clearTimeout(initTimer); nextJob(); }
-                            return;
-                        }
-                        if (line.indexOf('info') === 0 && line.indexOf(' score ') > 0 && line.indexOf('bound') < 0) {
-                            const s = /score (cp|mate) (-?\d+)/.exec(line);
-                            const mp = /multipv (\d+)/.exec(line);
-                            const sc = s ? (s[1] === 'cp' ? Number(s[2]) : (Number(s[2]) > 0 ? 10000 : -10000)) : null;
-                            if (sc !== null) { if (mp && mp[1] === '2') score2 = sc; else score = sc; }
-                            const pv = / pv ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
-                            if (pv && !(mp && mp[1] === '2')) best = pv[1];
-                        } else if (line.indexOf('bestmove') === 0) {
-                            const bm = /^bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
-                            const mv = bm ? bm[1] : best;
-                            const white = fens[job].split(' ')[1] === 'w';
-                            const cp = score == null ? 0 : (white ? score : -score);
-                            const alt = score2 == null ? null : Math.max(-10000, Math.min(10000, white ? score2 : -score2));
-                            results[job] = { cp: Math.max(-10000, Math.min(10000, cp)), best: mv || null, alt };
-                            done++;
-                            onProgress(done, fens.length);
-                            if (done >= fens.length) finish(results); else nextJob();
-                        }
-                    };
-                    send('uci');
-                };
-                for (let k = 0; k < n; k++) start();
-            }).fail(() => finish(null));
-        });
-    }
-    socket.on('analysis_result', (res) => {
-        analyzing = false;
-        analysis = res;
-        $('#analyze-btn').prop('disabled', false);
-        $('#analysis-bar').addClass('hidden');
-        $('#analysis-status').text(res.source === 'local'
-            ? 'تحليل مبسّط: محرك Stockfish غير متاح الآن، لذا النتائج أقل دقة.'
-            : 'انتهى التحليل. اضغط على أي حركة أو استعمل الأسهم لرؤية تقييمها.').removeClass('err');
-        renderAnalysisSummary(res);
-        if (state) renderHistory(state.history || [], state.history ? state.history.length : 0);
-        reviewTo(positions.length - 1);
-    });
-    socket.on('analysis_error', (msg) => {
-        analyzing = false;
-        $('#analyze-btn').prop('disabled', false);
-        $('#analysis-bar').addClass('hidden');
-        $('#analysis-status').text(msg).addClass('err');
-    });
-
-    // ───────────────────────── القطع المأكولة (من سجل الحركات، فتصح مع الترقية) ─────────────────────────
-    function renderCaptured(idx) {
-        const caps = { w: [], b: [] };           // caps[c] = القطع التي أكلها اللون c
-        for (let i = 1; i <= idx && i < positions.length; i++) {
-            const p = positions[i];
-            if (p.cap) caps[p.color].push(p.cap);
-        }
-        const fen = (positions[idx] || positions[positions.length - 1]).fen;
-        const mat = { w: 0, b: 0 };
-        fen.split(' ')[0].split('').forEach((ch) => {
-            const t = ch.toLowerCase();
-            if (PIECE_VALUE[t]) mat[ch === t ? 'b' : 'w'] += PIECE_VALUE[t];
-        });
-        const opp = myColor === 'w' ? 'b' : 'w';
-        fillCaptured('#my-captured', caps[myColor], opp, mat[myColor] - mat[opp]);
-        fillCaptured('#opp-captured', caps[opp], myColor, mat[opp] - mat[myColor]);
-    }
-    function fillCaptured(sel, list, victimColor, ahead) {
-        const box = $(sel).empty();
-        list.slice().sort((a, b) => PIECE_VALUE[b] - PIECE_VALUE[a]).forEach((t) => {
-            box.append($('<img>').attr({ src: PIECE_THEME.replace('{piece}', victimColor + t.toUpperCase()), alt: '' }));
-        });
-        if (ahead > 0) box.append($('<span class="adv">').text('+' + ahead));
-    }
-
-    // ───────────────────────── الساعات ─────────────────────────
-    function remainingMs(color) {
-        if (!state) return 0;
-        let ms = state.clocks[color];
-        if (state.running && !state.over && !state.frozen && state.turn === color) {
-            ms -= (Date.now() + serverOffset) - state.tickAt;
-        }
-        return Math.max(0, ms);
-    }
-    function fmt(ms) {
-        const total = Math.ceil(ms / 1000);
-        const m = Math.floor(total / 60), s = total % 60;
-        return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    }
-    function renderClocks() {
-        if (!state) return;
-        const opp = myColor === 'w' ? 'b' : 'w';
-        const mine = remainingMs(myColor), theirs = remainingMs(opp);
-        const live = state.running && !state.over;
-        $('#my-timer').text(fmt(mine)).toggleClass('low', mine < 10000).toggleClass('active', live && state.turn === myColor);
-        $('#opponent-timer').text(fmt(theirs)).toggleClass('low', theirs < 10000).toggleClass('active', live && state.turn === opp);
-
-        // مهلة عودة الخصم المنقطع
-        const until = !spectating && state.disc ? state.disc[opp] : null;
-        if (until && !state.over) {
-            const left = Math.max(0, Math.ceil((until - (Date.now() + serverOffset)) / 1000));
-            $('#disc-text').text('انقطع اتصال ' + oppName + '. سيخسر إن لم يعد خلال ' + left + ' ثانية.').removeClass('hidden');
-        } else {
-            $('#disc-text').addClass('hidden');
-        }
-    }
-    setInterval(renderClocks, 200);
-
-    // ───────────────────────── الحالة والنتيجة ─────────────────────────
-    function updateStatus() {
-        if (!state) return;
-        let text, tone = '';
-        if (state.over) {
-            const r = state.result;
-            const reason = REASONS[r.reason] || '';
-            if (!r.winner) text = 'تعادل: ' + reason;
-            else if (spectating) text = (r.winner === 'w' ? 'فاز الأبيض' : 'فاز الأسود') + ' (' + reason + ')';
-            else if (r.winner === myColor) { text = 'فزت بالمباراة (' + reason + ')'; tone = 'win'; }
-            else { text = 'خسرت المباراة (' + reason + ')'; tone = 'loss'; }
-        } else if (spectating) {
-            text = state.check ? 'كش! الدور على ' : 'الدور على ';
-            text += state.turn === 'w' ? 'الأبيض' : 'الأسود';
-        } else if (state.check) {
-            text = state.turn === myColor ? 'كش على ملكك' : 'كش على ملك الخصم';
-            tone = 'check';
-        } else if (!state.running) {
-            text = state.turn === myColor ? 'دورك. تبدأ الساعة بعد أول حركتين.' : 'دور الخصم';
-            if (state.turn === myColor) tone = 'mine';
-        } else {
-            text = state.turn === myColor ? 'دورك' : 'دور الخصم';
-            if (state.turn === myColor) tone = 'mine';
-        }
-        $('#status-text').text(text);
-        $('#status-card').attr('data-tone', tone);
-
-        let meta = gameMode === 'ai' ? 'ضد الحاسوب' : (state.rated ? 'مباراة مصنَّفة' : 'مباراة ودّية');
-        if (state.variant === '960') meta += ' · شطرنج فيشر 960 (بدون تبييت)';
-        meta += ' · ' + tcText(state.tc);
-        if (state.spectators) meta += ' · ' + state.spectators + ' مشاهد';
-        $('#game-meta').text(meta);
-    }
-
-    function showResult() {
-        if (!state || !state.over || spectating) return;
-        const r = state.result;
-        let title, tone;
-        if (!r.winner) { title = r.reason === 'aborted' ? 'أُلغيت المباراة' : 'انتهت بالتعادل'; tone = 'draw'; }
-        else if (r.winner === myColor) { title = 'فزت بالمباراة'; tone = 'win'; }
-        else { title = 'خسرت المباراة'; tone = 'loss'; }
-        $('#result-title').text(title).attr('data-tone', tone);
-        $('#result-reason').text(REASONS[r.reason] || '');
-        const dl = $('#result-delta').addClass('hidden').removeClass('pos neg');
-        if (r.delta && r.newRatings) {
-            const d = r.delta[myColor];
-            const cat = catOf(state.tc);
-            ratings[cat] = r.newRatings[myColor];
-            renderRatings();
-            dl.text('التصنيف ' + r.newRatings[myColor] + ' (' + (d >= 0 ? '+' : '') + d + ')').addClass(d >= 0 ? 'pos' : 'neg').removeClass('hidden');
-        }
-        $('#result-dialog').removeClass('hidden');
-        $('#result-rematch:visible').trigger('focus');
-    }
-    function closeResult() { $('#result-dialog').addClass('hidden'); }
-
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { cancelPromotion(); closeResult(); closeConfirm(); return; }
-        if (state && state.over && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
-            const map = { ArrowLeft: 'prev', ArrowRight: 'next', Home: 'start', End: 'end' };
-            if (map[e.key]) { e.preventDefault(); reviewGo(map[e.key]); }
-        }
-    });
-
-    // ───────────────────────── بدء المباراة ─────────────────────────
-    function resetGameUi() {
-        clearTimeout(resultTimer);
-        state = null;
-        positions = [{ fen: '', from: null, to: null, cap: null, color: null }];
-        reviewIndex = null;
-        lastSoundCount = 0;
-        lastOver = false;
-        firstState = true;
-        $('#notice-text, #flash-text').text('');
-        $('#disc-text').addClass('hidden');
-        $('#status-text').text('اللعبة جارية...');
-        $('#status-card').attr('data-tone', '');
-        $('#my-timer, #opponent-timer').removeClass('active low').text('--:--');
-        $('#my-dot').attr('class', 'dot ' + myColor);
-        $('#opp-dot').attr('class', 'dot ' + (myColor === 'w' ? 'b' : 'w'));
-        $('#game-screen').removeClass('reviewable');
-        $('#review-bar, #pgn-btn, #rematch-btn, #abort-btn').addClass('hidden');
-        $('#result-rematch').removeClass('hidden');
-        $('#result-rematch, #rematch-btn').prop('disabled', false).text('العب مجددًا');
-        $('#rematch-note').text('');
-        $('#draw-banner').addClass('hidden');
-        $('#draw-btn').prop('disabled', false).text('اقترح تعادلًا');
-        $('#my-captured, #opp-captured').empty();
-        $('#my-rating, #opp-rating').text('');
-        rematchSent = false;
-        oppLeft = false;
-        closeResult();
-        cancelPromotion();
-        renderHistory([]);
-    }
-
-    socket.on('game_start', (data) => {
-        stopSearchTimer();
-        awaitResume = false;
-        clearTimeout(resumeTimer);
-        spectating = false;
-        myColor = data.color;
-        gameMode = data.mode;
-        if (!data.resumed) { flipped = false; $('#chat-box').empty(); }
-        resetGameUi();
-        oppName = gameMode === 'ai' ? 'الحاسوب' : 'الخصم';
-        $('#opp-name').text(oppName);
-        $('#my-name').text('أنت');
-        $('#chat-container').toggleClass('hidden', gameMode !== 'multi');
-        $('#draw-btn').toggleClass('hidden', gameMode !== 'multi');
-        $('#resign-btn, #flip-btn').removeClass('hidden');
-        show('game-screen');
-        initBoard();
-    });
-
-    socket.on('spectate_start', () => {
-        spectating = true;
-        gameMode = 'multi';
-        myColor = 'w';
-        flipped = false;
-        $('#chat-box').empty();
-        resetGameUi();
-        oppName = 'الأسود';
-        $('#opp-name').text('الأسود');
-        $('#my-name').text('الأبيض');
-        $('#chat-container').addClass('hidden');
-        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
-        show('game-screen');
-        initBoard();
-    });
-
-    socket.on('state', (s) => {
-        if (!s || !s.fen) return;
-        state = s;
-        clearSelection();
-        serverOffset = s.serverNow - Date.now();
-        game.load(s.fen);
-        if (board) board.position(s.fen);
-        highlightLastMove(s.lastMove);
-
-        const nm = s.names || {};
-        const opp = myColor === 'w' ? 'b' : 'w';
-        oppName = nm[opp] || (spectating ? (opp === 'b' ? 'الأسود' : 'الأبيض') : (gameMode === 'ai' ? 'الحاسوب' : 'الخصم'));
-        $('#opp-name').text(oppName);
-        $('#my-name').text(nm[myColor] || (spectating ? 'الأبيض' : 'أنت'));
-        if (gameMode === 'multi' && s.ratings) {
-            $('#my-rating').text(s.ratings[myColor] ? '(' + s.ratings[myColor] + ')' : '');
-            $('#opp-rating').text(s.ratings[opp] ? '(' + s.ratings[opp] + ')' : '');
-        }
-
-        positions = buildPositions(s.history || [], s.startFen);
-        reviewIndex = null;
-        renderHistory(s.history || []);
-        renderCaptured(positions.length - 1);
-        updateGameButtons(s);
-
-        if (firstState) {
-            lastSoundCount = s.moveCount;
-            lastOver = s.over;
-            firstState = false;
-            if (s.over) resultTimer = setTimeout(showResult, 300);
-        } else {
-            if (s.moveCount > lastSoundCount) {
-                if (s.check && !s.over) playSound('check');
-                else playSound(s.lastMove && s.lastMove.captured ? 'capture' : 'move');
-            }
-            lastSoundCount = s.moveCount;
-            if (s.over && !lastOver) {
-                setTimeout(() => playSound('end'), 350);
-                clearTimeout(resultTimer);
-                resultTimer = setTimeout(showResult, 900);
-            }
-            lastOver = s.over;
-        }
-        updateStatus();
-        renderClocks();
-    });
-
-    function updateGameButtons(s) {
-        $('#game-screen').toggleClass('reviewable', !!s.over);
-        $('#review-bar, #pgn-btn, #analyze-btn').toggleClass('hidden', !s.over);
-        if (spectating) {
-            $('#resign-btn, #abort-btn, #draw-btn, #rematch-btn').addClass('hidden');
-            return;
-        }
-        const canAbort = gameMode === 'multi' && !s.over && s.moveCount < 2;
-        $('#abort-btn').toggleClass('hidden', !canAbort);
-        $('#resign-btn').toggleClass('hidden', !!s.over || canAbort);
-        $('#draw-btn').toggleClass('hidden', !!s.over || gameMode !== 'multi');
-
-        // اقتراح التعادل (الحالة من السيرفر، فتصح بعد إعادة الاتصال أيضًا)
-        const iOffered = s.drawOffer === myColor;
-        $('#draw-btn').prop('disabled', iOffered).text(iOffered ? 'تم إرسال الاقتراح' : 'اقترح تعادلًا');
-        $('#draw-banner').toggleClass('hidden', !(s.drawOffer && s.drawOffer !== myColor && !s.over));
-
-        const gone = oppLeft || (gameMode === 'multi' && s.result && s.result.reason === 'abandoned');
-        $('#rematch-btn, #result-rematch').toggleClass('hidden', !s.over || !!gone);
-        if (s.over && gone) $('#rematch-note').text('غادر الخصم المباراة.');
-        if (s.over && s.rematch && gameMode === 'multi') {
-            const opp = myColor === 'w' ? 'b' : 'w';
-            if (s.rematch[myColor]) {
-                rematchSent = true;
-                $('#result-rematch, #rematch-btn').prop('disabled', true).text('بانتظار الخصم...');
-            } else if (s.rematch[opp]) {
-                $('#rematch-note').text(oppName + ' يريد إعادة المباراة.');
-                $('#result-rematch, #rematch-btn').text('قبول الإعادة');
-            }
-        }
-    }
-
-    // ───────────────────────── أحداث اللعب ─────────────────────────
-    socket.on('notice', (msg) => $('#notice-text').text(msg));
-    socket.on('toast', (msg) => flash(msg));
-    socket.on('draw_offered', () => { $('#draw-banner').removeClass('hidden'); playSound('check'); });
-    socket.on('draw_cleared', () => $('#draw-banner').addClass('hidden'));
-    socket.on('draw_declined', () => flash('رفض الخصم اقتراح التعادل.'));
-    socket.on('draw_sent', () => $('#draw-btn').prop('disabled', true).text('تم إرسال الاقتراح'));
-    socket.on('opp_reconnected', () => flash('عاد الخصم إلى المباراة.'));
-    socket.on('rematch_offered', () => {
-        if (rematchSent) return;
-        $('#rematch-note').text(oppName + ' يريد إعادة المباراة.');
-        $('#result-rematch, #rematch-btn').text('قبول الإعادة');
-        flash(oppName + ' يريد إعادة المباراة.');
-    });
-    socket.on('opponent_left', () => {
-        oppLeft = true;
-        if (state && state.over) {
-            $('#rematch-btn, #result-rematch').addClass('hidden');
-            $('#rematch-note').text('غادر الخصم المباراة.');
-        }
-    });
-
-    // ───────────────────────── الدردشة (text() لمنع XSS) ─────────────────────────
-    function appendChat(who, msg) {
-        $('<div>').text(who + ': ' + msg).appendTo('#chat-box');
-        const box = document.getElementById('chat-box');
-        box.scrollTop = box.scrollHeight;
-    }
-    socket.on('chat', (d) => appendChat(oppName, d && d.message ? d.message : ''));
-
-    // ───────────────────────── PGN ─────────────────────────
-    function downloadPGN() {
-        if (!state) return;
-        const nm = state.names || {};
-        const r = state.result;
-        const res = !r ? '*' : (!r.winner ? '1/2-1/2' : (r.winner === 'w' ? '1-0' : '0-1'));
-        const d = new Date();
-        const pad = (n) => String(n).padStart(2, '0');
-        const t = TCS[state.tc];
-        const g = state.startFen ? new Chess(state.startFen) : new Chess();
-        if (state.startFen) g.header('Variant', 'Chess960', 'SetUp', '1', 'FEN', state.startFen);
-        g.header('Event', 'Online game', 'Site', location.host, 'Date',
-            d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()),
-            'White', nm.w || 'Player', 'Black', nm.b || 'Player', 'Result', res,
-            'TimeControl', t ? (t.base + (t.inc ? '+' + t.inc : '')) : '-');
-        (state.history || []).forEach((san) => g.move(san));
-        const blob = new Blob([g.pgn() + '\n'], { type: 'application/x-chess-pgn' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'chess-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.pgn';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    }
-
-
-
-    // ───────────────────────── دعم المطوّر (يُضبط من الملف support.json) ─────────────────────────
-    function loadSupport() {
-        $.getJSON('/support.json').done((d) => {
-            const links = (d && Array.isArray(d.links) ? d.links : [])
-                .filter((l) => l && l.label && typeof l.url === 'string' && /^https:\/\//i.test(l.url)).slice(0, 4);
-            if (!links.length) return;
-            $('#support-msg').text(String((d && d.message) || '').slice(0, 300));
-            const box = $('#support-links').empty();
-            links.forEach((l) => box.append(
-                $('<a class="btn secondary" target="_blank" rel="noopener noreferrer">').attr('href', l.url).text(String(l.label).slice(0, 40))
-            ));
-            $('#support-card').removeClass('hidden');
-        });
-    }
-    loadSupport();
-
-    // ───────────────────────── الحساب والأصدقاء ─────────────────────────
-    function gtoast(text) {
-        $('#global-toast').text(text).removeClass('hidden');
-        clearTimeout(gtoastTimer);
-        gtoastTimer = setTimeout(() => $('#global-toast').addClass('hidden'), 4500);
-    }
-
-    function renderAccount() {
-        const logged = !!account;
-        $('#acc-info').text(logged ? 'مرحبًا، ' + account : 'أنت تلعب كضيف');
-        $('#acc-login').toggleClass('hidden', logged);
-        $('#acc-friends, #acc-games, #acc-logout').toggleClass('hidden', !logged);
-        const nameInput = $('#player-name');
-        if (logged) nameInput.val(account).prop('disabled', true);
-        else {
-            nameInput.prop('disabled', false);
-            if (nameInput.val() === '' || nameInput.data('wasAccount')) nameInput.val(lsGet('chess-name') || '');
-        }
-        nameInput.data('wasAccount', logged);
-        if (!logged) { friendsData = { friends: [], incoming: [], outgoing: [] }; renderFriends(); }
-    }
-
-    function setAuthMode(mode) {
-        authMode = mode;
-        $('#auth-tabs button').each(function () { $(this).attr('aria-pressed', String($(this).data('mode') === mode)); });
-        $('#auth-submit').text(mode === 'login' ? 'دخول' : 'إنشاء الحساب');
-        $('#auth-pass').attr('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
-        $('#auth-hint').toggleClass('hidden', mode === 'login');
-        $('#auth-note').toggleClass('hidden', mode === 'login');
-        $('#auth-error').text('');
-    }
-    function authSubmit() {
-        const username = $('#auth-user').val().trim();
-        const password = $('#auth-pass').val();
-        if (!username || !password) return $('#auth-error').text('أدخل اسم المستخدم وكلمة المرور.');
-        $('#auth-error').text('');
-        socket.emit(authMode, { username, password });
-    }
-    $('#auth-pass, #auth-user').on('keydown', (e) => { if (e.key === 'Enter') authSubmit(); });
-    $('#friend-input').on('keydown', (e) => { if (e.key === 'Enter') A.friendAdd(); });
-    setAuthMode('login');
-
-    socket.on('auth_error', (msg) => $('#auth-error').text(msg));
-    socket.on('auth_ok', () => {
-        $('#auth-pass').val('');
-        $('#auth-error').text('');
-        show('menu-screen');
-        gtoast(authMode === 'register' ? 'تم إنشاء حسابك. أهلًا بك!' : 'تم تسجيل الدخول.');
-    });
-    socket.on('logged_out', () => { show('menu-screen'); gtoast('تم تسجيل الخروج.'); });
-
-    const STATUS_TEXT = { online: 'متصل', playing: 'يلعب الآن', searching: 'يبحث عن خصم', offline: 'غير متصل' };
-
-    function renderFriends() {
-        const d = friendsData;
-        const inc = $('#fr-in').empty();
-        $('#fr-in-box').toggleClass('hidden', !d.incoming.length);
-        d.incoming.forEach((u) => {
-            inc.append($('<li>').append(
-                $('<span class="nm">').text(u),
-                $('<button class="btn primary">').text('قبول').attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '1' }),
-                $('<button class="btn ghost">').text('رفض').attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '0' })
-            ));
-        });
-        const list = $('#fr-list').empty();
-        if (!d.friends.length) list.append($('<li class="empty">').text('لا يوجد أصدقاء بعد. أضف صديقًا باسم المستخدم.'));
-        const order = { online: 0, searching: 1, playing: 2, offline: 3 };
-        d.friends.slice().sort((a, b) => order[a.status] - order[b.status] || a.username.localeCompare(b.username)).forEach((f) => {
-            const li = $('<li>').append(
-                $('<span class="sdot">').addClass(f.status),
-                $('<span class="nm">').text(f.username),
-                $('<span class="st">').text(STATUS_TEXT[f.status] || ''),
-                $('<span class="rt">').text(f.rating)
-            );
-            if (f.status === 'online' || f.status === 'searching') {
-                li.append($('<button class="btn secondary">').text('دعوة').attr({ 'data-action': 'friendInvite', 'data-user': f.username }));
-            }
-            li.append($('<button class="btn ghost">').text('إزالة').attr({ 'data-action': 'friendRemove', 'data-user': f.username }));
-            list.append(li);
-        });
-        const out = $('#fr-out').empty();
-        $('#fr-out-box').toggleClass('hidden', !d.outgoing.length);
-        d.outgoing.forEach((u) => out.append($('<li>').append($('<span class="nm">').text(u), $('<span class="st">').text('بانتظار الرد'))));
-        const n = d.incoming.length;
-        $('#friends-badge').text(n).toggleClass('hidden', !n);
-    }
-    socket.on('friends', (d) => { friendsData = d; renderFriends(); });
-    socket.on('friend_error', (m) => $('#fr-msg').text(m).removeClass('good').addClass('err'));
-    socket.on('friend_ok', (m) => $('#fr-msg').text(m).removeClass('err').addClass('good'));
-    socket.on('notify', (d) => gtoast(d.text));
-    socket.on('invite', (d) => {
-        if (currentScreen === 'game-screen' && state && !state.over) {
-            gtoast('دعوة من ' + d.from + ' (أنت في مباراة الآن)');
-            socket.emit('invite_decline', { username: d.from });
-            return;
-        }
-        pendingInvite = d;
-        $('#invite-text').text(d.from + ' يدعوك إلى مباراة ودّية (' + tcText(d.tc) + ')' + (d.variant === '960' ? ' بشطرنج فيشر 960' : ''));
-        $('#invite-dialog').removeClass('hidden');
-        playSound('check');
-    });
-
-    // ───────────────────────── الألغاز (تعمل في المتصفح بلا سيرفر) ─────────────────────────
-    // f = وضعية البداية، n = كش مات في n حركات، s = الحركة الأولى الصحيحة، r = ردّ الخصم (للغز الحركتين)
-    const PUZZLES = [
-        {id:1,n:1,d:800,f:"1r2kbnr/p3pp1p/8/1ppBN3/6QN/2PP4/PP3P2/R1B1K2R w - - 0 1",s:"g4d7",r:""},
-        {id:2,n:1,d:812,f:"r3kbnr/pp1n1p1p/8/1Bp3p1/4P1Q1/1q5P/P2P1P1P/RN2K1NR w - - 0 1",s:"g4d7",r:""},
-        {id:3,n:1,d:824,f:"rnb2qn1/1p1p4/p1k1p3/2pN1p2/P1P2Q1p/R2P1K1P/1P2P1P1/5BNR w - - 0 1",s:"f4c7",r:""},
-        {id:4,n:1,d:836,f:"r1b1kb1r/1p4p1/4p3/p2pK2p/P1p2N1q/5PP1/RPPB3P/1N1Q1B1R b - - 0 1",s:"h4f6",r:""},
-        {id:5,n:1,d:848,f:"5NQ1/4p3/1P1k4/3pb3/3P4/8/2P2P1R/1N2K1N1 w - - 0 1",s:"g8e6",r:""},
-        {id:6,n:1,d:860,f:"1n3bnr/1p2Qpkp/r1p4p/8/1p1p4/3P3P/P1P2K1P/RN3B1R w - - 0 1",s:"h1g1",r:""},
-        {id:7,n:1,d:872,f:"r3kb1Q/3p3p/bppp2p1/8/8/3Pq3/P1P5/3K3n b - - 0 1",s:"h1f2",r:""},
-        {id:8,n:1,d:884,f:"1nb1k3/1ppp4/4p1p1/5p1r/5N2/2PP2q1/RP2P1P1/1N1Q1BK1 b - - 0 1",s:"g3e3",r:""},
-        {id:9,n:1,d:896,f:"r1bq1bnr/ppp1p2p/2B3Q1/3p2p1/6k1/2N4N/PPPP1PPP/R1B1K2R w - - 0 1",s:"g6g5",r:""},
-        {id:10,n:1,d:908,f:"6n1/5p2/1p1b3p/2p2p2/2P1pk1P/2Q5/P2P1K2/5R2 w - - 0 1",s:"c3g3",r:""},
-        {id:11,n:1,d:920,f:"1n2kbn1/p3ppp1/p7/8/1P6/5q2/P1P5/R5Kb b - - 0 1",s:"f3g2",r:""},
-        {id:12,n:1,d:932,f:"6k1/3ppr1p/2p3p1/P1P2P2/5P2/P2P4/4P2P/1qB1KBb1 b - - 0 1",s:"b1c1",r:""},
-        {id:13,n:1,d:944,f:"6k1/3ppr1p/2p5/P1P2p2/P4P2/3P4/4P2P/1qB1KBb1 b - - 0 1",s:"b1c1",r:""},
-        {id:14,n:1,d:956,f:"2r5/1Bpk1p2/5Bp1/4p2p/1p6/3P3b/P2K1PPP/R1QR4 w - - 0 1",s:"c1c6",r:""},
-        {id:15,n:1,d:968,f:"rnb1kbnr/p3pppp/3p4/8/1PQ5/P3P3/3P1PPP/RNB1K1NR w - - 0 1",s:"c4c8",r:""},
-        {id:16,n:1,d:980,f:"rnb1kb1r/3p1ppp/p1p5/4p3/P3Pq2/8/RPPP2Pn/1NBQK1NR b - - 0 1",s:"f4f1",r:""},
-        {id:17,n:1,d:992,f:"r5r1/p3p1bp/1pp4k/1R6/5N2/2PK4/PP6/R1B5 w - - 0 1",s:"b5h5",r:""},
-        {id:18,n:1,d:1004,f:"5kn1/5p2/p5r1/2p4K/3r4/P6P/2P1P3/6Nb b - - 0 1",s:"g8f6",r:""},
-        {id:19,n:1,d:1016,f:"6r1/p3n3/7p/3pk3/7P/5r2/P1PP4/7K b - - 0 1",s:"f3h3",r:""},
-        {id:20,n:1,d:1028,f:"3k2nr/1K5p/5np1/5Q2/5p1P/BPP2N2/3P2PR/8 w - - 0 1",s:"f5c8",r:""},
-        {id:21,n:1,d:1040,f:"4k1r1/R3p2p/2p2p2/6p1/1QP3b1/4PP2/1PP5/2B1KBN1 w - - 0 1",s:"b4e7",r:""},
-        {id:22,n:1,d:1052,f:"4k1r1/2R4p/2p2p2/6p1/1QP3b1/4PP2/1PP5/2B1KBN1 w - - 0 1",s:"b4e7",r:""},
-        {id:23,n:1,d:1064,f:"r2q1bnr/p3p3/np4p1/3p1P1k/3pP3/5K2/PPP4P/1RBQ1BNR w - - 0 1",s:"f3g3",r:""},
-        {id:24,n:1,d:1076,f:"4k1r1/2pb3p/p3B2n/2P5/P1P1pP1P/2N5/1r5R/3K4 b - - 0 1",s:"g8g1",r:""},
-        {id:25,n:1,d:1088,f:"N1b1kbr1/p3pppp/p7/7n/1P6/4K2P/P1P2PP1/1RBQ2NR w - - 0 1",s:"a8c7",r:""},
-        {id:26,n:2,d:1250,f:"rn4nr/7p/6p1/p3p3/P2kP3/1P3P1P/5K1P/2R5 w - - 0 1",s:"f2e2",r:"g6g5"},
-        {id:27,n:2,d:1265,f:"1r6/ppp1pp2/P7/5b2/7b/1P1k4/7P/5K2 b - - 0 1",s:"b8g8",r:"h2h3"},
-        {id:28,n:2,d:1280,f:"1r6/pp2pp2/P1p5/5b2/7b/1P1k3P/8/5K2 b - - 0 1",s:"b8g8",r:"b3b4"},
-        {id:29,n:2,d:1295,f:"1r1qkb1r/pppb3p/4pn1p/8/2P5/7P/PP2PPP1/RN1K1B1R b - - 0 1",s:"d7a4",r:"d1e1"},
-        {id:30,n:2,d:1310,f:"1n6/rp5p/p5k1/2p2bqp/2P1n3/P4K1p/3P3P/8 b - - 0 1",s:"g5d2",r:"a3a4"},
-        {id:31,n:2,d:1325,f:"1n6/rp5p/p5k1/2p2b1p/2P1nK2/P6p/3P2qP/8 b - - 0 1",s:"g2d2",r:"f4f3"},
-        {id:32,n:2,d:1340,f:"1nbqkb2/2pp4/4p3/1P3p2/5Pn1/3P1B2/3BP2P/rN1QK2R b - - 0 1",s:"d8h4",r:"e1f1"},
-        {id:33,n:2,d:1355,f:"r7/2p1k3/pp1p4/4p3/3P4/P1P1P3/r7/4K3 b - - 0 1",s:"a8h8",r:"e1f1"},
-        {id:34,n:2,d:1370,f:"r7/2p1k3/pp1p4/8/3P4/P3P3/r7/4K3 b - - 0 1",s:"a8h8",r:"e1f1"},
-        {id:35,n:2,d:1385,f:"1nbqkbnr/2ppp1p1/1p5p/pN6/5P2/8/PPPP3P/R1BQK2R w - - 0 1",s:"d1h5",r:"g7g6"},
-        {id:36,n:2,d:1400,f:"rn5r/p1k4N/4ppp1/2p5/1P2P1P1/8/4PP1P/1qBK1BR1 b - - 0 1",s:"h8d8",r:"d1e1"},
-        {id:37,n:2,d:1415,f:"1Q6/3p4/2p1p3/1p6/1P2k2p/2P3PN/5P2/3K1B2 w - - 0 1",s:"b8f4",r:"e4d5"},
-        {id:38,n:2,d:1430,f:"r2q1b1r/4Rp1p/b2k4/p2p2p1/P5n1/8/1PPP1PPP/2B1K1NR b - - 0 1",s:"d8e7",r:"e1d1"},
-        {id:39,n:2,d:1445,f:"r6B/1p5p/4k3/pqp5/2P2p2/5P1b/P2P1K2/1N6 b - - 0 1",s:"b5b1",r:"a2a3"},
-        {id:40,n:2,d:1460,f:"1nbqk1r1/3p1pp1/1p6/2b1p2p/N5P1/5P2/P2BK2P/R2Q1BNR b - - 0 1",s:"c8a6",r:"e2e1"},
-        {id:41,n:2,d:1475,f:"1n2k2r/3ppp1p/7b/1p6/r5P1/3P3N/2PBP1RP/3K4 b - - 0 1",s:"a4a1",r:"d2c1"},
-        {id:42,n:2,d:1490,f:"rn1r4/ppk2p1p/4P3/P1p3p1/5b2/5P2/RPP1P1B1/4K3 b - - 0 1",s:"f4g3",r:"e1f1"},
-        {id:43,n:2,d:1505,f:"1n1bk1n1/rp3N1R/p7/2pPpb2/1P6/8/P2PPPP1/RNB1KB2 w - - 0 1",s:"f7d6",r:"e8f8"},
-        {id:44,n:2,d:1520,f:"1rbqk1nr/p1p1p3/2np4/1p4K1/P6p/5P2/1PPPP1PP/RNBQ1B1R b - - 0 1",s:"e7e5",r:"g5g6"},
-        {id:45,n:2,d:1535,f:"1rbqk1nr/p1p1p3/2np4/6K1/R6p/5P2/1PPPP1PP/1NBQ1B1R b - - 0 1",s:"e7e5",r:"g5g6"},
-        {id:46,n:2,d:1550,f:"7Q/p1p3pR/5k2/3p4/4Pp2/P1P2K2/P3P1P1/2B2BN1 w - - 0 1",s:"h8g7",r:"f6e6"},
-        {id:47,n:3,d:1000,f:"r1b1kbnr/p3pppp/1ppp1n2/1Q6/2P4P/P4P1R/1P1PPKP1/RNB2BN1 b - - 0 1",s:"c6b5",r:"c4b5",l:"c8h3",o:"c6b5"},
-        {id:48,n:3,d:1022,f:"rn2kbn1/ppp2ppr/8/4p3/P3P1b1/R1N3P1/1PPPQ3/2B1KBN1 b - - 0 1",s:"g4e2",r:"e1e2",l:"f8a3",o:"g4e2"},
-        {id:49,n:3,d:1044,f:"r2q1bn1/ppk1pppr/7p/1B1p4/1P1p1P2/4P2P/P3K2P/RNBQ3R w - - 0 1",s:"d1c2",r:"c7b8",l:"c2h7",o:"d1c2"},
-        {id:50,n:3,d:1066,f:"r2qkb1r/1p2p3/p1p2p2/3p4/1P4n1/3KP3/P1PP3P/RNB1N2R b - - 0 1",s:"g4f2",r:"d3d4",l:"f2h1",o:"g4f2"},
-        {id:51,n:3,d:1088,f:"rn3b2/ppN1nkpr/8/4pP2/P5b1/R5P1/1PPPQ3/2B1KBN1 b - - 0 1",s:"g4e2",r:"f1e2",l:"e7f5",o:"g4e2"},
-        {id:52,n:3,d:1110,f:"2rq1R2/3k4/4p3/pppp2p1/8/2P1K2B/P7/RN4N1 w - - 0 1",s:"f8d8",r:"c8d8",l:"b1d2",o:"f8d8"},
-        {id:53,n:3,d:1132,f:"1n1k2nr/1b1p2b1/6pp/4p3/1p2r3/3P1K2/5PPP/8 w - - 0 1",s:"d3e4",r:"g8f6",l:"g2g3",o:"d3e4"},
-        {id:54,n:3,d:1154,f:"1r1qkbnr/ppp1p3/6p1/3p4/1n3P2/2PPB2P/P6P/RN2KBNR b - - 0 1",s:"b4c2",r:"e1e2",l:"c2a1",o:"b4c2"},
-        {id:55,n:3,d:1176,f:"rnb1k2r/1p1pb3/p3pn1p/2p2Rp1/P1P1P3/6PP/1P1B4/RN1NKB2 b - - 0 1",s:"e6f5",r:"e4f5",l:"g5g4",o:"e6f5"},
-        {id:56,n:3,d:1198,f:"5k2/1p4pR/2ppp2p/5p2/QP3P2/1P1PK3/4PNPP/1NB2BR1 b - - 0 1",s:"f8g8",r:"f2e4",l:"g8h7",o:"f8g8"},
-        {id:57,n:3,d:1220,f:"r2q1bnr/Rpp1p1p1/3k3p/5p2/7P/1b1BP3/1PPPKPP1/1NB3NR w - - 0 1",s:"a7a8",r:"d8a8",l:"c2b3",o:"a7a8"},
-        {id:58,n:3,d:1242,f:"1nbq1b1B/7p/1p2p3/p1pB4/P1P2k1n/1P5P/3PPP2/RN1QK1NR b - - 0 1",s:"e6d5",r:"a1a2",l:"f4f5",o:"e6d5"},
-        {id:59,n:3,d:1264,f:"1nk2bnr/2p1pp1p/r2p4/p5p1/8/P1P2PqP/1P1PP3/RNBK1BNR b - - 0 1",s:"g3f2",r:"a1a2",l:"f2f1",o:"g3f2"},
-        {id:60,n:3,d:1286,f:"1nb1nb1r/4p2p/3pk3/1p4p1/5Q2/B1PP1P1P/2P1P1P1/4KBNR w - - 0 1",s:"f4g4",r:"e6e5",l:"g4c8",o:"f4g4"},
-        {id:61,n:3,d:1308,f:"1nk2bnr/2p1pp1p/r2p4/p5p1/q7/P1P2P1P/1P1PP1P1/RNB1KBNR b - - 0 1",s:"a4c2",r:"a1a2",l:"c2c1",o:"a4c2"},
-        {id:62,n:3,d:1330,f:"r4b1r/1p1kp3/p1p2p2/8/3KPN2/8/P6P/RN6 b - - 0 1",s:"e7e5",r:"d4d3",l:"e5f4",o:"e7e5"},
-        {id:63,n:3,d:1352,f:"rn2k2r/2p2ppp/p7/3P4/6n1/N3PN1b/PPPK1P1P/R3B2R b - - 0 1",s:"h3g2",r:"h1g1",l:"g2f3",o:"h3g2"},
-        {id:64,n:3,d:1374,f:"r2qkbnr/pp2pp1p/3pb2p/2pn4/2P5/PP3P2/4P1PP/RN1QKBNR w - - 0 1",s:"c4d5",r:"e6d7",l:"a1a2",o:"c4d5"},
-        {id:65,n:3,d:1396,f:"rn3k2/3p4/b1p3p1/pP2Pp2/4p3/PP2P1P1/4BKR1/4R1N1 w - - 0 1",s:"b5a6",r:"b8a6",l:"e1f1",o:"b5a6"},
-        {id:66,n:3,d:1418,f:"rnb1k1nr/pp1pbp2/7p/2p1P3/6QP/1P1PP3/2PK2B1/4R3 w - - 0 1",s:"g4g7",r:"e7h4",l:"g7h8",o:"g4g7"},
-        {id:67,n:3,d:1440,f:"r3kbr1/p1p1p1p1/n7/5p1p/4P1bP/PPP3P1/3N1P2/R1B1K1NR w - - 0 1",s:"f2f3",r:"g4f3",l:"g1f3",o:"f2f3"},
-        {id:68,n:3,d:1462,f:"rnbqk3/pppp1p2/6p1/3n3r/2P1pP2/BP2P3/P2P2PP/R3KBNR w - - 0 1",s:"c4d5",r:"h5d5",l:"a1b1",o:"c4d5"}
-    ];
-
-    let pzBoard = null;
-    let pzGame = null;
-    let pzCur = null;
-    let pzSide = 'w';
-    let pzStep = 0;
-    let pzBusy = false;
-    let pzDone = false;
-    let pzHelped = false;
-    let pzMistakes = 0;
-    let pzLevelN = 0;
-    let pzSel = null;
-    let pzTapSq = null;
-    let pzTapAt = 0;
-    let pzMsgTimer = null;
-    let pzSolved = new Set();
-    let pzStreak = Number(lsGet('chess-pz-streak')) || 0;
-    let pzRating = Number(lsGet('chess-pz-rating')) || 1000;
-    let pzRated = new Set();
-    let pzRun = 0;
-    try { pzRated = new Set(JSON.parse(lsGet('chess-pz-rated') || '[]')); } catch (e) { pzRated = new Set(); }
-    try { pzSolved = new Set(JSON.parse(lsGet('chess-pz-solved') || '[]')); } catch (e) { pzSolved = new Set(); }
-
-    function pzSave() {
-        lsSet('chess-pz-solved', JSON.stringify([...pzSolved]));
-        lsSet('chess-pz-streak', String(pzStreak));
-        pzSync();
-    }
-    // حفظ تقدّم الألغاز في الحساب (للمسجّلين فقط)
-    function pzSync() {
-        if (!account || !socket.connected) return;
-        socket.emit('pz_save', { solved: [...pzSolved], rated: [...pzRated], rating: pzRating, streak: pzStreak });
-    }
-    // دمج ما في الحساب مع ما في هذا المتصفح: اتحاد الألغاز، والتصنيف من الجهة التي لعبت أكثر
-    function pzMerge(s) {
-        const sSolved = Array.isArray(s.s) ? s.s : [];
-        const sRated = Array.isArray(s.d) ? s.d : [];
-        const serverWins = sRated.length >= pzRated.size;
-        sSolved.forEach((id) => pzSolved.add(id));
-        sRated.forEach((id) => pzRated.add(id));
-        if (serverWins && Number.isFinite(s.r)) { pzRating = s.r; pzStreak = Number(s.k) || 0; }
-        lsSet('chess-pz-rating', String(pzRating));
-        lsSet('chess-pz-rated', JSON.stringify([...pzRated]));
-        lsSet('chess-pz-solved', JSON.stringify([...pzSolved]));
-        lsSet('chess-pz-streak', String(pzStreak));
-        pzSync();
-        if (currentScreen === 'puzzle-screen') pzStats();
-    }
-    // تصنيف الألغاز (محلي في متصفحك): يتغير مرة واحدة عند أول إنهاء لكل لغز
-    function pzApplyRating(score) {
-        if (!pzCur || pzRated.has(pzCur.id)) return '';
-        pzRated.add(pzCur.id);
-        const e = 1 / (1 + Math.pow(10, ((pzCur.d || 1000) - pzRating) / 400));
-        const delta = Math.round(24 * (score - e));
-        pzRating = Math.max(100, pzRating + delta);
-        lsSet('chess-pz-rating', String(pzRating));
-        lsSet('chess-pz-rated', JSON.stringify([...pzRated]));
-        return ' (' + (delta >= 0 ? '+' : '') + delta + ' تصنيف)';
-    }
-    function pzPool() { return PUZZLES.filter((p) => !pzLevelN || p.n === pzLevelN); }
-    function pzStats() {
-        const pool = pzPool();
-        const done = pool.filter((p) => pzSolved.has(p.id)).length;
-        $('#pz-stats').text('تصنيف الألغاز: ' + pzRating + ' · حللت ' + done + ' من ' + pool.length + ' · سلسلة متتالية: ' + pzStreak);
-    }
-    function pzSetText(text, tone, temp) {
-        clearTimeout(pzMsgTimer);
-        $('#pz-text').text(text);
-        $('#pz-card').attr('data-tone', tone || '');
-        if (temp) pzMsgTimer = setTimeout(pzPrompt, 2200);
-    }
-    function pzPrompt() {
-        if (!pzCur || pzDone) return;
-        const who = pzSide === 'w' ? 'الأبيض' : 'الأسود';
-        pzSetText(pzCur.n === 3 ? who + ' يلعب ويكسب مادة (ابحث عن أقوى حركة)'
-            : pzStep === 0
-            ? who + ' يلعب ويُكش مات في ' + (pzCur.n === 1 ? 'حركة واحدة' : 'حركتين')
-            : 'أحسنت! والآن أنهِ المباراة بكش مات.', 'mine');
-    }
-
-    // اللغز التالي: أول لغز لم يُحل بعد (من الأسهل إلى الأصعب)
-    function pzNext(advance) {
-        const pool = pzPool();
-        if (!pool.length) return;
-        let list = pool.filter((p) => !pzSolved.has(p.id));
-        if (!list.length) {
-            list = pool;
-            pzSetText('أنهيت كل ألغاز هذا النوع! سنعيدها من البداية.', 'draw');
-        }
-        // عند الضغط على «التالي» نتخطى اللغز الحالي إن لم يُحل
-        let next = list[0];
-        if (advance && pzCur && list.length > 1 && list[0].id === pzCur.id) next = list[1];
-        pzStart(next);
-    }
-
-    function pzStart(p) {
-        pzCur = p;
-        pzRun++;
-        pzGame = new Chess(p.f);
-        pzSide = pzGame.turn();
-        pzStep = 0;
-        pzBusy = false;
-        pzDone = false;
-        pzHelped = false;
-        pzMistakes = 0;
-        pzClear();
-        // تحقق احتياطي: إن لم تكن الحركة الأولى قانونية نتخطى اللغز
-        const legal = pzGame.moves({ verbose: true }).some((m) => m.from + m.to === p.s.slice(0, 4));
-        if (!legal) { pzSolved.add(p.id); return pzNext(true); }
-        if (pzBoard) pzBoard.destroy();
-        pzBoard = Chessboard('pboard', {
-            draggable: true,
-            position: p.f,
-            orientation: pzSide === 'b' ? 'black' : 'white',
-            pieceTheme: PIECE_THEME,
-            onDragStart: (source, piece) => {
-                if (!pzCanMove() || piece.charAt(0) !== pzSide) return false;
-                pzShowLegal(source, true);
-            },
-            onDrop: (source, target) => {
-                pzClearMarks();
-                if (source === target) { pzTap(source); return 'snapback'; }
-                pzSel = null;
-                return pzTryMove(source, target) ? undefined : 'snapback';
-            },
-            onSnapEnd: () => { pzClearMarks(); pzBoard.position(pzGame.fen()); }
-        });
-        $('#pz-meta').text('اللغز ' + p.id + ' من ' + PUZZLES.length + ' · ' + (p.n === 1 ? 'كش مات في حركة' : p.n === 2 ? 'كش مات في حركتين' : 'تكتيك: اكسب مادة') + ' · صعوبة ' + (p.d || ''));
-        $('#pz-hint').prop('disabled', false);
-        pzPrompt();
-        pzStats();
-    }
-
-    function pzCanMove() { return !!pzCur && !pzDone && !pzBusy && pzGame.turn() === pzSide; }
-    function pzClearMarks() { $('#pboard .square-55d63').removeClass('legal-move legal-capture selected-sq hint-sq'); }
-    function pzClear() { pzSel = null; if ($('#pboard').length) pzClearMarks(); }
-    // drag = true: مجرد إظهار الحركات أثناء السحب دون تثبيت التحديد (وإلا يُلغى عند الإفلات على نفس المربع)
-    function pzShowLegal(sq, drag) {
-        pzClearMarks();
-        if (!drag) {
-            pzSel = sq;
-            $('#pboard .square-' + sq).addClass('selected-sq');
-        }
-        pzGame.moves({ square: sq, verbose: true }).forEach((m) => {
-            $('#pboard .square-' + m.to).addClass(m.captured ? 'legal-capture' : 'legal-move');
-        });
-    }
-    function pzTap(sq) {
-        const now = Date.now();
-        if (sq === pzTapSq && now - pzTapAt < 400) return;
-        pzTapSq = sq;
-        pzTapAt = now;
-        if (!pzCanMove()) { pzClear(); return; }
-        if (pzSel && pzSel !== sq) {
-            const from = pzSel;
-            pzClear();
-            if (pzTryMove(from, sq)) { pzBoard.position(pzGame.fen()); return; }
-        }
-        const piece = pzGame.get(sq);
-        if (piece && piece.color === pzSide) { if (pzSel === sq) pzClear(); else pzShowLegal(sq); }
-        else pzClear();
-    }
-    $('#pboard').on('click', '.square-55d63', function () { pzTap($(this).attr('data-square')); });
-
-    // يجرّب حركة اللاعب. true = حركة صحيحة (طُبّقت)، false = خاطئة أو غير قانونية (أُلغيت)
-    function pzTryMove(from, to) {
-        if (!pzCanMove()) return false;
-        const mv = pzGame.move({ from, to, promotion: 'q' });
-        if (!mv) return false;
-        const tactic = pzCur.n === 3;
-        const finalMove = !tactic && (pzCur.n === 1 || pzStep === 1);
-        const correct = tactic ? (pzCur.o || pzCur.s.slice(0, 4)).split(' ').indexOf(from + to) !== -1
-            : (finalMove ? pzGame.in_checkmate() : (from + to === pzCur.s.slice(0, 4)));
-        if (!correct) {
-            pzGame.undo();
-            pzMistakes++;
-            playSound('check');
-            pzSetText(tactic ? 'ليست أقوى حركة، ابحث عن طريقة لكسب مادة.' : finalMove ? 'ليست كش مات، حاول مرة أخرى.' : 'ليست الحركة الصحيحة، حاول مرة أخرى.', 'check', true);
+    const now = Date.now();
+    const wasRunning = room.running;
+    let spent = 0;
+    if (wasRunning) {
+        spent = now - room.lastTick;
+        // تفكير الحاسوب لا يُحتسب كاملًا (زمن الشبكة ليس تفكيرًا)
+        if (room.type === 'ai' && color === room.aiColor) spent = Math.min(spent, 1200);
+        room.clocks[color] -= spent;
+        if (room.clocks[color] <= 0) {
+            room.clocks[color] = 0;
+            endGame(room, timeoutResult(room, color));
             return false;
         }
-        playSound(mv.captured ? 'capture' : 'move');
-        if (tactic) { pzTactic(from + to); return true; }
-        if (finalMove) { pzFinish(); return true; }
-        // حركة أولى صحيحة: يردّ الخصم ثم يكمل اللاعب
-        pzStep = 1;
-        pzBusy = true;
-        const run = pzRun;
-        pzSetText('حركة صحيحة! الخصم يرد...', 'mine');
-        setTimeout(() => {
-            if (run !== pzRun) return;
-            const replies = pzGame.moves({ verbose: true });
-            const rep = replies.find((m) => m.from + m.to === (pzCur.r || '').slice(0, 4)) || replies[0];
-            if (rep) {
-                const rm = pzGame.move({ from: rep.from, to: rep.to, promotion: 'q' });
-                playSound(rm && rm.captured ? 'capture' : 'move');
-                pzBoard.position(pzGame.fen());
+    }
+
+    let mv;
+    try {
+        const promo = ['q', 'r', 'b', 'n'].includes(promotion) ? promotion : 'q';
+        mv = room.game.move({ from, to, promotion: promo });
+    } catch (e) {
+        if (wasRunning) room.clocks[color] += spent;      // حركة غير قانونية: نعيد الوقت
+        return false;
+    }
+
+    room.plies++;
+    room.lastMove = { from: mv.from, to: mv.to, san: mv.san, captured: !!mv.captured };
+    if (wasRunning) room.clocks[color] += room.incMs;     // زيادة الوقت بعد الحركة
+    if (!room.running && room.plies >= 2) room.running = true;
+    room.lastTick = now;
+
+    if (room.drawOffer && room.drawOffer !== color) {
+        room.drawOffer = null;
+        emitPlayers(room, 'draw_cleared');
+    }
+
+    const g = room.game;
+    if (g.isCheckmate()) {
+        endGame(room, { winner: color, reason: 'checkmate' });
+    } else if (g.isStalemate()) {
+        endGame(room, { winner: null, reason: 'stalemate' });
+    } else if (g.isInsufficientMaterial()) {
+        endGame(room, { winner: null, reason: 'insufficient' });
+    } else if (g.isThreefoldRepetition()) {
+        endGame(room, { winner: null, reason: 'repetition' });
+    } else if (g.isDraw()) {
+        endGame(room, { winner: null, reason: 'fifty' });
+    } else {
+        scheduleFlag(room);
+        broadcast(room);
+        if (room.type === 'ai' && g.turn() === room.aiColor) aiTurn(room);
+    }
+    return true;
+}
+
+// ───────────────────────── الذكاء الاصطناعي ─────────────────────────
+let stockfishDownUntil = 0;
+let analysisRunning = 0;
+
+async function fetchStockfish(room) {
+    if (Date.now() < stockfishDownUntil) return null;
+    try {
+        const res = await axios.get(STOCKFISH_URL, {
+            params: { fen: room.game.fen(), depth: Math.min(15, room.aiLevel) },
+            timeout: 6000
+        });
+        const text = res.data && res.data.success ? String(res.data.bestmove || '') : '';
+        const m = /bestmove\s+([a-h][1-8])([a-h][1-8])([qrbn])?/.exec(text);
+        if (m) return { from: m[1], to: m[2], promotion: m[3] };
+        stockfishDownUntil = Date.now() + 30000;
+    } catch (e) {
+        console.error('Stockfish API error:', e.message);
+        stockfishDownUntil = Date.now() + 60000;        // لا نكرر المحاولة فورًا
+    }
+    return null;
+}
+
+function localEngineMove(fen, level) {
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (v) => { if (!done) { done = true; clearTimeout(t); resolve(v); } };
+        let w;
+        try {
+            w = new Worker(path.join(__dirname, 'engine-worker.js'), { workerData: { fen, level, timeMs: 1500 } });
+        } catch (e) { return resolve(null); }
+        const t = setTimeout(() => { w.terminate(); finish(null); }, 4000);
+        w.once('message', (m) => finish(m && m.move));
+        w.once('error', () => finish(null));
+        w.once('exit', () => finish(null));
+    });
+}
+
+function randomLegal(room) {
+    const legal = room.game.moves({ verbose: true });
+    if (!legal.length) return null;
+    const p = legal[Math.floor(Math.random() * legal.length)];
+    return { from: p.from, to: p.to, promotion: p.promotion };
+}
+
+async function aiTurn(room) {
+    if (room.over || room.closed || room.aiBusy || room.game.turn() !== room.aiColor) return;
+    room.aiBusy = true;
+    try {
+        let move = await fetchStockfish(room);
+        if (!move) {
+            move = await localEngineMove(room.game.fen(), room.aiLevel);
+            if (!room.notifiedFallback) {
+                room.notifiedFallback = true;
+                emitPlayers(room, 'notice', 'محرك Stockfish غير متاح الآن، يلعب الحاسوب بمحرك احتياطي أبسط.');
             }
-            pzBusy = false;
-            pzPrompt();
-        }, 600);
-        return true;
+        }
+        if (room.over || room.closed || room.game.turn() !== room.aiColor) return;
+        if (!move) move = randomLegal(room);
+        if (!move) return;
+        if (!applyMove(room, room.aiColor, move)) {
+            const alt = randomLegal(room);             // حركة الخادم الخارجي كانت غير صالحة
+            if (alt) applyMove(room, room.aiColor, alt);
+        }
+    } finally {
+        room.aiBusy = false;
     }
+}
 
-    // لغز تكتيكي: بعد الحركة الصحيحة نعرض بقية الخط المتوقع
-    function pzTactic(played) {
-        if (played !== pzCur.s.slice(0, 4) || !pzCur.r) { pzFinish(); return; }
-        const run = pzRun;
-        pzBusy = true;
-        pzSetText('حركة قوية! لنرَ كيف تستمر الخطة...', 'mine');
-        const step = (uci, next) => setTimeout(() => {
-            if (run !== pzRun) return;
-            const m = pzGame.moves({ verbose: true }).find((x) => x.from + x.to === uci.slice(0, 4));
-            if (m) {
-                const r = pzGame.move({ from: m.from, to: m.to, promotion: 'q' });
-                playSound(r && r.captured ? 'capture' : 'move');
-                pzBoard.position(pzGame.fen());
+// ───────────────────────── المغادرة وإعادة الاتصال ─────────────────────────
+function removeFromQueues(token) {
+    for (const id of Object.keys(queues)) {
+        queues[id] = queues[id].filter((e) => e.token !== token);
+    }
+}
+
+// يُخرج اللاعب من مقعده. forfeit=true تعني أن مغادرته أثناء المباراة خسارة.
+function leaveRoom(token, forfeit) {
+    const l = live.get(token);
+    if (!l) return;
+    clearTimeout(l.grace);
+    l.grace = null;
+    const room = rooms.get(l.roomId);
+    const spec = rooms.get(l.specId);
+    l.roomId = null;
+    l.color = null;
+    l.specId = null;
+    if (spec) spec.spectators.delete(token);
+    const s = socketOf(token);
+    if (s) {
+        if (room) s.leave(room.id);
+        if (spec) s.leave(spec.id);
+    }
+    if (!room) return;
+
+    if (room.type === 'ai') return closeRoom(room);
+
+    const color = room.players.w === token ? 'w' : room.players.b === token ? 'b' : null;
+    if (!color) return;
+    room.players[color] = null;
+    room.disc[color] = null;
+
+    if (room.matched && !room.over && room.players[other(color)]) {
+        if (forfeit && room.plies >= 2) endGame(room, { winner: other(color), reason: 'abandoned' });
+        else endGame(room, { winner: null, reason: 'aborted' });
+    }
+    emitPlayers(room, 'opponent_left');
+    broadcast(room);
+    if (!room.players.w && !room.players.b) closeRoom(room);
+}
+
+function onDisconnect(socket) {
+    const token = socket.data.token;
+    if (!token) return;
+    const l = live.get(token);
+    if (!l || l.socketId !== socket.id) return;     // استُبدل باتصال أحدث
+    removeFromQueues(token);
+    l.socketId = null;
+    pushToFriends(token);
+
+    const room = rooms.get(l.roomId);
+    const spec = rooms.get(l.specId);
+    if (spec) { spec.spectators.delete(token); l.specId = null; }
+    if (!room) { live.delete(token); return; }
+
+    const playing = room.type === 'multi' && room.matched && !room.over;
+    const grace = playing ? GRACE_PLAYING_MS : GRACE_IDLE_MS;
+    const color = l.color;
+    if (playing) {
+        room.disc[color] = Date.now() + grace;
+        emitPlayers(room, 'opp_disconnected', { until: room.disc[color] });
+        broadcast(room);
+    }
+    clearTimeout(l.grace);
+    l.grace = setTimeout(() => {
+        const cur = live.get(token);
+        if (!cur || cur.socketId) return;
+        leaveRoom(token, true);
+        live.delete(token);
+    }, grace);
+}
+
+// ───────────────────────── البحث عن خصم ─────────────────────────
+function matchWindow(ms) {
+    return ms >= 60000 ? Infinity : 100 + Math.floor(ms / 5000) * 50;
+}
+function createMatch(tcId, ta, tb) {
+    const room = newRoom('multi', tcId);
+    room.rated = true;
+    const aWhite = Math.random() < 0.5;
+    seat(aWhite ? ta : tb, room, 'w');
+    seat(aWhite ? tb : ta, room, 'b');
+    startMatch(room);
+}
+function tryMatch(tcId) {
+    const q = queues[tcId];
+    const now = Date.now();
+    q.sort((a, b) => a.since - b.since);
+    for (let i = 0; i < q.length; i++) {
+        if (!isConnected(q[i].token)) { q.splice(i, 1); return true; }
+        for (let j = i + 1; j < q.length; j++) {
+            const a = q[i], b = q[j];
+            const win = Math.max(matchWindow(now - a.since), matchWindow(now - b.since));
+            if (isConnected(b.token) && Math.abs(a.rating - b.rating) <= win) {
+                q.splice(j, 1);
+                q.splice(i, 1);
+                createMatch(tcId, a.token, b.token);
+                return true;
             }
-            next();
-        }, 650);
-        step(pzCur.r, () => step(pzCur.l || '', () => { pzBusy = false; pzFinish(); }));
-    }
-
-    function pzFinish() {
-        pzDone = true;
-        pzClear();
-        playSound('end');
-        let delta = '';
-        if (!pzHelped) {
-            pzSolved.add(pzCur.id);
-            pzStreak = pzMistakes === 0 ? pzStreak + 1 : 0;
-            delta = pzApplyRating(pzMistakes === 0 ? 1 : 0.4);
-        } else {
-            pzStreak = 0;
-            delta = pzApplyRating(0.2);
         }
-        pzSave();
-        pzStats();
-        const what = pzCur.n === 3 ? 'كسبت مادة!' : 'كش مات!';
-        const msg = pzHelped ? what + ' (بمساعدة التلميح، لن يُحتسب لغزًا محلولًا)' + delta
-            : pzMistakes === 0 ? 'ممتاز! ' + what + ' من أول محاولة.' + delta : what + ' أحسنت.' + delta;
-        pzSetText(msg, 'win');
     }
+    return false;
+}
+function runMatchmaking() {
+    for (const id of Object.keys(queues)) {
+        while (tryMatch(id)) { /* استمر حتى لا يبقى زوجان متوافقان */ }
+    }
+}
+const matchTimer = setInterval(runMatchmaking, 2000);
+matchTimer.unref();
 
-    // أول حركة تعطي كش مات من الوضعية الحالية
-    function pzFindMate() {
-        const g = new Chess(pzGame.fen());
-        const ms = g.moves({ verbose: true });
-        for (const m of ms) {
-            g.move({ from: m.from, to: m.to, promotion: m.promotion });
-            const mate = g.in_checkmate();
-            g.undo();
-            if (mate) return m;
+// تنظيف دوري للغرف المهجورة
+const sweepTimer = setInterval(() => {
+    const now = Date.now();
+    for (const room of rooms.values()) {
+        const anyone = ['w', 'b'].some((c) => room.players[c] && isConnected(room.players[c]));
+        if (!room.matched && now - room.createdAt > 20 * 60000) closeRoom(room);
+        else if (room.over && now - room.overAt > 60 * 60000) closeRoom(room);
+        else if (!anyone && !room.over && now - room.lastTick > 10 * 60000) closeRoom(room);
+    }
+}, 60000);
+sweepTimer.unref();
+
+// ───────────────────────── Express ─────────────────────────
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Content-Security-Policy', [
+        "default-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval' https://code.jquery.com https://cdnjs.cloudflare.com https://unpkg.com",
+        "worker-src 'self' blob:",
+        "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data: blob: https://cdn.jsdelivr.net",
+        "connect-src 'self' ws: wss:",
+        "base-uri 'none'",
+        "form-action 'none'"
+    ].join('; '));
+    next();
+});
+
+const nm = (p) => path.join(__dirname, 'node_modules', p);
+app.use('/vendor/jquery', express.static(nm('jquery/dist'), { maxAge: '7d' }));
+app.use('/vendor/chessboard', express.static(nm('@chrisoakman/chessboardjs/dist'), { maxAge: '7d' }));
+app.use('/vendor/chess', express.static(nm('chess-legacy'), { maxAge: '7d' }));
+// Stockfish (WASM) لتحليل المباريات داخل متصفح اللاعب. الحزمة اختيارية، فإن غابت يعمل التحليل على الخادم.
+function findStockfish() {
+    const root = nm('stockfish');
+    try {
+        if (!fs.existsSync(root)) return null;
+        const files = [];
+        const walk = (dir, depth) => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                if (e.name === 'node_modules') continue;
+                const full = path.join(dir, e.name);
+                if (e.isDirectory()) { if (depth < 3) walk(full, depth + 1); }
+                else if (/\.js$/i.test(e.name)) files.push(path.relative(root, full).split(path.sep).join('/'));
+            }
+        };
+        walk(root, 0);
+        let best = null;
+        for (const rel of files) {
+            const base = path.basename(rel).toLowerCase();
+            if (/thread|multi|worker|test|index|cli|node/.test(base)) continue;      // نريد نسخة أحادية الخيط تعمل داخل Worker
+            const hasWasm = fs.existsSync(path.join(root, rel.replace(/\.js$/i, '.wasm')));
+            let score = 0;
+            if (hasWasm && /single/.test(base) && /lite/.test(base)) score = 4;
+            else if (hasWasm && /single/.test(base)) score = 3;
+            else if (/asm/.test(base)) score = 2;
+            else if (base === 'stockfish.js' && !hasWasm && /(^|\/)src\//.test(rel) && fs.statSync(path.join(root, rel)).size > 300000) score = 1;
+            if (score && (!best || score > best.score || (score === best.score && rel > best.rel))) best = { rel, score };
         }
+        return best ? best.rel : null;
+    } catch (e) {
+        console.error('stockfish discovery failed:', e.message);
         return null;
     }
+}
+let sfFile;
+app.get('/vendor/stockfish/manifest.json', (req, res) => {
+    if (sfFile === undefined) { sfFile = findStockfish(); console.log('Browser Stockfish: ' + (sfFile || 'not installed')); }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json({ file: sfFile });
+});
+app.use('/vendor/stockfish', express.static(nm('stockfish'), { maxAge: '7d' }));
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 
-    function pzHint() {
-        if (!pzCanMove()) return;
-        pzHelped = true;
-        pzClear();
-        let from = null;
-        if (pzCur.n === 3) from = pzCur.s.slice(0, 2);
-        else if (pzCur.n === 1 || pzStep === 1) { const m = pzFindMate(); from = m && m.from; }
-        else from = pzCur.s.slice(0, 2);
-        if (from) $('#pboard .square-' + from).addClass('hint-sq');
-        pzSetText('القطعة المضيئة بالأخضر هي التي يجب تحريكها.', 'mine');
-    }
+app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online: io.engine.clientsCount }));
+app.get('/api/leaderboard', (req, res) => res.json({ cat: req.query.cat, rows: leaderboard(String(req.query.cat || 'blitz')) }));
 
-    function pzSolution() {
-        if (!pzCur || pzDone || pzBusy) return;
-        pzHelped = true;
-        const g = new Chess(pzGame.fen());
-        const san = [];
-        const play = (m) => { const r = g.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' }); if (r) san.push(r.san); return r; };
-        const pick = (uci) => g.moves({ verbose: true }).find((m) => m.from + m.to === uci.slice(0, 4));
-        if (pzCur.n === 3) {
-            [pzCur.s, pzCur.r, pzCur.l].forEach((u) => { const m = u && pick(u); if (m) play(m); });
-        } else if (pzCur.n === 1 || pzStep === 1) {
-            const m = (function () { for (const x of g.moves({ verbose: true })) { g.move({ from: x.from, to: x.to, promotion: x.promotion }); const ok = g.in_checkmate(); g.undo(); if (ok) return x; } return null; })();
-            if (m) play(m);
-        } else {
-            const m1 = pick(pzCur.s);
-            if (m1) play(m1);
-            const rep = pick(pzCur.r) || g.moves({ verbose: true })[0];
-            if (rep) play(rep);
-            const m2 = (function () { for (const x of g.moves({ verbose: true })) { g.move({ from: x.from, to: x.to, promotion: x.promotion }); const ok = g.in_checkmate(); g.undo(); if (ok) return x; } return null; })();
-            if (m2) play(m2);
-        }
-        pzDone = true;
-        pzStreak = 0;
-        const delta = pzApplyRating(0);
-        pzSave();
-        pzStats();
-        pzClear();
-        pzSetText('الحل: ' + san.join('  ') + delta, 'draw');
-    }
-
-    // تحذير قبل إغلاق الصفحة أثناء مباراة جارية
-    window.addEventListener('beforeunload', (e) => {
-        if (state && !state.over && !spectating && state.moveCount >= 2) { e.preventDefault(); e.returnValue = ''; }
+// ───────────────────────── Socket.IO ─────────────────────────
+// ───────────────────────── الحسابات والأصدقاء ─────────────────────────
+const scryptAsync = (pw, salt) => new Promise((res, rej) => {
+    crypto.scrypt(pw, salt, 32, { N: 16384, r: 8, p: 1 }, (e, k) => (e ? rej(e) : res(k)));
+});
+async function hashPassword(pw) {
+    const salt = crypto.randomBytes(16);
+    const key = await scryptAsync(pw, salt);
+    return { s: salt.toString('hex'), h: key.toString('hex') };
+}
+async function verifyPassword(pw, rec) {
+    const key = await scryptAsync(pw, Buffer.from(rec.s, 'hex'));
+    const want = Buffer.from(rec.h, 'hex');
+    return key.length === want.length && crypto.timingSafeEqual(key, want);
+}
+function cleanUser(v) {
+    return String(v == null ? '' : v).normalize('NFC').replace(/[^\w\u0600-\u06FF]/g, '').slice(0, 20);
+}
+function validateCreds(u, pw) {
+    if (u.length < 3) return 'اسم المستخدم يجب أن يكون 3 أحرف على الأقل (حروف وأرقام و _ فقط).';
+    if (typeof pw !== 'string' || pw.length < 6) return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
+    if (pw.length > 100) return 'كلمة المرور طويلة جدًا.';
+    return null;
+}
+const loginFails = new Map();           // مفتاح -> { n, until }
+function tooManyFails(key) {
+    const f = loginFails.get(key);
+    if (!f) return false;
+    if (Date.now() > f.until) { loginFails.delete(key); return false; }
+    return f.n >= 6;
+}
+function addFail(key) {
+    const f = loginFails.get(key);
+    if (!f || Date.now() > f.until) loginFails.set(key, { n: 1, until: Date.now() + 10 * 60000 });
+    else f.n++;
+}
+const uname = (t) => (db.players[t] && db.players[t].user) || null;
+function ensureSocial(rec) {
+    rec.friends = rec.friends || [];
+    rec.reqIn = rec.reqIn || [];
+    rec.reqOut = rec.reqOut || [];
+}
+function statusOf(t) {
+    const l = live.get(t);
+    if (!l || !l.socketId) return 'offline';
+    const room = rooms.get(l.roomId);
+    if (room && room.matched && !room.over) return 'playing';
+    for (const id of Object.keys(queues)) if (queues[id].some((e) => e.token === t)) return 'searching';
+    return 'online';
+}
+function friendsPayload(token) {
+    const rec = db.players[token];
+    ensureSocial(rec);
+    return {
+        friends: rec.friends.filter(uname).map((t) => ({ username: uname(t), status: statusOf(t), rating: ratingOf(t, 'blitz') })),
+        incoming: rec.reqIn.map(uname).filter(Boolean),
+        outgoing: rec.reqOut.map(uname).filter(Boolean)
+    };
+}
+function pushFriends(token) {
+    const rec = db.players[token];
+    const l = live.get(token);
+    if (rec && rec.user && l && l.socketId) io.to(l.socketId).emit('friends', friendsPayload(token));
+}
+function pushToFriends(token) {
+    const rec = db.players[token];
+    if (rec && rec.user && rec.friends) rec.friends.forEach(pushFriends);
+}
+function unlink(a, b) {
+    [[a, b], [b, a]].forEach(([x, y]) => {
+        const r = db.players[x];
+        if (!r) return;
+        ensureSocial(r);
+        r.friends = r.friends.filter((t) => t !== y);
+        r.reqIn = r.reqIn.filter((t) => t !== y);
+        r.reqOut = r.reqOut.filter((t) => t !== y);
     });
-})();
+}
+function link(a, b) {
+    unlink(a, b);
+    db.players[a].friends.push(b);
+    db.players[b].friends.push(a);
+}
+
+function sendWelcome(socket, token, rec) {
+    socket.emit('welcome', {
+        token, name: rec.name, user: rec.user || null,
+        ratings: publicRatings(token), online: io.engine.clientsCount,
+        pz: rec.user && rec.pz ? rec.pz : null
+    });
+}
+
+// يربط اتصالًا بسجل لاعب (وهو أيضًا ما يستأنف المباراة الجارية)
+function attach(socket, token, rec) {
+    const prev = live.get(token);
+    let entry;
+    if (prev) {
+        clearTimeout(prev.grace);
+        prev.grace = null;
+        if (prev.socketId && prev.socketId !== socket.id) {
+            const old = io.sockets.sockets.get(prev.socketId);
+            if (old) { old.data.token = null; old.emit('replaced'); old.disconnect(true); }
+        }
+        entry = prev;
+        entry.socketId = socket.id;
+    } else {
+        entry = { socketId: socket.id, roomId: null, color: null, specId: null, grace: null };
+        live.set(token, entry);
+    }
+    socket.data.token = token;
+    sendWelcome(socket, token, rec);
+    if (rec.user) { pushFriends(token); pushToFriends(token); }
+
+    const room = rooms.get(entry.roomId);
+    if (room && !room.closed) {
+        socket.join(room.id);
+        const color = entry.color;
+        room.disc[color] = null;
+        if (room.matched) {
+            socket.emit('game_start', gameStartPayload(room, color, true));
+            socket.emit('state', publicState(room));
+            if (room.drawOffer && room.drawOffer !== color) socket.emit('draw_offered');
+            emitPlayers(room, 'opp_reconnected');
+            broadcast(room);
+        } else {
+            socket.emit('room_created', { roomId: room.id, tc: room.tcId });
+        }
+    } else if (entry.roomId) {
+        entry.roomId = null;
+        entry.color = null;
+    }
+    if (!rooms.get(entry.specId)) entry.specId = null;
+}
+
+function playerCtx(socket) {
+    const token = socket.data.token;
+    if (!token) return null;
+    const l = live.get(token);
+    if (!l || l.socketId !== socket.id) return null;
+    const room = rooms.get(l.roomId);
+    return { token, l, room, color: l.color };
+}
+
+io.on('connection', (socket) => {
+    socket.data.token = null;
+    socket.data.bucket = { tokens: 40, t: Date.now() };
+    socket.data.chatLog = [];
+
+    // تحديد المعدل: ~20 حدثًا في الثانية مع دفعة 40
+    socket.use((packet, next) => {
+        const b = socket.data.bucket;
+        const now = Date.now();
+        b.tokens = Math.min(40, b.tokens + ((now - b.t) / 1000) * 20);
+        b.t = now;
+        if (b.tokens < 1) return next(new Error('rate_limited'));
+        b.tokens -= 1;
+        next();
+    });
+
+    // أول حدث يجب أن يرسله العميل: التعريف بنفسه (أو إنشاء هوية جديدة)
+    socket.on('hello', (data) => {
+        data = data && typeof data === 'object' ? data : {};
+        let token = typeof data.token === 'string' && TOKEN_RE.test(data.token) ? data.token : null;
+        let rec = token ? db.players[token] : null;
+        let changed = false;
+        if (!rec) {
+            token = crypto.randomBytes(18).toString('base64url');
+            rec = db.players[token] = newPlayer();
+            changed = true;
+        }
+        const nm_ = cleanName(data.name);
+        if (nm_ && !rec.user && rec.name !== nm_) { rec.name = nm_; changed = true; }
+        rec.last = Date.now();
+        if (changed) saveSoon();
+        attach(socket, token, rec);
+    });
+
+    socket.on('get_online', () => socket.emit('online', { online: io.engine.clientsCount, rooms: rooms.size }));
+
+    socket.on('set_name', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const n = cleanName(data && data.name);
+        if (db.players[ctx.token].user) return;      // اسم الحساب المسجل ثابت
+        db.players[ctx.token].name = n;
+        saveSoon();
+    });
+
+    // ───── مباريات الحساب المحفوظة ومزامنة الألغاز ─────
+    function acct() {
+        const ctx = playerCtx(socket);
+        const rec = ctx && db.players[ctx.token];
+        return rec && rec.user ? { ctx, rec } : null;
+    }
+    socket.on('games_get', () => {
+        const a = acct();
+        if (!a) return socket.emit('games', []);
+        socket.emit('games', (a.rec.hist || []).map((g) => ({
+            id: g.id, t: g.t, w: g.w, b: g.b, c: g.c, tc: g.tc, rated: g.rated, v: g.v, res: g.res, ai: g.ai, n: g.h.length, an: !!g.an
+        })));
+    });
+    socket.on('game_get', (data) => {
+        const a = acct();
+        const g = a && (a.rec.hist || []).find((x) => x.id === String((data && data.id) || ''));
+        if (!g) return socket.emit('games_error', 'المباراة غير موجودة.');
+        let an = null;
+        if (g.an && Array.isArray(g.an.p)) {
+            const startTurn = g.sf ? g.sf.split(' ')[1] : 'w';
+            an = {
+                source: g.an.src, accuracy: g.an.acc, counts: g.an.counts,
+                plies: g.an.p.map((x, i) => ({ san: g.h[i], color: ((i % 2 === 0) === (startTurn === 'w')) ? 'w' : 'b', cls: x[0], loss: x[1], cp: x[2], best: x[3] }))
+            };
+        }
+        socket.emit('game_data', { id: g.id, t: g.t, w: g.w, b: g.b, c: g.c, tc: g.tc, rated: g.rated, v: g.v, sf: g.sf, h: g.h, res: g.res, ai: g.ai, an });
+    });
+    socket.on('pz_save', (d) => {
+        const a = acct();
+        if (!a || !d || typeof d !== 'object') return;
+        const ids = (x) => (Array.isArray(x) && x.length <= 2000 && x.every((n) => Number.isInteger(n) && n >= 1 && n <= 99999) ? x : null);
+        const solved = ids(d.solved);
+        const rated = ids(d.rated);
+        const rating = Number(d.rating);
+        const streak = Number(d.streak);
+        if (!solved || !rated || !Number.isFinite(rating) || rating < 100 || rating > 4000) return;
+        a.rec.pz = { r: Math.round(rating), s: solved, d: rated, k: Number.isFinite(streak) && streak >= 0 ? Math.min(9999, Math.floor(streak)) : 0 };
+        saveSoon();
+    });
+
+    // تحليل مباراة منتهية: يرسل العميل السجل فقط والخادم يعيد تقييم كل حركة
+    socket.on('analyze', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        if (socket.data.analyzing) return socket.emit('analysis_error', 'التحليل جارٍ بالفعل.');
+        if (analysisRunning >= 3) return socket.emit('analysis_error', 'الخادم مشغول بتحليلات أخرى، حاول بعد قليل.');
+        const hist = data && data.history;
+        const okHist = Array.isArray(hist) && hist.length >= 1 && hist.length <= 400 && hist.every((m) => typeof m === 'string' && /^[A-Za-z0-9+#=\-]{2,10}$/.test(m));
+        let startFen = data && typeof data.startFen === 'string' ? data.startFen.slice(0, 100) : null;
+        if (!okHist) return socket.emit('analysis_error', 'بيانات المباراة غير صالحة.');
+        if (startFen) { try { new Chess(startFen); } catch (e) { startFen = null; } }
+        // تقييمات محسوبة في متصفح اللاعب (اختيارية): { cp, best } لكل مركز
+        let evals = null;
+        if (data && Array.isArray(data.evals) && data.evals.length === hist.length + 1) {
+            const good = data.evals.every((e) => e && Number.isFinite(e.cp) && (e.best == null || /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(e.best)) && (e.alt == null || Number.isFinite(e.alt)));
+            const clamp = (x) => Math.max(-10000, Math.min(10000, Math.round(x)));
+            if (good) evals = data.evals.map((e) => ({ cp: clamp(e.cp), best: e.best || null, alt: e.alt == null ? null : clamp(e.alt) }));
+        }
+        socket.data.analyzing = true;
+        analysisRunning++;
+        try {
+            const result = await analyzeGame(startFen, hist, (done, total) => socket.emit('analysis_progress', { done, total }), evals);
+            socket.emit('analysis_result', result);
+            // حفظ التحليل مع المباراة المحفوظة في الحساب
+            const rec = db.players[ctx.token];
+            const gid = data && typeof data.gameId === 'string' ? data.gameId : null;
+            const sg = gid && rec && rec.user && Array.isArray(rec.hist) ? rec.hist.find((g) => g.id === gid) : null;
+            if (sg && sg.h.length === hist.length && sg.h.every((m, i) => m === hist[i])) {
+                sg.an = { src: result.source, acc: result.accuracy, counts: result.counts, p: result.plies.map((x) => [x.cls, x.loss, x.cp, x.best]) };
+                saveSoon();
+            }
+        } catch (e) {
+            console.error('analysis error:', e.message);
+            socket.emit('analysis_error', 'تعذّر تحليل هذه المباراة.');
+        } finally {
+            analysisRunning--;
+            socket.data.analyzing = false;
+        }
+    });
+
+    socket.on('leaderboard', (data) => {
+        const cat = data && typeof data.cat === 'string' ? data.cat : 'blitz';
+        socket.emit('leaderboard', { cat: CATEGORIES.includes(cat) ? cat : 'blitz', rows: leaderboard(cat) });
+    });
+
+    socket.on('create_room', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const tcId = resolveTc(data);
+        if (!tcId) return socket.emit('room_error', 'نظام الوقت غير صالح.');
+        removeFromQueues(ctx.token);
+        leaveRoom(ctx.token, true);
+        const room = newRoom('multi', tcId, resolveVariant(data));
+        seat(ctx.token, room, 'w');
+        socket.emit('room_created', { roomId: room.id, tc: tcId, variant: room.variant });
+    });
+
+    socket.on('join_room', (payload) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const data = payload && typeof payload === 'object' ? payload : { roomId: payload };
+        const roomId = String(data.roomId || '').trim().toUpperCase();
+        const room = rooms.get(roomId);
+        if (!room || room.type !== 'multi') return socket.emit('room_error', 'الغرفة غير موجودة.');
+        if (room.players.w === ctx.token || room.players.b === ctx.token) return socket.emit('room_error', 'هذه غرفتك أنت، أرسل الكود لصديقك.');
+        if (room.players.b || room.matched || room.over) return socket.emit('room_error', 'الغرفة ممتلئة أو انتهت اللعبة فيها.');
+        removeFromQueues(ctx.token);
+        leaveRoom(ctx.token, true);
+        seat(ctx.token, room, 'b');
+        startMatch(room);
+    });
+
+    socket.on('find_match', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const tcId = resolveTc(data);
+        if (!tcId) return socket.emit('room_error', 'نظام الوقت غير صالح.');
+        removeFromQueues(ctx.token);
+        leaveRoom(ctx.token, true);
+        const cat = categoryOf(TIME_CONTROLS[tcId]);
+        queues[tcId].push({ token: ctx.token, rating: ratingOf(ctx.token, cat), since: Date.now() });
+        socket.emit('searching', { tc: tcId });
+        runMatchmaking();
+    });
+
+    socket.on('cancel_search', () => {
+        const ctx = playerCtx(socket);
+        if (ctx) removeFromQueues(ctx.token);
+        socket.emit('search_cancelled');
+    });
+
+    socket.on('create_ai_room', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        data = data || {};
+        const tcId = resolveTc(data);
+        if (!tcId) return socket.emit('room_error', 'نظام الوقت غير صالح.');
+        const color = data.color === 'b' ? 'b' : 'w';
+        const level = Math.min(15, Math.max(1, parseInt(data.level, 10) || 8));
+
+        removeFromQueues(ctx.token);
+        leaveRoom(ctx.token, true);
+        const room = newRoom('ai', tcId, resolveVariant(data));
+        room.matched = true;
+        room.aiLevel = level;
+        room.aiColor = other(color);
+        seat(ctx.token, room, color);
+        room.names[room.aiColor] = 'الحاسوب';
+        room.ratings[color] = ratingOf(ctx.token, room.cat);
+        socket.emit('game_start', gameStartPayload(room, color));
+        broadcast(room);
+        if (room.aiColor === 'w') aiTurn(room);
+    });
+
+    socket.on('spectate', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        if (ctx.room && !ctx.room.over) return socket.emit('room_error', 'أنهِ مباراتك أولًا.');
+        const room = rooms.get(String((data && data.roomId) || '').trim().toUpperCase());
+        if (!room || room.type !== 'multi' || !room.matched) return socket.emit('room_error', 'لا توجد مباراة بهذا الكود.');
+        leaveRoom(ctx.token, true);
+        ctx.l.specId = room.id;
+        room.spectators.add(ctx.token);
+        socket.join(room.id);
+        socket.emit('spectate_start', { roomId: room.id, tc: room.tcId, rated: room.rated });
+        socket.emit('state', publicState(room));
+        broadcast(room);
+    });
+
+    socket.on('leave_room', () => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        removeFromQueues(ctx.token);
+        leaveRoom(ctx.token, true);
+        socket.emit('left');
+    });
+
+    socket.on('move', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx || !ctx.room || !data || typeof data.from !== 'string' || typeof data.to !== 'string') return;
+        const ok = applyMove(ctx.room, ctx.color, {
+            from: data.from,
+            to: data.to,
+            promotion: typeof data.promotion === 'string' ? data.promotion : undefined
+        });
+        if (!ok && !ctx.room.over) socket.emit('state', publicState(ctx.room));
+    });
+
+    socket.on('chat', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx || !ctx.room || ctx.room.type !== 'multi' || !data || typeof data.message !== 'string') return;
+        const now = Date.now();
+        socket.data.chatLog = socket.data.chatLog.filter((t) => now - t < 8000);
+        if (socket.data.chatLog.length >= 5) return socket.emit('toast', 'تكتب بسرعة كبيرة، تمهّل قليلًا.');
+        const message = cleanChat(data.message);
+        if (!message) return;
+        socket.data.chatLog.push(now);
+        const opp = ctx.room.players[other(ctx.color)];
+        if (opp) emitTo(opp, 'chat', { message });
+    });
+
+    socket.on('resign', () => {
+        const ctx = playerCtx(socket);
+        if (!ctx || !ctx.room || ctx.room.over || !ctx.room.matched) return;
+        endGame(ctx.room, { winner: other(ctx.color), reason: 'resign' });
+    });
+
+    // إلغاء المباراة قبل أن يتحرك الطرفان (دون تأثير على التصنيف)
+    socket.on('abort', () => {
+        const ctx = playerCtx(socket);
+        const room = ctx && ctx.room;
+        if (!room || room.over || !room.matched) return;
+        if (room.plies >= 2) return socket.emit('toast', 'لا يمكن الإلغاء بعد أول حركتين.');
+        endGame(room, { winner: null, reason: 'aborted' });
+    });
+
+    // ───── اقتراح التعادل ─────
+    socket.on('offer_draw', () => {
+        const ctx = playerCtx(socket);
+        const room = ctx && ctx.room;
+        if (!room || room.type !== 'multi' || room.over || !room.matched) return;
+        const color = ctx.color;
+        if (room.drawOffer && room.drawOffer !== color) return endGame(room, { winner: null, reason: 'agreement' });
+        if (room.drawOffer === color) return;
+        if (room.plies < 2) return socket.emit('toast', 'يمكن اقتراح التعادل بعد أول حركتين.');
+        if (room.plies - room.lastDrawPly[color] < 2) return socket.emit('toast', 'انتظر حركة قبل اقتراح التعادل مرة أخرى.');
+        room.lastDrawPly[color] = room.plies;
+        room.drawOffer = color;
+        emitTo(room.players[other(color)], 'draw_offered');
+        socket.emit('draw_sent');
+    });
+
+    socket.on('respond_draw', (data) => {
+        const ctx = playerCtx(socket);
+        const room = ctx && ctx.room;
+        if (!room || room.type !== 'multi' || room.over || !room.drawOffer) return;
+        if (room.drawOffer === ctx.color) return;
+        const offerer = room.drawOffer;
+        room.drawOffer = null;
+        if (data && data.accept) endGame(room, { winner: null, reason: 'agreement' });
+        else if (room.players[offerer]) emitTo(room.players[offerer], 'draw_declined');
+    });
+
+    // ───── إعادة المباراة بتبديل الألوان ─────
+    socket.on('rematch', () => {
+        const ctx = playerCtx(socket);
+        const room = ctx && ctx.room;
+        if (!room || room.type !== 'multi' || !room.over) return;
+        if (!room.players.w || !room.players.b) return socket.emit('toast', 'غادر الخصم المباراة.');
+        room.rematch[ctx.color] = true;
+        if (room.rematch.w && room.rematch.b) {
+            resetForRematch(room);
+            startMatch(room);
+        } else {
+            emitTo(room.players[other(ctx.color)], 'rematch_offered');
+        }
+    });
+
+    // ───── تسجيل الحساب والدخول ─────
+    socket.on('register', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        data = data && typeof data === 'object' ? data : {};
+        const token = ctx.token;
+        const rec = db.players[token];
+        if (rec.user) return socket.emit('auth_error', 'لديك حساب بالفعل.');
+        const u = cleanUser(data.username);
+        const pw = typeof data.password === 'string' ? data.password : '';
+        const err = validateCreds(u, pw);
+        if (err) return socket.emit('auth_error', err);
+        if (db.users[u.toLowerCase()]) return socket.emit('auth_error', 'اسم المستخدم مستخدم، اختر اسمًا آخر.');
+        let h;
+        try { h = await hashPassword(pw); } catch (e) { return socket.emit('auth_error', 'تعذّر إنشاء الحساب، حاول مرة أخرى.'); }
+        if (db.users[u.toLowerCase()]) return socket.emit('auth_error', 'اسم المستخدم مستخدم، اختر اسمًا آخر.');
+        if (!playerCtx(socket) || playerCtx(socket).token !== token) return;
+        rec.user = u;
+        rec.pass = h;
+        rec.name = u;
+        ensureSocial(rec);
+        db.users[u.toLowerCase()] = token;
+        saveSoon();
+        sendWelcome(socket, token, rec);
+        pushFriends(token);
+        socket.emit('auth_ok', { user: u });
+    });
+
+    socket.on('login', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        data = data && typeof data === 'object' ? data : {};
+        const u = cleanUser(data.username);
+        const pw = typeof data.password === 'string' ? data.password.slice(0, 100) : '';
+        const key = u.toLowerCase();
+        socket.data.fails = socket.data.fails || 0;
+        if (tooManyFails(key) || socket.data.fails >= 8) return socket.emit('auth_error', 'محاولات كثيرة، حاول بعد عشر دقائق.');
+        const token = db.users[key];
+        const rec = token && db.players[token];
+        let ok = false;
+        try { ok = !!(rec && rec.pass && await verifyPassword(pw, rec.pass)); } catch (e) { ok = false; }
+        if (!ok) {
+            addFail(key);
+            socket.data.fails++;
+            return socket.emit('auth_error', 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+        }
+        const cur = playerCtx(socket);
+        if (!cur) return;
+        socket.data.fails = 0;
+        loginFails.delete(key);
+        const old = cur.token;
+        if (old !== token) {
+            // نغادر مقعد الضيف الحالي ثم ننتقل إلى الحساب
+            removeFromQueues(old);
+            leaveRoom(old, true);
+            const lo = live.get(old);
+            if (lo) clearTimeout(lo.grace);
+            live.delete(old);
+            socket.data.token = null;
+        }
+        rec.last = Date.now();
+        attach(socket, token, rec);
+        socket.emit('auth_ok', { user: rec.user });
+    });
+
+    socket.on('logout', () => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const old = ctx.token;
+        removeFromQueues(old);
+        leaveRoom(old, true);
+        const lo = live.get(old);
+        if (lo) clearTimeout(lo.grace);
+        live.delete(old);
+        pushToFriends(old);
+        const token = crypto.randomBytes(18).toString('base64url');
+        const rec = db.players[token] = newPlayer();
+        saveSoon();
+        socket.data.token = null;
+        attach(socket, token, rec);
+        socket.emit('logged_out');
+    });
+
+    // ───── الأصدقاء ─────
+    function accountCtx() {
+        const ctx = playerCtx(socket);
+        if (!ctx) return null;
+        const rec = db.players[ctx.token];
+        if (!rec || !rec.user) { socket.emit('friend_error', 'سجّل الدخول أولًا لاستخدام قائمة الأصدقاء.'); return null; }
+        ensureSocial(rec);
+        return { ...ctx, rec };
+    }
+
+    socket.on('friends_get', () => {
+        const a = accountCtx();
+        if (a) pushFriends(a.token);
+    });
+
+    socket.on('friend_add', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target) return socket.emit('friend_error', 'لا يوجد مستخدم بهذا الاسم.');
+        if (target === a.token) return socket.emit('friend_error', 'لا يمكنك إضافة نفسك.');
+        const other_ = db.players[target];
+        ensureSocial(other_);
+        if (a.rec.friends.includes(target)) return socket.emit('friend_error', 'هو صديقك بالفعل.');
+        if (a.rec.reqOut.includes(target)) return socket.emit('friend_error', 'أرسلت له طلبًا بالفعل.');
+        if (a.rec.reqIn.includes(target)) {
+            link(a.token, target);                       // طلب متبادل: صداقة فورية
+            emitTo(target, 'notify', { text: a.rec.user + ' قبل طلب صداقتك.' });
+        } else {
+            if (other_.reqIn.length >= 100) return socket.emit('friend_error', 'لدى هذا المستخدم طلبات كثيرة معلّقة.');
+            a.rec.reqOut.push(target);
+            other_.reqIn.push(a.token);
+            emitTo(target, 'notify', { text: 'طلب صداقة جديد من ' + a.rec.user });
+        }
+        saveSoon();
+        pushFriends(a.token);
+        pushFriends(target);
+        socket.emit('friend_ok', 'تم إرسال الطلب.');
+    });
+
+    socket.on('friend_respond', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target || !a.rec.reqIn.includes(target)) return;
+        if (data.accept) {
+            link(a.token, target);
+            emitTo(target, 'notify', { text: a.rec.user + ' قبل طلب صداقتك.' });
+        } else {
+            unlink(a.token, target);
+        }
+        saveSoon();
+        pushFriends(a.token);
+        pushFriends(target);
+    });
+
+    socket.on('friend_remove', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target) return;
+        unlink(a.token, target);
+        saveSoon();
+        pushFriends(a.token);
+        pushFriends(target);
+    });
+
+    // دعوة صديق إلى مباراة ودّية
+    socket.on('friend_invite', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (!target || !a.rec.friends.includes(target)) return socket.emit('friend_error', 'هذا المستخدم ليس في قائمة أصدقائك.');
+        const st = statusOf(target);
+        if (st === 'offline') return socket.emit('friend_error', 'صديقك غير متصل الآن.');
+        if (st === 'playing') return socket.emit('friend_error', 'صديقك في مباراة الآن.');
+        const tcId = resolveTc(data) || DEFAULT_TC;
+        removeFromQueues(a.token);
+        leaveRoom(a.token, true);
+        const room = newRoom('multi', tcId, resolveVariant(data));
+        seat(a.token, room, 'w');
+        socket.emit('room_created', { roomId: room.id, tc: tcId, variant: room.variant });
+        emitTo(target, 'invite', { from: a.rec.user, roomId: room.id, tc: tcId, variant: room.variant });
+    });
+
+    socket.on('invite_decline', (data) => {
+        const a = accountCtx();
+        if (!a) return;
+        const target = db.users[cleanUser(data && data.username).toLowerCase()];
+        if (target) emitTo(target, 'notify', { text: a.rec.user + ' رفض دعوتك.' });
+    });
+
+    socket.on('disconnect', () => onDisconnect(socket));
+});
+
+// ───────────────────────── التشغيل والإيقاف ─────────────────────────
+async function start(port) {
+    await loadDb();
+    return new Promise((resolve) => {
+        server.listen(port === undefined ? PORT : port, () => {
+            console.log(`Server running on port ${server.address().port}`);
+            resolve(server);
+        });
+    });
+}
+
+function shutdown() {
+    const flushed = flushDb();
+    clearInterval(matchTimer);
+    clearInterval(sweepTimer);
+    io.close();
+    server.close(() => Promise.resolve(flushed).finally(() => process.exit(0)));
+    setTimeout(() => process.exit(0), 3000).unref();
+}
+
+if (require.main === module) {
+    start();
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+}
+
+module.exports = { server, io, app, start, shutdown, rooms, live, db: () => db };
