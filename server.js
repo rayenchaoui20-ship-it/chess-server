@@ -1401,7 +1401,20 @@ function shutdown() {
     server.close(() => Promise.resolve(flushed).finally(() => process.exit(0)));
     setTimeout(() => process.exit(0), 3000).unref();
 }
+// أحداث لعبة مونوبولي (رمي النرد وحركة اللاعب)
+    socket.on('monopoly_roll', () => {
+        const dice1 = Math.floor(Math.random() * 6) + 1;
+        const dice2 = Math.floor(Math.random() * 6) + 1;
+        socket.emit('monopoly_rolled', { dice: [dice1, dice2], total: dice1 + dice2 });
+    });
 
+    socket.on('disconnect', () => {});
+});
+
+loadDb();
+server.listen(PORT, () => {
+    console.log('Unified Gaming Platform running on port ' + PORT);
+});
 if (require.main === module) {
     start();
     process.on('SIGTERM', shutdown);
