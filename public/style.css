@@ -21,6 +21,38 @@ body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
+    font-family: 'IBM Plex Sans Arabic', Tahoma, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+}
+
+.app { max-width: 1020px; margin: 0 auto; padding: 18px 16px 40px; }
+.narrow { max-width: 520px; margin: 0 auto; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.hidden { display: none !important; }
+
+.brand { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 6px 0 22px; }
+.wordmark { font-weight: 700; font-size: 2rem; color: var(--text); }
+
+.btn {
+    font: inherit; font-weight: 600; min-height: 46px; padding: 10px 18px;
+    border-radius: 10px; border: 1px solid transparent; cursor: pointer; color: var(--text); background: var(--surface-2);
+}
+.btn.primary { background: var(--gold); color: var(--gold-ink); }
+.btn.primary:hover { background: #ecbf62; }
+
+.mode-list { display: grid; gap: 10px; }
+.mode-row {
+    font: inherit; text-align: start; cursor: pointer; width: 100%;
+    display: block; padding: 14px 16px; border-radius: var(--radius);
+    background: var(--surface); color: var(--text); border: 1px solid var(--line);
+}
+.mode-row .t { display: block; font-weight: 600; font-size: 1.05rem; }
+.mode-row .d { display: block; color: var(--muted); font-size: .9rem; margin-top: 2px; }
+.mode-row.primary { background: var(--gold); border-color: var(--gold); color: var(--gold-ink); }
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
     font-family: var(--font-body);
     font-size: 16px;
     line-height: 1.6;
