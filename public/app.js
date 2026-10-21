@@ -1775,3 +1775,63 @@
         if (state && !state.over && !spectating && state.moveCount >= 2) { e.preventDefault(); e.returnValue = ''; }
     });
 })();
+// ═════════ دمج منصة مونوبولي مع الشطرنج ═════════
+
+function selectPlatform(type) {
+    const selector = document.getElementById('game-selector-screen');
+    if (type === 'chess') {
+        if (selector) selector.style.display = 'none';
+        // سيظهر تطبيق الشطرنج الأصلي الخاص بك هنا تلقائياً
+    } else if (type === 'monopoly') {
+        if (selector) selector.style.display = 'none';
+        initMonopolyUI();
+    }
+}
+
+function initMonopolyUI() {
+    let monoScreen = document.getElementById('monopoly-screen');
+    if (!monoScreen) {
+        monoScreen = document.createElement('div');
+        monoScreen.id = 'monopoly-screen';
+        monoScreen.className = 'app panel';
+        monoScreen.style.cssText = 'max-width: 600px; margin: 40px auto;';
+        monoScreen.innerHTML = `
+            <div class="brand"><span class="wordmark">لعبة مونوبولي العقارية</span></div>
+            <div class="panel" style="background: var(--bg); margin-bottom: 16px; text-align: center;">
+                <h3 style="color: var(--gold); margin-bottom: 8px;">دور اللاعب: أنت</h3>
+                <p class="muted">رصيد الأموال: <b id="mono-money" style="color: var(--win);">1500</b> $</p>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px;">
+                <div class="monopoly-tile">1. البداية (GO)</div>
+                <div class="monopoly-tile">2. شارع الهرم</div>
+                <div class="monopoly-tile">3. صندوق الحظ</div>
+                <div class="monopoly-tile" style="border-color: var(--gold); background: rgba(226,177,75,0.1);">🌟 4. خانة الإبداع الخاصة</div>
+            </div>
+            <div class="btn-row" style="display: flex; gap: 10px; justify-content: center;">
+                <button type="button" class="btn primary" onclick="rollMonopolyDice()">🎲 رمي النرد</button>
+                <button type="button" class="btn secondary" onclick="backToMainSelector()">العودة للقائمة</button>
+            </div>
+        `;
+        document.body.appendChild(monoScreen);
+    }
+    monoScreen.style.display = 'block';
+}
+
+function backToMainSelector() {
+    const monoScreen = document.getElementById('monopoly-screen');
+    if (monoScreen) monoScreen.style.display = 'none';
+    const selector = document.getElementById('game-selector-screen');
+    if (selector) selector.style.display = 'flex';
+}
+
+function rollMonopolyDice() {
+    if (typeof socket !== 'undefined' && socket) {
+        socket.emit('monopoly_roll');
+    }
+}
+
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('monopoly_rolled', (data) => {
+        alert('🎲 نتيجة النرد: ' + data.dice[0] + ' و ' + data.dice[1] + ' (المجموع: ' + data.total + ')');
+    });
+}
