@@ -161,5 +161,8 @@ loadDb().then(() => {
     console.error('Failed to start server:', e);
     process.exit(1);
 });
-
+// توجيه الصفحة الرئيسية إلى ملف index.html
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 module.exports = { server, io, app, rooms, live, db: () => db };
