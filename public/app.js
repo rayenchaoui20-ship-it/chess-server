@@ -94,7 +94,7 @@
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
         $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen');
-        $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'مونوبولي' : 'شطرنج');
+        $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
@@ -297,7 +297,7 @@
         pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
         changeWorld() {
-            if (window.Mono && window.Mono.busy && window.Mono.busy() && !window.confirm('مغادرة مونوبولي الآن تعني الإفلاس. هل تريد تغيير اللعبة؟')) return;
+            if (window.Mono && window.Mono.busy && window.Mono.busy() && !window.confirm('مغادرة ملك المدينة الآن تعني الإفلاس. هل تريد تغيير اللعبة؟')) return;
             if (window.Mono && window.Mono.leave) window.Mono.leave();
             show('world-screen');
         },
