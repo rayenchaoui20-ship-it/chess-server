@@ -32,11 +32,29 @@
             <rect x="1" y="17" width="16" height="16" rx="3" fill="#5879AE"/>
             <rect x="17" y="17" width="16" height="16" rx="3" fill="#E2B14B"/>
         </svg>
-        <span class="wordmark">شطرنج</span>
+        <span class="wordmark" id="wordmark">شطرنج</span>
+        <button class="btn ghost hidden" id="world-switch" data-action="changeWorld">🔄 غيّر اللعبة</button>
     </header>
 
     <noscript><div class="lib-banner">هذه المنصة تحتاج JavaScript لتعمل. العب الشطرنج أونلاين مع لاعبين حقيقيين أو ضد الحاسوب، وحل ألغاز الشطرنج مجانًا.</div></noscript>
     <div id="conn-banner" class="conn-banner hidden" role="status">انقطع الاتصال بالسيرفر، جارٍ إعادة المحاولة...</div>
+
+    <!-- اختيار اللعبة -->
+    <section id="world-screen" class="hidden">
+        <h1 class="world-title">اختر لعبتك</h1>
+        <p class="lead">يمكنك تغيير اللعبة في أي وقت من زر «غيّر اللعبة».</p>
+        <div class="world-grid">
+            <button class="world-card chess" data-action="pickChess">
+                <span class="w-icon" aria-hidden="true">♞</span>
+                <span class="w-name">شطرنج</span>
+                <span class="w-desc">العب أونلاين مع لاعبين حقيقيين أو ضد الحاسوب، وحل الألغاز وحلّل مبارياتك</span>
+            </button>
+            <button class="world-card mono" data-action="pickMono">
+                <span class="w-name">مونوبولي</span>
+                <span class="w-desc">اشترِ المدن وابنِ الفنادق وأفلس خصومك مع أصدقائك أو ضد الحاسوب</span>
+            </button>
+        </div>
+    </section>
 
     <!-- القائمة الرئيسية -->
     <section id="menu-screen" class="narrow stack">
@@ -85,10 +103,6 @@
                 <button class="mode-row" data-action="showPuzzles">
                     <span class="t">حل الألغاز</span>
                     <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
-                </button>
-                <button class="mode-row" data-action="showMono">
-                    <span class="t">مونوبولي</span>
-                    <span class="d">لعبة جماعية أونلاين لعدة لاعبين: اشترِ وابنِ وأفلس خصومك</span>
                 </button>
                 <button class="mode-row" data-action="showLeaderboard">
                     <span class="t">المتصدرون</span>
@@ -253,7 +267,13 @@
         <div id="mp-error" class="error" role="alert"></div>
 
         <div id="mp-home" class="stack narrow">
-            <p class="lead">من 2 إلى 6 لاعبين. أنشئ غرفة وأرسل الكود لأصدقائك، أو انضم بكود.</p>
+            <p class="lead">من 2 إلى 8 لاعبين. أنشئ غرفة وأرسل الكود لأصدقائك، أو انضم بكود.</p>
+            <label class="small muted" for="mp-map">اختر اللوحة</label>
+            <select id="mp-map" class="field" aria-label="اللوحة">
+                <option value="coast">🏖 المدينة الساحلية</option>
+                <option value="desert">🏜 المدينة الصحراوية</option>
+                <option value="future">🌃 مدينة المستقبل</option>
+            </select>
             <button class="btn primary" data-action="monoCreate">أنشئ غرفة</button>
             <div class="join-row">
                 <input type="text" id="mp-code" class="field" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" aria-label="كود الغرفة">
@@ -273,6 +293,7 @@
         <div id="mp-lobby" class="stack narrow hidden">
             <p class="lead">أرسل هذا الكود لأصدقائك</p>
             <div class="mp-codebox"><span id="mp-roomcode" dir="ltr"></span> <button class="btn ghost" id="mp-copy" data-action="monoCopy">انسخ الكود</button></div>
+            <p class="muted small" id="mp-mapname"></p>
             <ul id="mp-players" class="mp-players"></ul>
             <button class="btn primary hidden" id="mp-start" data-action="monoStart">ابدأ اللعبة</button>
             <p class="muted small" id="mp-wait">بانتظار المضيف ليبدأ اللعبة...</p>
@@ -282,6 +303,7 @@
             <div id="mp-board" class="mp-board" dir="ltr"></div>
             <div id="mp-status" class="mp-status"></div>
             <div class="mp-actions" id="mp-actions"></div>
+            <div id="mp-trade" class="mp-sel hidden"></div>
             <div id="mp-card" class="mp-card hidden"></div>
             <div id="mp-sel" class="mp-sel hidden"></div>
             <ul id="mp-plist" class="mp-plist"></ul>
