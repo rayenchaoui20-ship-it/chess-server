@@ -12,6 +12,7 @@
     var last = null;         // آخر حالة من الخادم
     var selSq = null;
     var GCOL = { brown: '#8b5a3c', lblue: '#7dd3fc', pink: '#f472b6', orange: '#fb923c', red: '#ef4444', yellow: '#facc15', green: '#22c55e', blue: '#2563eb' };
+    var TOKEN = ['🚗', '🎩', '🐕', '🚢', '👢', '🛵'];
     var ICON = { go: '➜', chest: '🎁', chance: '❓', tax: '💸', jail: '⛓', free: '🅿', gojail: '👮', rail: '🚆', util: '💡' };
 
     function loadBoard(cb) {
@@ -47,7 +48,7 @@
             c.append($('<span class="tk">'));
             b.append(c);
         });
-        b.append($('<div class="mp-center">').append($('<div class="mp-logo">').text(T('مونوبولي'))));
+        b.append($('<div class="mp-center">').append($('<div class="mp-logo">').text(T('مونوبولي')), $('<div class="mp-dice" id="mp-dice" dir="ltr">'), $('<div class="mp-event" id="mp-event">')));
         boardBuilt = true;
     }
 
@@ -85,20 +86,21 @@
             c.find('.band').text(h >= 5 ? '🏨' : h > 0 ? new Array(h + 1).join('▪') : '');
             var tk = c.find('.tk').empty();
             g.players.forEach(function (p, pi) {
-                if (!p.out && p.pos === i) tk.append($('<i>').css('background', last.players[pi].color).toggleClass('me', pi === me));
+                if (!p.out && p.pos === i) tk.append($('<i>').text(TOKEN[pi % 6]).css('background', last.players[pi].color).toggleClass('me', pi === me).toggleClass('cur', pi === g.turn));
             });
         }
         // حالة الدور
         var cp = g.players[g.turn];
         var st;
-        if (g.phase === 'over') st = T('انتهت اللعبة. الفائز: {n}', { n: g.players[g.winner].name });
+        var actor = g.phase === 'auction' && g.auction ? g.auction.order[g.auction.i] : g.turn;
+        if (g.phase === 'over') st = '🏆 ' + T('انتهت اللعبة. الفائز: {n}', { n: g.players[g.winner].name });
+        else if (g.phase === 'auction') st = (actor === me ? T('دورك في المزاد') : T('دور {n} في المزاد', { n: g.players[actor].name }));
         else if (g.turn === me) st = T('دورك') + ' — ' + phaseText(g);
-        else st = T('دور {n}', { n: cp.name });
+        else st = T('دور {n}', { n: cp.name }) + (last.players[g.turn].bot ? ' 🤖…' : '');
         if (g.mult > 1 && g.phase !== 'over') st += ' · ' + T('الإيجارات ×{m}', { m: g.mult });
         $('#mp-status').text(st).css('border-color', g.phase === 'over' ? '#e2b14b' : colorOf(g.turn));
-        // النرد
-        var dc = $('#mp-dice').empty();
-        if (g.dice[0]) dc.append($('<b class="die">').text(g.dice[0]), $('<b class="die">').text(g.dice[1]));
+        showDice(g);
+        $('#mp-event').text(g.log.length ? T(g.log[g.log.length - 1][0], tp(g.log[g.log.length - 1][1])) : '');
         // البطاقة المسحوبة
         var cd = $('#mp-card');
         if (g.drawn) cd.removeClass('hidden').text((g.drawn.type === 'chance' ? '❓ ' : '🎁 ') + T(g.drawn.k)); else cd.addClass('hidden');
@@ -107,8 +109,25 @@
         function btn(label, act, cls, sq) {
             A.append($('<button class="btn ' + (cls || 'secondary') + '">').text(label).attr({ 'data-mp': act }).data('sq', sq));
         }
-        var mine = g.turn === me && g.phase !== 'over';
+        var mine = g.turn === me && g.phase !== 'over' && g.phase !== 'auction';
         var mp = g.players[me];
+        if (g.phase === 'auction' && g.auction) {
+            var au = g.auction, as = BOARD[au.sq];
+            A.append($('<div class="mp-auction">').append(
+                $('<b>').text(T(as.n) + ' — ' + money(as.p)),
+                $('<div>').text(au.high === null ? T('لا عروض بعد') : T('أعلى عرض: {a} من {n}', { a: money(au.bid), n: g.players[au.high].name }))));
+            if (actor === me) {
+                [10, 50, 100].forEach(function (inc) {
+                    var amt = au.bid + inc;
+                    btn(T('عرض {a}', { a: money(amt) }), 'bid', 'primary');
+                    $('#mp-actions button').last().data('amt', amt).prop('disabled', amt > mp.cash);
+                });
+                btn(T('انسحب'), 'pass', 'ghost');
+            }
+        } else if (g.phase === 'over') {
+            btn(T('العودة إلى مونوبولي'), 'x', 'primary');
+            $('#mp-actions button').last().removeAttr('data-mp').attr('data-action', 'monoLeave');
+        }
         if (mine) {
             if (g.phase === 'roll') {
                 if (mp.jail) {
@@ -120,7 +139,7 @@
                 var s = BOARD[mp.pos];
                 btn(T('اشترِ {n} بـ{p}', { n: T(s.n), p: money(s.p) }), 'buy', 'primary');
                 $('#mp-actions button').last().prop('disabled', mp.cash < s.p);
-                btn(T('تخطَّ'), 'decline', 'ghost');
+                btn(T('اطرح للمزاد'), 'decline', 'ghost');
             } else if (g.phase === 'debt') {
                 btn(T('ادفع الدَّين {a}', { a: money(g.pending.amount) }), 'paydebt', 'primary');
                 btn(T('أعلن الإفلاس'), 'bankrupt', 'danger');
@@ -135,7 +154,10 @@
             var li = $('<li>').toggleClass('out', p.out).toggleClass('cur', pi === g.turn && g.phase !== 'over');
             li.append($('<span class="dot">').css('background', last.players[pi].color),
                 $('<span class="nm">').text(p.name + (pi === me ? ' (' + T('أنت') + ')' : '') + (!last.players[pi].on ? ' ⚠' : '')),
-                $('<span class="mc">').text(p.out ? T('مُفلس') : money(p.cash) + ' · ' + T('{n} ملكية', { n: n }) + (p.jail ? ' ⛓' : '') + (p.cards ? ' 🎟' + p.cards : '')));
+                $('<span class="mc">').text((TOKEN[pi % 6]) + ' ' + (p.out ? T('مُفلس') : money(p.cash) + ' · ' + T('{n} ملكية', { n: n }) + (p.jail ? ' ⛓' : '') + (p.cards ? ' 🎟' + p.cards : ''))));
+            var chips = $('<span class="chips">');
+            for (var sq2 = 0; sq2 < 40; sq2++) if (g.owner[sq2] === pi) chips.append($('<i>').css('background', BOARD[sq2].g ? GCOL[BOARD[sq2].g] : '#8a94ad').toggleClass('mort', !!g.mort[sq2]).attr('data-sq', sq2));
+            if (chips.children().length) li.append(chips);
             pl.append(li);
         });
         // السجل
@@ -145,6 +167,62 @@
             lg.append($('<li>').text(T(e[0], p)));
         });
         paintSel();
+    }
+
+    function tp(pr) { var p = {}; for (var k in (pr || {})) p[k] = typeof pr[k] === 'string' ? T(pr[k]) : pr[k]; return p; }
+
+    // ───────── النرد والصوت ─────────
+    var diceTimer = null, lastDiceKey = '';
+    function showDice(g) {
+        var dc = $('#mp-dice');
+        if (!g.dice[0]) { dc.empty(); return; }
+        var key = g.dice.join('-') + '|' + g.turn + '|' + g.log.length;
+        if (key === lastDiceKey) return;
+        var fresh = lastDiceKey !== '' && g.log.length && /رمى النرد/.test(g.log[g.log.length - 1][0] || '');
+        lastDiceKey = key;
+        function put(a, b, cls) { dc.empty().append($('<b class="die ' + (cls || '') + '">').text(a), $('<b class="die ' + (cls || '') + '">').text(b)); }
+        clearInterval(diceTimer);
+        if (!fresh) return put(g.dice[0], g.dice[1]);
+        var n = 0;
+        diceTimer = setInterval(function () {
+            n++;
+            if (n >= 7) { clearInterval(diceTimer); put(g.dice[0], g.dice[1], 'land'); return; }
+            put(1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6), 'shake');
+        }, 70);
+    }
+    var muted = false, actx = null;
+    try { muted = localStorage.getItem('mp-mute') === '1'; } catch (e) { /* ignore */ }
+    function tone(f, d, type, when, vol) {
+        if (muted) return;
+        try {
+            actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+            if (actx.state === 'suspended') actx.resume();
+            var o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + (when || 0);
+            o.type = type || 'sine'; o.frequency.value = f;
+            g.gain.setValueAtTime(vol || 0.08, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+            o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + d + 0.02);
+        } catch (e) { /* ignore */ }
+    }
+    var SND = {
+        roll: function () { for (var i = 0; i < 6; i++) tone(180 + Math.random() * 120, 0.05, 'square', i * 0.07, 0.04); },
+        turn: function () { tone(660, 0.12, 'sine', 0); tone(880, 0.18, 'sine', 0.12); },
+        buy: function () { tone(520, 0.08, 'triangle', 0); tone(780, 0.14, 'triangle', 0.08); },
+        pay: function () { tone(300, 0.12, 'sawtooth', 0, 0.05); tone(200, 0.18, 'sawtooth', 0.1, 0.05); },
+        win: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.2, 'triangle', i * 0.13); }); }
+    };
+    function soundBtn() { $('#mp-snd').text(muted ? '🔇' : '🔊'); }
+    function diffSounds(prev, next) {
+        if (!next.game) return;
+        var g = next.game, pg = prev && prev.game;
+        if (!pg) return;
+        if (g.phase === 'over' && pg.phase !== 'over') return SND.win();
+        if (g.log.length && JSON.stringify(g.log[g.log.length - 1]) !== JSON.stringify(pg.log[pg.log.length - 1] || null)) {
+            var k = g.log[g.log.length - 1][0] || '';
+            if (/رمى النرد/.test(k)) SND.roll();
+            else if (/اشترى|ربح مزاد/.test(k)) SND.buy();
+            else if (/دفع|أفلس/.test(k)) SND.pay();
+        }
+        if (g.turn === next.me && (pg.turn !== g.turn) && g.phase !== 'over') setTimeout(SND.turn, 350);
     }
 
     function phaseText(g) {
@@ -183,7 +261,9 @@
     function translateErr(k) { return T(k); }
     socket.on('mp_update', function (d) {
         err('');
+        var prevState = last;
         last = d;
+        diffSounds(prevState, d);
         try { sessionStorage.setItem('mp-in', '1'); } catch (e) { /* ignore */ }
         if (!$('#mono-screen').is(':visible')) APP.show('mono-screen');
         render();
@@ -204,11 +284,12 @@
         var sq = e.target.closest && e.target.closest('.mp-sq');
         if (sq && last && last.game) { selSq = +sq.dataset.sq; paint(); return; }
         var mpb = e.target.closest && e.target.closest('[data-mp]');
-        if (mpb) { socket.emit('mp_act', { a: mpb.getAttribute('data-mp'), sq: $(mpb).data('sq') }); return; }
+        if (mpb) { socket.emit('mp_act', { a: mpb.getAttribute('data-mp'), sq: $(mpb).data('sq'), amt: $(mpb).data('amt') }); return; }
         var el = e.target.closest && e.target.closest('[data-action]');
         if (!el) return;
         var a = el.getAttribute('data-action');
         if (a === 'monoCreate') { err(''); socket.emit('mp_create'); }
+        else if (a === 'monoSound') { muted = !muted; try { localStorage.setItem('mp-mute', muted ? '1' : '0'); } catch (e2) { /* ignore */ } soundBtn(); if (!muted) SND.buy(); }
         else if (a === 'monoAI') { err(''); socket.emit('mp_create_ai', { bots: +$('#mp-bots').val() || 1 }); }
         else if (a === 'monoJoin') {
             var c = String($('#mp-code').val() || '').trim().toUpperCase();
@@ -228,6 +309,6 @@
     });
 
     window.Mono = {
-        open: function () { err(''); if (!last) view('home'); else render(); }
+        open: function () { err(''); soundBtn(); if (!last) view('home'); else render(); }
     };
 })();
