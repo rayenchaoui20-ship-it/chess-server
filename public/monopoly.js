@@ -63,6 +63,16 @@
         boardBuilt = true;
     }
 
+    var cdAt = null, cdTimer = null;
+    function tickCd() {
+        clearTimeout(cdTimer);
+        if (!last || last.started || !last.pub) return;
+        var el = $('#mp-cd');
+        if (!cdAt) { el.text(T('بانتظار لاعبين...')); return; }
+        var s = Math.max(0, Math.ceil((cdAt.end - Date.now()) / 1000));
+        el.text(cdAt.kind === 'start' ? T('تبدأ اللعبة خلال {s} ث', { s: s }) : T('نبحث عن لاعبين... إن لم نجد أحدًا نكمل بالحاسوب بعد {s} ث', { s: s }));
+        cdTimer = setTimeout(tickCd, 500);
+    }
     function mapTitle(id) { var m = MAPS[id]; return m && m.title ? T('اللوحة: {t}', { t: m.title }) : ''; }
     function colorOf(i) { return last.players[i].color; }
 
@@ -76,9 +86,15 @@
             last.players.forEach(function (p, i) {
                 ul.append($('<li>').append($('<span class="dot">').css('background', p.color), $('<span>').text(p.name + (i === 0 ? ' ★' : '') + (i === last.me ? ' (' + T('أنت') + ')' : ''))));
             });
-            var host = last.me === 0;
+            var pub = !!last.pub;
+            var host = last.me === 0 && !pub;
             $('#mp-start').toggleClass('hidden', !host);
-            $('#mp-wait').toggleClass('hidden', host);
+            $('#mp-wait').toggleClass('hidden', host || pub);
+            $('.mp-codebox').toggleClass('hidden', pub);
+            $('#mp-lead').text(pub ? T('غرفة عامة: لاعبون عشوائيون') : T('أرسل هذا الكود لأصدقائك'));
+            cdAt = last.cd ? { kind: last.cd.kind, end: Date.now() + last.cd.ms } : null;
+            $('#mp-cd').toggleClass('hidden', !pub);
+            tickCd();
             return;
         }
         view('game');
@@ -397,6 +413,7 @@
             socket.emit('mp_act', { a: 'tpropose', to: draft.to, give: gv, take: tv });
             return;
         }
+        if (a === 'monoQuick') { err(''); socket.emit('mp_quick'); return; }
         if (a === 'monoCreate') { err(''); socket.emit('mp_create', { map: $('#mp-map').val() }); }
         else if (a === 'monoSound') { muted = !muted; try { localStorage.setItem('mp-mute', muted ? '1' : '0'); } catch (e2) { /* ignore */ } soundBtn(); if (!muted) SND.buy(); }
         else if (a === 'monoAI') { err(''); socket.emit('mp_create_ai', { bots: +$('#mp-bots').val() || 1, map: $('#mp-map').val() }); }
