@@ -86,6 +86,10 @@
                     <span class="t">حل الألغاز</span>
                     <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
                 </button>
+                <button class="mode-row" data-action="showMono">
+                    <span class="t">مونوبولي</span>
+                    <span class="d">لعبة جماعية أونلاين لعدة لاعبين: اشترِ وابنِ وأفلس خصومك</span>
+                </button>
                 <button class="mode-row" data-action="showLeaderboard">
                     <span class="t">المتصدرون</span>
                     <span class="d">أفضل اللاعبين في كل نظام</span>
@@ -240,6 +244,52 @@
     </section>
 
     <!-- الألغاز -->
+    <section id="mono-screen" class="hidden">
+        <div class="mp-top">
+            <h2 class="section-title">مونوبولي</h2>
+            <button class="btn ghost" id="mp-leave" data-action="monoLeave">رجوع</button>
+        </div>
+        <div id="mp-error" class="error" role="alert"></div>
+
+        <div id="mp-home" class="stack narrow">
+            <p class="lead">من 2 إلى 6 لاعبين. أنشئ غرفة وأرسل الكود لأصدقائك، أو انضم بكود.</p>
+            <button class="btn primary" data-action="monoCreate">أنشئ غرفة</button>
+            <div class="join-row">
+                <input type="text" id="mp-code" class="field" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" aria-label="كود الغرفة">
+                <button class="btn secondary" data-action="monoJoin">انضم</button>
+            </div>
+            <div class="join-row">
+                <select id="mp-bots" class="field" aria-label="عدد لاعبي الحاسوب">
+                    <option value="1">حاسوب واحد</option>
+                    <option value="2">حاسوبان</option>
+                    <option value="3">3 حواسيب</option>
+                </select>
+                <button class="btn secondary" data-action="monoAI">العب ضد الحاسوب</button>
+            </div>
+            <p class="muted small">قواعد مبسّطة: بدون مزادات وبدون تبادل. اللاعب الذي يفلس يخرج، وآخر لاعب يبقى يفوز.</p>
+        </div>
+
+        <div id="mp-lobby" class="stack narrow hidden">
+            <p class="lead">أرسل هذا الكود لأصدقائك</p>
+            <div class="mp-codebox"><span id="mp-roomcode" dir="ltr"></span> <button class="btn ghost" id="mp-copy" data-action="monoCopy">انسخ الكود</button></div>
+            <ul id="mp-players" class="mp-players"></ul>
+            <button class="btn primary hidden" id="mp-start" data-action="monoStart">ابدأ اللعبة</button>
+            <p class="muted small" id="mp-wait">بانتظار المضيف ليبدأ اللعبة...</p>
+        </div>
+
+        <div id="mp-game" class="hidden">
+            <div id="mp-board" class="mp-board" dir="ltr"></div>
+            <div id="mp-status" class="mp-status"></div>
+            <div class="mp-dice" id="mp-dice" dir="ltr"></div>
+            <div class="mp-actions" id="mp-actions"></div>
+            <div id="mp-card" class="mp-card hidden"></div>
+            <div id="mp-sel" class="mp-sel hidden"></div>
+            <ul id="mp-plist" class="mp-plist"></ul>
+            <h3 class="section-title">السجل</h3>
+            <ul id="mp-log" class="mp-log"></ul>
+        </div>
+    </section>
+
     <section id="puzzle-screen" class="hidden">
         <div class="game">
             <div class="board-col">
