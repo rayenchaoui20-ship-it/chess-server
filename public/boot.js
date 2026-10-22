@@ -55,6 +55,6 @@
             app.insertBefore(b, app.firstChild);
             return;
         }
-        return loadScript(['/app.js']);
+        return loadScript(['/app.js']).then(function () { return loadScript(['/monopoly.js']).catch(function () {}); });
     });
 })();
