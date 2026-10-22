@@ -77,11 +77,15 @@ const CHEST = [
     { k: 'بطاقة الخروج من السجن مجانًا', card: true }
 ];
 
+let MAPS = {};
+try { MAPS = require('./public/monopoly-maps.json'); } catch (e) { MAPS = { coast: { names: {} } }; }
+const nm = (g, sq) => ((MAPS[g.map] && MAPS[g.map].names && MAPS[g.map].names[sq]) || BOARD[sq].n);
 function rnd(n) { return crypto.randomInt(n); }
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
-function createGame(names) {
+function createGame(names, map) {
     return {
+        map: MAPS[map] ? map : 'coast',
         players: names.map((name) => ({ name, cash: START_CASH, pos: 0, jail: false, jt: 0, cards: 0, out: false })),
         owner: {}, houses: {}, mort: {},
         turn: 0, phase: 'roll', dice: [0, 0], dbl: 0, again: false,
@@ -157,7 +161,7 @@ function land(g, pi, diceSum) {
     switch (s.t) {
         case 'gojail': sendToJail(g, pi); return nextPhase(g);
         case 'tax':
-            log(g, '{n} دفع {s} {a}', { n: p.name, s: s.n, a: s.amt });
+            log(g, '{n} دفع {s} {a}', { n: p.name, s: nm(g, p.pos), a: s.amt });
             if (!charge(g, pi, s.amt, null)) return;
             return nextPhase(g);
         case 'chance': case 'chest': {
@@ -196,8 +200,95 @@ function land(g, pi, diceSum) {
 }
 
 
+// ───────── التبادل ─────────
+function tradable(g, pi, sq) {
+    const s = BOARD[sq];
+    if (!s || !s.p || g.owner[sq] !== pi) return false;
+    if (s.g && GROUPS[s.g].some((q) => (g.houses[q] || 0) > 0)) return false;
+    return true;
+}
+
+function cleanSide(side) {
+    const o = side && typeof side === 'object' ? side : {};
+    const props = Array.isArray(o.props) ? [...new Set(o.props.filter((x) => Number.isInteger(x) && x >= 0 && x < 40))].slice(0, 28) : [];
+    const cash = Number.isInteger(o.cash) && o.cash > 0 ? Math.min(o.cash, 100000) : 0;
+    const cards = Number.isInteger(o.cards) && o.cards > 0 ? Math.min(o.cards, 4) : 0;
+    return { props, cash, cards };
+}
+
+function tradeError(g, t) {
+    const a = g.players[t.from], b = g.players[t.to];
+    if (!b || b.out || a.out || t.from === t.to) return 'لاعب غير صالح.';
+    if (!t.give.props.length && !t.give.cash && !t.give.cards && !t.take.props.length && !t.take.cash && !t.take.cards) return 'العرض فارغ.';
+    for (const sq of t.give.props) if (!tradable(g, t.from, sq)) return 'لا يمكنك تبادل أحد العقارات (بِع مبانيها أولًا).';
+    for (const sq of t.take.props) if (!tradable(g, t.to, sq)) return 'لا يمكن تبادل أحد عقارات الطرف الآخر.';
+    if (a.cash < t.give.cash) return 'رصيدك لا يكفي لهذا العرض.';
+    if (b.cash < t.take.cash) return 'رصيد الطرف الآخر لا يكفي لهذا العرض.';
+    if (a.cards < t.give.cards) return 'لا تملك هذا العدد من بطاقات الخروج.';
+    if (b.cards < t.take.cards) return 'الطرف الآخر لا يملك هذا العدد من البطاقات.';
+    return null;
+}
+
+function endTrade(g) {
+    g.trade = null;
+    g.phase = g.tradePrev || 'end';
+    delete g.tradePrev;
+}
+
+function tradeAct(g, pi, a) {
+    const t = g.trade;
+    if (!t) return 'لا يوجد عرض تبادل.';
+    if (a.a === 'tcancel') {
+        if (pi !== t.from) return 'فقط صاحب العرض يلغيه.';
+        log(g, '{n} ألغى عرض التبادل', { n: g.players[t.from].name }); endTrade(g); return null;
+    }
+    if (pi !== t.to) return 'هذا العرض ليس موجهًا إليك.';
+    if (a.a === 'tdecline') {
+        log(g, '{n} رفض عرض التبادل', { n: g.players[t.to].name }); endTrade(g); return null;
+    }
+    const e = tradeError(g, t);
+    if (e) { log(g, 'سقط عرض التبادل لأن الأوضاع تغيّرت'); endTrade(g); return e; }
+    const A = g.players[t.from], B = g.players[t.to];
+    t.give.props.forEach((sq) => { g.owner[sq] = t.to; });
+    t.take.props.forEach((sq) => { g.owner[sq] = t.from; });
+    A.cash += t.take.cash - t.give.cash; B.cash += t.give.cash - t.take.cash;
+    A.cards += t.take.cards - t.give.cards; B.cards += t.give.cards - t.take.cards;
+    log(g, 'تم التبادل بين {a} و{b}', { a: A.name, b: B.name });
+    endTrade(g); return null;
+}
+
+function proposeTrade(g, pi, a) {
+    if (g.phase !== 'roll' && g.phase !== 'end') return 'لا يمكن التبادل الآن.';
+    const to = Number.isInteger(a.to) ? a.to : -1;
+    const t = { from: pi, to, give: cleanSide(a.give), take: cleanSide(a.take) };
+    const e = tradeError(g, t);
+    if (e) return e;
+    g.trade = t; g.tradePrev = g.phase; g.phase = 'trade';
+    log(g, '{a} يعرض تبادلًا على {b}', { a: g.players[pi].name, b: g.players[to].name });
+    return null;
+}
+
+// تقييم الحاسوب لعرض تبادل: يقبل إذا كان ما يأخذه أكبر قيمة مما يعطيه
+function botTradeDecision(g, pi) {
+    const t = g.trade;
+    const val = (sq, forWho) => {
+        const s = BOARD[sq]; let v = s.p;
+        if (s.g) {
+            const others = GROUPS[s.g].filter((q) => q !== sq);
+            const done = others.every((q) => g.owner[q] === forWho || t.give.props.includes(q) && forWho === t.to || t.take.props.includes(q) && forWho === t.from);
+            if (done) v *= 1.6;
+        }
+        return v;
+    };
+    let gain = t.give.cash + t.give.cards * 50, loss = t.take.cash + t.take.cards * 50;
+    t.give.props.forEach((sq) => { gain += val(sq, pi); });
+    t.take.props.forEach((sq) => { loss += val(sq, t.from) * 1.1; });
+    const cashAfter = g.players[pi].cash + t.give.cash - t.take.cash;
+    return gain >= loss * 1.1 && cashAfter >= 60 ? 'taccept' : 'tdecline';
+}
+
 // ───────── المزاد ─────────
-const actorOf = (g) => (g.phase === 'auction' && g.auction ? g.auction.order[g.auction.i] : g.turn);
+const actorOf = (g) => (g.phase === 'auction' && g.auction ? g.auction.order[g.auction.i] : g.phase === 'trade' && g.trade ? g.trade.to : g.turn);
 
 function startAuction(g) {
     const sq = cur(g).pos;
@@ -205,14 +296,14 @@ function startAuction(g) {
     for (let k = 0; k < g.players.length; k++) { const j = (g.turn + k) % g.players.length; if (!g.players[j].out) order.push(j); }
     g.auction = { sq, bid: 0, high: null, order, i: 0, passed: [] };
     g.phase = 'auction'; g.pending = null;
-    log(g, 'بدأ مزاد على {s}', { s: BOARD[sq].n });
+    log(g, 'بدأ مزاد على {s}', { s: nm(g, sq) });
 }
 
 function finishAuction(g) {
     const au = g.auction;
     if (au.high !== null) {
         g.players[au.high].cash -= au.bid; g.owner[au.sq] = au.high;
-        log(g, '{n} ربح مزاد {s} بـ{a}', { n: g.players[au.high].name, s: BOARD[au.sq].n, a: au.bid });
+        log(g, '{n} ربح مزاد {s} بـ{a}', { n: g.players[au.high].name, s: nm(g, au.sq), a: au.bid });
     } else log(g, 'انتهى المزاد دون مشترٍ');
     g.auction = null;
     nextPhase(g);
@@ -260,7 +351,7 @@ function advanceTurn(g) {
         g.round = (g.round || 0) + 1;
         if (rentMult(g) !== m0) log(g, 'ارتفعت الإيجارات إلى ×{m} لإنهاء اللعبة', { m: rentMult(g) });
     }
-    g.phase = 'roll'; g.dbl = 0; g.again = false; g.pending = null; g.drawn = null; g.auction = null; delete g.afterJailMove;
+    g.phase = 'roll'; g.dbl = 0; g.again = false; g.pending = null; g.drawn = null; g.auction = null; g.trade = null; delete g.tradePrev; delete g.afterJailMove;
 }
 
 function bankrupt(g, pi, creditor) {
@@ -275,6 +366,7 @@ function bankrupt(g, pi, creditor) {
     if (creditor !== null && creditor !== undefined) { g.players[creditor].cash += Math.max(0, p.cash); g.players[creditor].cards += p.cards; }
     p.cash = 0; p.cards = 0; p.out = true;
     auctionDrop(g, pi);
+    if (g.phase === 'trade' && g.trade && g.trade.to === pi && g.turn !== pi) endTrade(g);
     if (g.turn === pi) advanceTurn(g);
     else if (g.players.filter((q) => !q.out).length <= 1) { g.winner = g.players.findIndex((q) => !q.out); g.phase = 'over'; }
 }
@@ -288,12 +380,14 @@ function groupAllowsBuild(g, sq) {
 function act(g, pi, a) {
     if (g.phase === 'over') return 'انتهت اللعبة.';
     if (g.phase === 'auction' && (a.a === 'bid' || a.a === 'pass')) return auctionAct(g, pi, a);
+    if (g.phase === 'trade') return ['taccept', 'tdecline', 'tcancel'].includes(a.a) ? tradeAct(g, pi, a) : 'هناك عرض تبادل معلّق.';
     if (pi !== g.turn) return 'ليس دورك.';
     if (g.phase === 'auction') return 'المزاد جارٍ.';
     const p = cur(g);
     const sq = Number.isInteger(a.sq) ? a.sq : -1;
     const owned = sq >= 0 && sq < 40 && g.owner[sq] === pi;
     switch (a.a) {
+        case 'tpropose': return proposeTrade(g, pi, a);
         case 'roll': {
             if (g.phase !== 'roll') return 'لا يمكنك رمي النرد الآن.';
             const d1 = 1 + rnd(6), d2 = 1 + rnd(6);
@@ -325,7 +419,7 @@ function act(g, pi, a) {
             const s = BOARD[p.pos];
             if (p.cash < s.p) return 'رصيدك لا يكفي.';
             p.cash -= s.p; g.owner[p.pos] = pi;
-            log(g, '{n} اشترى {s} بـ{a}', { n: p.name, s: s.n, a: s.p });
+            log(g, '{n} اشترى {s} بـ{a}', { n: p.name, s: nm(g, p.pos), a: s.p });
             nextPhase(g); return null;
         }
         case 'decline': {
@@ -371,7 +465,7 @@ function act(g, pi, a) {
             if (h > Math.min(...groupHouses(g, s.g))) return 'ابنِ بالتساوي على المجموعة.';
             if (p.cash < s.h) return 'رصيدك لا يكفي.';
             p.cash -= s.h; g.houses[sq] = h + 1;
-            log(g, '{n} بنى في {s}', { n: p.name, s: s.n }); return null;
+            log(g, '{n} بنى في {s}', { n: p.name, s: nm(g, sq) }); return null;
         }
         case 'sell': {
             if (g.phase === 'over') return 'انتهت اللعبة.';
@@ -408,13 +502,13 @@ function publicState(g) {
     return {
         players: g.players, owner: g.owner, houses: g.houses, mort: g.mort,
         turn: g.turn, phase: g.phase, dice: g.dice, pending: g.pending, drawn: g.drawn,
-        winner: g.winner, log: g.log.slice(-12), again: g.again, auction: g.auction, mult: rentMult(g), round: g.round || 0
+        winner: g.winner, log: g.log.slice(-12), again: g.again, map: g.map, auction: g.auction, trade: g.trade, mult: rentMult(g), round: g.round || 0
     };
 }
 
 // ───────────────────────── ربط Socket.IO ─────────────────────────
-const COLORS = ['#e5484d', '#3b82f6', '#22c55e', '#f5a524', '#a855f7', '#14b8a6'];
-const MAX_PLAYERS = 6;
+const COLORS = ['#e5484d', '#3b82f6', '#22c55e', '#f5a524', '#a855f7', '#14b8a6', '#ec4899', '#9ca3af'];
+const MAX_PLAYERS = 8;
 const rooms = new Map();
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -438,6 +532,7 @@ function botChoose(g, pi) {
         }
         return { a: 'roll' };
     }
+    if (g.phase === 'trade') return { a: botTradeDecision(g, pi) };
     if (g.phase === 'auction') {
         const au = g.auction, s = BOARD[au.sq];
         const completes = s.g && GROUPS[s.g].filter((q) => q !== au.sq).every((q) => g.owner[q] === pi);
@@ -493,7 +588,7 @@ function attach(io, { nameOf }) {
         room.players.forEach((pl, i) => {
             if (!pl.sid) return;
             io.to(pl.sid).emit('mp_update', {
-                code: room.code, me: i, host: 0,
+                code: room.code, me: i, host: 0, map: room.map || 'coast',
                 players: room.players.map((q, j) => ({ name: q.name, color: COLORS[j % COLORS.length], on: !!q.sid || !!q.bot, bot: !!q.bot })),
                 started: !!room.game, game: room.game ? publicState(room.game) : null
             });
@@ -516,7 +611,7 @@ function attach(io, { nameOf }) {
             if (room.players[i] && room.players[i].bot) {
                 let ok = false;
                 try { ok = botStep(g, i); } catch (e) { ok = false; }
-                if (!ok && g.phase !== 'over') { act(g, i, { a: g.phase === 'auction' ? 'pass' : g.phase === 'debt' ? 'bankrupt' : 'end' }); }
+                if (!ok && g.phase !== 'over') { act(g, i, { a: g.phase === 'trade' ? 'tdecline' : g.phase === 'auction' ? 'pass' : g.phase === 'debt' ? 'bankrupt' : 'end' }); }
             }
             emitRoom(room);
         }, 900);
@@ -552,12 +647,12 @@ function attach(io, { nameOf }) {
         const err = (k) => socket.emit('mp_error', k);
         const mine = () => (tok() ? findByToken(tok()) : null);
 
-        socket.on('mp_create', () => {
+        socket.on('mp_create', (d) => {
             if (!tok()) return;
             if (mine()) return err('أنت في غرفة بالفعل.');
             const code = newCode();
             if (!code) return err('تعذّر إنشاء الغرفة.');
-            const room = { code, players: [{ token: tok(), name: nameOf(tok()), sid: socket.id, off: 0 }], game: null, t: Date.now() };
+            const room = { code, players: [{ token: tok(), name: nameOf(tok()), sid: socket.id, off: 0 }], game: null, t: Date.now(), map: MAPS[d && d.map] ? d.map : 'coast' };
             rooms.set(code, room);
             emitRoom(room);
         });
@@ -570,8 +665,8 @@ function attach(io, { nameOf }) {
             if (!code) return err('تعذّر إنشاء الغرفة.');
             const players = [{ token: tok(), name: nameOf(tok()), sid: socket.id, off: 0 }];
             for (let k = 1; k <= n; k++) players.push({ token: null, name: 'الحاسوب ' + k, sid: null, off: 0, bot: true });
-            const room = { code, players, game: null, t: Date.now(), ai: true };
-            room.game = createGame(players.map((q) => q.name));
+            const room = { code, players, game: null, t: Date.now(), ai: true, map: MAPS[d && d.map] ? d.map : 'coast' };
+            room.game = createGame(players.map((q) => q.name), room.map);
             rooms.set(code, room);
             emitRoom(room);
         });
@@ -623,14 +718,14 @@ function attach(io, { nameOf }) {
             if (!f || f.i !== 0) return err('المضيف فقط يبدأ اللعبة.');
             if (f.room.game) return;
             if (f.room.players.length < 2) return err('تحتاج إلى لاعبين اثنين على الأقل.');
-            f.room.game = createGame(f.room.players.map((p) => p.name));
+            f.room.game = createGame(f.room.players.map((p) => p.name), f.room.map);
             emitRoom(f.room);
         });
 
         socket.on('mp_act', (d) => {
             const f = mine();
             if (!f || !f.room.game || !d || typeof d !== 'object') return;
-            const e = act(f.room.game, f.i, { a: String(d.a || ''), sq: d.sq, amt: d.amt });
+            const e = act(f.room.game, f.i, { a: String(d.a || ''), sq: d.sq, amt: d.amt, to: d.to, give: d.give, take: d.take });
             if (e) err(e);
             emitRoom(f.room);
         });
