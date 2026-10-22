@@ -584,11 +584,18 @@ function botStep(g, pi) {
 }
 
 function attach(io, { nameOf }) {
+    const lobbyCd = (room) => {
+        if (!room.pub || room.game) return null;
+        const now = Date.now();
+        if (room.players.length >= 2 && room.startAt) return { kind: 'start', ms: Math.max(0, room.startAt - now) };
+        if (room.soloAt) return { kind: 'bots', ms: Math.max(0, room.soloAt - now) };
+        return null;
+    };
     const emitRoom = (room) => {
         room.players.forEach((pl, i) => {
             if (!pl.sid) return;
             io.to(pl.sid).emit('mp_update', {
-                code: room.code, me: i, host: 0, map: room.map || 'coast',
+                code: room.code, me: i, host: 0, map: room.map || 'coast', pub: !!room.pub, cd: lobbyCd(room),
                 players: room.players.map((q, j) => ({ name: q.name, color: COLORS[j % COLORS.length], on: !!q.sid || !!q.bot, bot: !!q.bot })),
                 started: !!room.game, game: room.game ? publicState(room.game) : null
             });
@@ -625,6 +632,33 @@ function attach(io, { nameOf }) {
         }
         return null;
     }
+
+    // ───── اللعب العشوائي (غرف عامة) ─────
+    const QUICK_MAX = 4, WAIT_START = 20000, WAIT_FULL = 3000, WAIT_SOLO = 40000;
+    function updateTimers(room) {
+        if (!room.pub || room.game) return;
+        const n = room.players.length, now = Date.now();
+        if (n >= QUICK_MAX) room.startAt = Math.min(room.startAt || Infinity, now + WAIT_FULL);
+        else if (n >= 2) { if (!room.startAt) room.startAt = now + WAIT_START; }
+        else room.startAt = null;
+        room.soloAt = n < 2 ? (room.soloAt || now + WAIT_SOLO) : null;
+    }
+    function startRoomGame(room) {
+        if (room.game) return;
+        if (room.players.length < 2) room.players.push({ token: null, name: 'الحاسوب 1', sid: null, off: 0, bot: true });
+        room.startAt = null; room.soloAt = null;
+        room.game = createGame(room.players.map((q) => q.name), room.map);
+        emitRoom(room);
+    }
+    const lobbyTick = setInterval(() => {
+        const now = Date.now();
+        for (const room of [...rooms.values()]) {
+            if (!room.pub || room.game) continue;
+            if (room.players.length >= 2 && room.startAt && now >= room.startAt) startRoomGame(room);
+            else if (room.players.length < 2 && room.soloAt && now >= room.soloAt) startRoomGame(room);
+        }
+    }, 1000);
+    lobbyTick.unref();
 
     // مهلة الإفلاس للمنقطعين، وتنظيف الغرف الفارغة
     const sweep = setInterval(() => {
@@ -671,6 +705,25 @@ function attach(io, { nameOf }) {
             emitRoom(room);
         });
 
+        socket.on('mp_quick', () => {
+            if (!tok()) return;
+            if (mine()) return err('أنت في غرفة بالفعل.');
+            let room = null;
+            for (const r of rooms.values()) if (r.pub && !r.game && r.players.length < QUICK_MAX) { room = r; break; }
+            let nm = nameOf(tok());
+            if (!room) {
+                const code = newCode();
+                if (!code) return err('تعذّر إنشاء الغرفة.');
+                const ids = Object.keys(MAPS);
+                room = { code, players: [], game: null, t: Date.now(), pub: true, map: ids[rnd(ids.length)] };
+                rooms.set(code, room);
+            }
+            if (room.players.some((p) => p.name === nm)) nm = nm + ' ' + (room.players.length + 1);
+            room.players.push({ token: tok(), name: nm, sid: socket.id, off: 0 });
+            updateTimers(room);
+            emitRoom(room);
+        });
+
         socket.on('mp_join', (d) => {
             if (!tok()) return;
             const code = String((d && d.code) || '').toUpperCase().trim().slice(0, 8);
@@ -680,6 +733,7 @@ function attach(io, { nameOf }) {
             if (ex >= 0) { room.players[ex].sid = socket.id; room.players[ex].off = 0; return emitRoom(room); }
             if (mine()) return err('أنت في غرفة بالفعل.');
             if (room.ai) return err('هذه غرفة ضد الحاسوب.');
+            if (room.pub && !room.players.some((p) => p.token === tok())) return err('هذه غرفة عامة، استعمل اللعب العشوائي.');
             if (room.game) return err('بدأت اللعبة في هذه الغرفة.');
             if (room.players.length >= MAX_PLAYERS) return err('الغرفة ممتلئة.');
             let nm = nameOf(tok());
@@ -704,6 +758,7 @@ function attach(io, { nameOf }) {
             if (!room.game) {
                 room.players.splice(i, 1);
                 if (!room.players.length) return dropRoom(room);
+                updateTimers(room);
                 return emitRoom(room);
             }
             const gp = room.game.players[i];
@@ -716,6 +771,7 @@ function attach(io, { nameOf }) {
         socket.on('mp_start', () => {
             const f = mine();
             if (!f || f.i !== 0) return err('المضيف فقط يبدأ اللعبة.');
+            if (f.room.pub) return;
             if (f.room.game) return;
             if (f.room.players.length < 2) return err('تحتاج إلى لاعبين اثنين على الأقل.');
             f.room.game = createGame(f.room.players.map((p) => p.name), f.room.map);
@@ -738,6 +794,7 @@ function attach(io, { nameOf }) {
             if (!room.game) {
                 room.players.splice(i, 1);
                 if (!room.players.length) return dropRoom(room);
+                updateTimers(room);
             }
             emitRoom(room);
         });
