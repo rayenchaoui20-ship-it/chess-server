@@ -1,4 +1,4 @@
-/* مونوبولي: واجهة العميل. الخادم هو المرجع الوحيد لحالة اللعبة. */
+/* ملك المدينة: واجهة العميل. الخادم هو المرجع الوحيد لحالة اللعبة. */
 (function () {
     'use strict';
     var APP = window.APP;
@@ -59,7 +59,7 @@
         });
         var mp = MAPS[curMap] || {};
         b.attr('data-map', curMap);
-        b.append($('<div class="mp-center">').attr('data-title', curMap === 'coast' ? '' : (mp.title || '')).css('background-image', mp.art ? 'url(' + mp.art + ')' : '').append($('<div class="mp-logo">').text(T('مونوبولي')), $('<div class="mp-dice" id="mp-dice" dir="ltr">'), $('<div class="mp-event" id="mp-event">')));
+        b.append($('<div class="mp-center">').attr('data-title', curMap === 'coast' ? '' : (mp.title || '')).css('background-image', mp.art ? 'url(' + mp.art + ')' : '').append($('<div class="mp-logo">').text(T('ملك المدينة')), $('<div class="mp-dice" id="mp-dice" dir="ltr">'), $('<div class="mp-event" id="mp-event">')));
         boardBuilt = true;
     }
 
@@ -155,7 +155,7 @@
                 btn(T('انسحب'), 'pass', 'ghost');
             }
         } else if (g.phase === 'over') {
-            btn(T('العودة إلى مونوبولي'), 'x', 'primary');
+            btn(T('العودة إلى ملك المدينة'), 'x', 'primary');
             $('#mp-actions button').last().removeAttr('data-mp').attr('data-action', 'monoLeave');
         }
         if (mine && (g.phase === 'roll' || g.phase === 'end') && g.players.filter(function (q, qi) { return !q.out && qi !== me; }).length) {
