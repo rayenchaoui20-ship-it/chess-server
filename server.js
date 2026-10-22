@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const axios = require('axios');
 const { Chess } = require('chess.js');
 const { analyzeGame } = require('./analysis');
+const safety = require('./safety');
 
 const app = express();
 const server = http.createServer(app);
@@ -303,6 +304,7 @@ function resetForRematch(room) {
     }
     room.game = freshGame(room);
     room.gameId = makeGameId();
+    room.mt = null;
     room.clocks = { w: room.tc.base * 1000, b: room.tc.base * 1000 };
     room.running = false;
     room.plies = 0;
@@ -416,6 +418,20 @@ function saveGameRecords(room) {
     saveSoon();
 }
 
+// مؤشرات غش تُسجَّل للمراجعة اليدوية فقط (لا عقوبة تلقائية)
+function fairPlayCheck(room) {
+    if (room.type !== 'multi' || !room.rated || !room.matched || !room.mt || room.plies < 20) return;
+    ['w', 'b'].forEach((c) => {
+        const tok = room.players[c];
+        const rec = tok && db.players[tok];
+        if (!rec) return;
+        const sig = safety.gameSignals({ moves: room.mt[c].slice(3), baseMs: room.timeSec * 1000, rated: true });
+        safety.addFlags(rec, sig, room.gameId);
+        if (rec.hist) safety.addFlags(rec, safety.risingSignals(rec.hist), room.gameId);
+        if (sig.length) saveSoon();
+    });
+}
+
 function endGame(room, result) {
     if (room.over) return;
     room.over = true;
@@ -431,6 +447,7 @@ function endGame(room, result) {
             room.result.newRatings = ch.ratings;
         }
     }
+    try { fairPlayCheck(room); } catch (e) { /* لا يُعطّل إنهاء المباراة */ }
     saveGameRecords(room);
     broadcast(room);
     // أبلغ الغرفة بأن زر الإعادة لم يعد متاحًا إن غاب أحد الطرفين
@@ -467,6 +484,7 @@ function applyMove(room, color, { from, to, promotion }) {
         return false;
     }
 
+    if (room.type === 'multi' && wasRunning) { room.mt = room.mt || { w: [], b: [] }; room.mt[color].push(spent); }
     room.plies++;
     room.lastMove = { from: mv.from, to: mv.to, san: mv.san, captured: !!mv.captured };
     if (wasRunning) room.clocks[color] += room.incMs;     // زيادة الوقت بعد الحركة
@@ -755,6 +773,27 @@ app.get('/vendor/stockfish/manifest.json', (req, res) => {
 app.use('/vendor/stockfish', express.static(nm('stockfish'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 
+// ───── لوحة المشرف (تتطلب المتغير ADMIN_KEY في Render) ─────
+function adminOk(req) {
+    const key = process.env.ADMIN_KEY;
+    const got = String(req.query.key || '');
+    if (!key || key.length < 12 || got.length !== key.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key));
+}
+app.get('/admin/safety', (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    res.set('Cache-Control', 'no-store');
+    res.json(safety.summary(db));
+});
+app.get('/admin/mute', (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    const tok = db.users[String(req.query.user || '').toLowerCase().replace(/^@/, '')];
+    if (!tok || !db.players[tok]) return res.status(404).json({ ok: false, error: 'مستخدم غير موجود' });
+    const hours = Math.max(0, Math.min(24 * 365, parseFloat(req.query.hours) || 0));
+    db.players[tok].mutedUntil = hours ? Date.now() + hours * 3600 * 1000 : 0;
+    saveSoon();
+    res.json({ ok: true, hours });
+});
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online: io.engine.clientsCount }));
 app.get('/api/leaderboard', (req, res) => res.json({ cat: req.query.cat, rows: leaderboard(String(req.query.cat || 'blitz')) }));
 
@@ -931,7 +970,7 @@ io.on('connection', (socket) => {
             rec = db.players[token] = newPlayer();
             changed = true;
         }
-        const nm_ = cleanName(data.name);
+        const nm_ = safety.safeName(cleanName(data.name), 'لاعب');
         if (nm_ && !rec.user && rec.name !== nm_) { rec.name = nm_; changed = true; }
         rec.last = Date.now();
         if (changed) saveSoon();
@@ -943,7 +982,7 @@ io.on('connection', (socket) => {
     socket.on('set_name', (data) => {
         const ctx = playerCtx(socket);
         if (!ctx) return;
-        const n = cleanName(data && data.name);
+        const n = safety.safeName(cleanName(data && data.name), 'لاعب');
         if (db.players[ctx.token].user) return;      // اسم الحساب المسجل ثابت
         db.players[ctx.token].name = n;
         saveSoon();
@@ -1137,14 +1176,30 @@ io.on('connection', (socket) => {
         if (!ok && !ctx.room.over) socket.emit('state', publicState(ctx.room));
     });
 
+    // ───── الإبلاغ عن لاعب ─────
+    socket.on('report', (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx || !ctx.room || ctx.room.type !== 'multi' || !ctx.room.matched || !data || typeof data.reason !== 'string') return;
+        const target = ctx.room.players[other(ctx.color)];
+        if (!target || !db.players[target]) return socket.emit('toast', 'لا يمكن الإبلاغ الآن.');
+        const r = safety.addReport(db, { reporter: ctx.token, target, reason: data.reason, gameId: ctx.room.gameId });
+        if (!r.ok) return socket.emit('toast', r.error);
+        saveSoon();
+        socket.emit('toast', 'تم استلام بلاغك. شكرًا لمساعدتنا في إبقاء المنصة نظيفة.');
+    });
+
     socket.on('chat', (data) => {
         const ctx = playerCtx(socket);
         if (!ctx || !ctx.room || ctx.room.type !== 'multi' || !data || typeof data.message !== 'string') return;
         const now = Date.now();
         socket.data.chatLog = socket.data.chatLog.filter((t) => now - t < 8000);
         if (socket.data.chatLog.length >= 5) return socket.emit('toast', 'تكتب بسرعة كبيرة، تمهّل قليلًا.');
-        const message = cleanChat(data.message);
+        let message = cleanChat(data.message);
         if (!message) return;
+        if (safety.isMuted(db.players[ctx.token], now)) return socket.emit('toast', 'تم تقييد الدردشة لحسابك مؤقتًا بسبب بلاغات من لاعبين.');
+        socket.data.spam = socket.data.spam || {};
+        if (safety.isSpam(socket.data.spam, message, now)) return socket.emit('toast', 'لا تكرر الرسالة نفسها.');
+        message = safety.filterText(message).text;
         socket.data.chatLog.push(now);
         const opp = ctx.room.players[other(ctx.color)];
         if (opp) emitTo(opp, 'chat', { message });
@@ -1219,6 +1274,7 @@ io.on('connection', (socket) => {
         const pw = typeof data.password === 'string' ? data.password : '';
         const err = validateCreds(u, pw);
         if (err) return socket.emit('auth_error', err);
+        if (safety.filterText(u).flagged) return socket.emit('auth_error', 'اسم المستخدم غير مناسب، اختر اسمًا آخر.');
         if (db.users[u.toLowerCase()]) return socket.emit('auth_error', 'اسم المستخدم مستخدم، اختر اسمًا آخر.');
         let h;
         try { h = await hashPassword(pw); } catch (e) { return socket.emit('auth_error', 'تعذّر إنشاء الحساب، حاول مرة أخرى.'); }
