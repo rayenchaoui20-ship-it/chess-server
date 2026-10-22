@@ -1,6 +1,10 @@
 (function () {
     'use strict';
 
+    // بديل بسيط للترجمة (النص عربي فقط حاليًا)
+    const tr = (s, p) => (typeof s === 'string' && p ? s.replace(/\{(\w+)\}/g, (m, k) => (p[k] == null ? m : p[k])) : s);
+    const I18N = { tag: 'ar', lang: 'ar' };
+
     // ───────────────────────── الثوابت ─────────────────────────
     const PIECE_THEME = 'https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@master/website/img/chesspieces/wikipedia/{piece}.png';
     const TCS = {
@@ -8,20 +12,27 @@
         '3+0': { base: 180, inc: 0 }, '3+2': { base: 180, inc: 2 }, '5+0': { base: 300, inc: 0 },
         '10+0': { base: 600, inc: 0 }, '15+10': { base: 900, inc: 10 }
     };
-    const CAT_NAMES = { bullet: 'بوليت', blitz: 'بليتز', rapid: 'رابيد' };
+    const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'game-screen'];
+    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
     const REASONS = {
-        checkmate: 'كش مات', timeout: 'انتهى الوقت', resign: 'استسلام', abandoned: 'غادر الخصم المباراة',
-        stalemate: 'جمود (Stalemate)', insufficient: 'عدم كفاية القطع', repetition: 'تكرار الوضعية',
-        fifty: 'قاعدة الخمسين حركة', agreement: 'اتفاق على التعادل', aborted: 'أُلغيت المباراة',
-        timevsinsufficient: 'انتهى الوقت، لكن الخصم لا يملك قطعًا كافية للكش مات'
+        checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
+        stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
+        fifty: tr('قاعدة الخمسين حركة'), agreement: tr('اتفاق على التعادل'), aborted: tr('أُلغيت المباراة'),
+        timevsinsufficient: tr('انتهى الوقت، لكن الخصم لا يملك قطعًا كافية للكش مات')
     };
     const START_COUNT = { p: 8, n: 2, b: 2, r: 2, q: 1 };
     const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 
     // ───────────────────────── الحالة ─────────────────────────
     const socket = io();
+    window.APP = { socket, show: (id) => show(id), toMenu: () => show('menu-screen') };
+    // رسائل الخادم النصية تُترجم عند الاستقبال (الخادم يرسل بالعربية دائمًا)
+    const MSG_EVENTS = new Set(['room_error', 'toast', 'notice', 'auth_error', 'friend_error', 'friend_ok', 'analysis_error', 'games_error']);
+    const rawOn = socket.on.bind(socket);
+    socket.on = (ev, fn) => rawOn(ev, MSG_EVENTS.has(ev)
+        ? (m) => fn(typeof m === 'string' ? tr(m) : m)
+        : ev === 'notify' ? (d) => fn(d && typeof d.text === 'string' ? Object.assign({}, d, { text: tr(d.text) }) : d) : fn);
     const game = new Chess();          // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
     let board = null;
     let myColor = 'w';
@@ -36,15 +47,15 @@
     let analysis = null;
     let analyzing = false;
     const CLS = {
-        brilliant: { sym: '!!', name: 'رائعة (بريليانت)' },
-        great: { sym: '!', name: 'رائعة جدًا' },
-        best: { sym: '★', name: 'الأفضل' },
-        excellent: { sym: '✓', name: 'ممتازة' },
-        good: { sym: '•', name: 'جيدة' },
-        book: { sym: '📖', name: 'نظرية' },
-        inaccuracy: { sym: '?!', name: 'دقة ضعيفة' },
-        mistake: { sym: '?', name: 'خطأ' },
-        blunder: { sym: '??', name: 'خطأ فادح (بلندر)' }
+        brilliant: { sym: '!!', name: tr('رائعة (بريليانت)') },
+        great: { sym: '!', name: tr('رائعة جدًا') },
+        best: { sym: '★', name: tr('الأفضل') },
+        excellent: { sym: '✓', name: tr('ممتازة') },
+        good: { sym: '•', name: tr('جيدة') },
+        book: { sym: '📖', name: tr('نظرية') },
+        inaccuracy: { sym: '?!', name: tr('دقة ضعيفة') },
+        mistake: { sym: '?', name: tr('خطأ') },
+        blunder: { sym: '??', name: tr('خطأ فادح (بلندر)') }
     };
     let serverOffset = 0;
     let pendingMove = null;
@@ -58,7 +69,7 @@
     let awaitResume = false;
     let rematchSent = false;
     let oppLeft = false;
-    let oppName = 'الخصم';
+    let oppName = tr('الخصم');
     let lastAI = null;
     let currentScreen = 'menu-screen';
     let ratings = { bullet: 1200, blitz: 1200, rapid: 1200 };
@@ -156,7 +167,7 @@
         } catch (e) { /* ignore */ }
     }
     function updateSoundButton() {
-        $('#sound-btn').text(soundOn ? 'الصوت مفعّل' : 'الصوت مكتوم').attr('aria-pressed', String(soundOn));
+        $('#sound-btn').text(soundOn ? tr('الصوت مفعّل') : tr('الصوت مكتوم')).attr('aria-pressed', String(soundOn));
     }
     updateSoundButton();
 
@@ -187,7 +198,7 @@
             const row = $('<div class="time-row">');
             Object.keys(TCS).filter((id) => catOf(id) === cat).forEach((id) => {
                 const t = TCS[id];
-                const unit = (t.base / 60) + ' د' + (t.inc ? ' + ' + t.inc + ' ث' : '');
+                const unit = tr('{m} د', { m: t.base / 60 }) + (t.inc ? ' + ' + tr('{s} ث', { s: t.inc }) : '');
                 row.append(
                     $('<button class="time-card">').attr({ 'data-action': 'selectTc', 'data-tc': id, 'aria-pressed': String(id === selectedTc) })
                         .append($('<span class="num">').text(id), $('<span class="unit">').text(unit))
@@ -198,7 +209,7 @@
     }
     function renderVariant() {
         $('#variant-toggle').attr('aria-pressed', String(variant === '960'));
-        $('#variant-state').text(variant === '960' ? 'مفعّل' : 'متوقف');
+        $('#variant-state').text(variant === '960' ? tr('مفعّل') : tr('متوقف'));
     }
     function renderRatings() {
         const box = $('#ratings').empty();
@@ -206,10 +217,10 @@
             box.append($('<span class="chip">').text(CAT_NAMES[c]).append($('<b>').text(ratings[c])));
         });
     }
-    function levelName(v) { return v <= 5 ? 'مبتدئ' : (v <= 10 ? 'متوسط' : 'متقدم'); }
+    function levelName(v) { return v <= 5 ? tr('مبتدئ') : (v <= 10 ? tr('متوسط') : tr('متقدم')); }
     function updateLevelLabel() {
         const v = Number($('#ai-level').val());
-        $('#ai-level-label').text('المستوى ' + v + ' (' + levelName(v) + ')');
+        $('#ai-level-label').text(tr('المستوى {v} ({name})', { v, name: levelName(v) }));
     }
 
     const saved = lsGet('chess-tc');
@@ -271,15 +282,16 @@
         createRoom() { socket.emit('create_room', { tc: selectedTc, variant }); },
         joinRoom() {
             const roomId = $('#join-room-input').val().trim();
-            if (!roomId) return $('#menu-error').text('أدخل كود الغرفة أولًا.');
+            if (!roomId) return $('#menu-error').text(tr('أدخل كود الغرفة أولًا.'));
             socket.emit('join_room', { roomId });
         },
         spectateRoom() {
             const roomId = $('#join-room-input').val().trim();
-            if (!roomId) return $('#menu-error').text('أدخل كود الغرفة التي تريد مشاهدتها.');
+            if (!roomId) return $('#menu-error').text(tr('أدخل كود الغرفة التي تريد مشاهدتها.'));
             socket.emit('spectate', { roomId });
         },
         showAIOptions() { show('ai-options-screen'); },
+        showMono() { show('mono-screen'); if (window.Mono) window.Mono.open(); },
         setAiColor(el) {
             const c = el.dataset.color;
             $('#ai-options-screen').data('color', c);
@@ -294,15 +306,15 @@
         goMenu() { show('menu-screen'); },
         showGames() {
             $('#games-list').empty();
-            $('#games-empty').text('جارٍ التحميل...').removeClass('hidden');
+            $('#games-empty').text(tr('جارٍ التحميل...')).removeClass('hidden');
             show('games-screen');
             socket.emit('games_get');
         },
         openGame(el) { socket.emit('game_get', { id: el.dataset.id }); },
         leaveWaiting() { socket.emit('leave_room'); resetToMenu(); },
         cancelSearch() { socket.emit('cancel_search'); },
-        copyRoomCode() { copyText($('#room-code').text(), '#copy-btn', 'انسخ الكود'); },
-        copyRoomLink() { copyText(location.origin + '/?room=' + $('#room-code').text(), '#copy-link-btn', 'انسخ الرابط'); },
+        copyRoomCode() { copyText($('#room-code').text(), '#copy-btn', tr('انسخ الكود')); },
+        copyRoomLink() { copyText(location.origin + '/?room=' + $('#room-code').text(), '#copy-link-btn', tr('انسخ الرابط')); },
         showLeaderboard() { show('leaderboard-screen'); requestLeaderboard(); },
         lbTab(el) {
             lbCat = el.dataset.cat;
@@ -312,12 +324,12 @@
         // اللعب
         resign() {
             if (!state || state.over || spectating) return;
-            askConfirm('هل تريد الاستسلام؟', () => socket.emit('resign'));
+            askConfirm(tr('هل تريد الاستسلام؟'), () => socket.emit('resign'));
         },
         abort() { socket.emit('abort'); },
         offerDraw() {
             if (!state || state.over || gameMode !== 'multi' || spectating) return;
-            if (state.moveCount < 2) return flash('يمكن اقتراح التعادل بعد أول حركتين.');
+            if (state.moveCount < 2) return flash(tr('يمكن اقتراح التعادل بعد أول حركتين.'));
             socket.emit('offer_draw');
         },
         respondDraw(el) {
@@ -333,7 +345,7 @@
             }
             if (rematchSent) return;
             rematchSent = true;
-            $('#result-rematch, #rematch-btn').prop('disabled', true).text('بانتظار الخصم...');
+            $('#result-rematch, #rematch-btn').prop('disabled', true).text(tr('بانتظار الخصم...'));
             socket.emit('rematch');
         },
         downloadPGN() { downloadPGN(); },
@@ -354,7 +366,7 @@
             const leave = () => { socket.emit('leave_room'); resetToMenu(); };
             if (spectating || !state || state.over) return leave();
             if (state.moveCount < 2 && gameMode === 'multi') return leave();
-            askConfirm('مغادرة المباراة الجارية تُحتسب خسارة. هل تريد المغادرة؟', leave);
+            askConfirm(tr('مغادرة المباراة الجارية تُحتسب خسارة. هل تريد المغادرة؟'), leave);
         },
         reviewGo(el) { reviewGo(el.dataset.where); },
         promotePiece(el) {
@@ -371,7 +383,7 @@
             if (spectating) return;
             const msg = $('#chat-input').val().trim();
             if (!msg) return;
-            appendChat('أنت', msg);
+            appendChat(tr('أنت'), msg);
             socket.emit('chat', { message: msg });
             $('#chat-input').val('');
         },
@@ -389,7 +401,7 @@
         authTab(el) { setAuthMode(el.dataset.mode); },
         authSubmit() { authSubmit(); },
         logout() {
-            askConfirm('هل تريد تسجيل الخروج من حسابك؟', () => { resetToMenu(); socket.emit('logout'); });
+            askConfirm(tr('هل تريد تسجيل الخروج من حسابك؟'), () => { resetToMenu(); socket.emit('logout'); });
         },
         showFriends() {
             $('#fr-msg').text('').removeClass('err good');
@@ -407,7 +419,7 @@
         friendRespond(el) { socket.emit('friend_respond', { username: el.dataset.user, accept: el.dataset.accept === '1' }); },
         friendRemove(el) {
             const u = el.dataset.user;
-            askConfirm('إزالة ' + u + ' من قائمة أصدقائك؟', () => socket.emit('friend_remove', { username: u }));
+            askConfirm(tr('إزالة {u} من قائمة أصدقائك؟', { u }), () => socket.emit('friend_remove', { username: u }));
         },
         friendInvite(el) { socket.emit('friend_invite', { username: el.dataset.user, tc: selectedTc, variant }); },
         inviteAccept() {
@@ -422,22 +434,22 @@
         },
         analyzeGame() {
             if (!state || !state.over || analyzing) return;
-            if (!(state.history || []).length) return gtoast('لا توجد حركات لتحليلها.');
+            if (!(state.history || []).length) return gtoast(tr('لا توجد حركات لتحليلها.'));
             analyzing = true;
             analysis = null;
             $('#analysis-box').removeClass('hidden');
             $('#analysis-summary, #analysis-note').empty();
             $('#analysis-bar').removeClass('hidden');
             $('#analysis-fill').css('width', '3%');
-            $('#analysis-status').text('جارٍ التحليل... قد يستغرق دقيقة').removeClass('err');
+            $('#analysis-status').text(tr('جارٍ التحليل... قد يستغرق دقيقة')).removeClass('err');
             $('#analyze-btn').prop('disabled', true);
             const history = state.history.slice();
             const gameId = state.gameId || null;
             const startFen = state.startFen || null;
-            $('#analysis-status').text('جارٍ تحميل محرك Stockfish...');
-            browserEvals(positions.map((p) => p.fen), (done, total) => setAnalysisProgress(done, total, 'جارٍ التحليل على جهازك... ')).then((evals) => {
+            $('#analysis-status').text(tr('جارٍ تحميل محرك Stockfish...'));
+            browserEvals(positions.map((p) => p.fen), (done, total) => setAnalysisProgress(done, total, tr('جارٍ التحليل على جهازك...'))).then((evals) => {
                 if (!analyzing) return;
-                if (!evals) $('#analysis-status').text('جارٍ التحليل على الخادم... قد يستغرق دقيقة');
+                if (!evals) $('#analysis-status').text(tr('جارٍ التحليل على الخادم... قد يستغرق دقيقة'));
                 socket.emit('analyze', { history, startFen, evals: evals || undefined, gameId: gameId || undefined });
             });
         },
@@ -452,25 +464,25 @@
     });
 
     function copyText(text, btnSel, original) {
-        const done = () => { $(btnSel).text('تم النسخ'); setTimeout(() => $(btnSel).text(original), 1800); };
+        const done = () => { $(btnSel).text(tr('تم النسخ')); setTimeout(() => $(btnSel).text(original), 1800); };
         if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(() => {});
         else done();
     }
 
     function requestLeaderboard() {
-        $('#lb-list').empty().append($('<li class="lb-empty">').text('جارٍ التحميل...'));
+        $('#lb-list').empty().append($('<li class="lb-empty">').text(tr('جارٍ التحميل...')));
         socket.emit('leaderboard', { cat: lbCat });
     }
     socket.on('leaderboard', (d) => {
         if (d.cat !== lbCat) return;
         const list = $('#lb-list').empty();
-        if (!d.rows.length) return list.append($('<li class="lb-empty">').text('لا توجد مباريات مصنَّفة بعد. كن أول المتصدرين!'));
+        if (!d.rows.length) return list.append($('<li class="lb-empty">').text(tr('لا توجد مباريات مصنَّفة بعد. كن أول المتصدرين!')));
         d.rows.forEach((r, i) => {
             list.append($('<li>').append(
                 $('<span class="rk">').text(i + 1),
-                $('<span class="nm">').text(r.name),
+                $('<span class="nm">').text(tr(r.name)),
                 $('<span class="rt">').text(r.rating),
-                $('<span class="gm">').text(r.games + ' مباراة')
+                $('<span class="gm">').text(tr('{n} مباراة', { n: r.games }))
             ));
         });
     });
@@ -508,7 +520,7 @@
             resumeTimer = setTimeout(() => {
                 if (!awaitResume) return;
                 awaitResume = false;
-                alert('انتهت المباراة أثناء انقطاع الاتصال.');
+                alert(tr('انتهت المباراة أثناء انقطاع الاتصال.'));
                 resetToMenu();
             }, 2500);
         }
@@ -519,7 +531,7 @@
     });
 
     function setOnline(n) {
-        $('#online-count').text(n ? n + ' لاعب متصل الآن' : '');
+        $('#online-count').text(n ? tr('{n} لاعب متصل الآن', { n }) : '');
     }
     socket.on('online', (d) => setOnline(d.online));
     setInterval(() => { if (socket.connected && currentScreen === 'menu-screen') socket.emit('get_online'); }, 20000);
@@ -529,7 +541,7 @@
         if (searchInterval) { clearInterval(searchInterval); searchInterval = null; }
     }
     socket.on('searching', ({ tc }) => {
-        $('#search-info').text('النظام: ' + tcText(tc));
+        $('#search-info').text(tr('النظام: {tc}', { tc: tcText(tc) }));
         $('#search-timer').text('00:00');
         show('searching-screen');
         stopSearchTimer();
@@ -544,8 +556,8 @@
 
     socket.on('room_created', ({ roomId }) => {
         $('#room-code').text(roomId);
-        $('#copy-btn').text('انسخ الكود');
-        $('#copy-link-btn').text('انسخ الرابط');
+        $('#copy-btn').text(tr('انسخ الكود'));
+        $('#copy-link-btn').text(tr('انسخ الرابط'));
         show('waiting-screen');
     });
     socket.on('room_error', (msg) => {
@@ -554,7 +566,7 @@
     });
     socket.on('room_closed', () => {
         if (currentScreen === 'game-screen' && !(state && state.over)) {
-            alert('أُغلقت الغرفة.');
+            alert(tr('أُغلقت الغرفة.'));
             resetToMenu();
         } else if (currentScreen === 'waiting-screen') {
             resetToMenu();
@@ -673,7 +685,7 @@
     function renderHistory(history, current) {
         if (current === undefined) current = history.length;
         const box = $('#move-list').empty();
-        if (!history.length) { box.append($('<p class="empty">').text('ستظهر الحركات هنا')); return; }
+        if (!history.length) { box.append($('<p class="empty">').text(tr('ستظهر الحركات هنا'))); return; }
         for (let i = 0; i < history.length; i += 2) {
             const row = $('<div class="mrow">');
             row.append($('<span class="num">').text(i / 2 + 1));
@@ -729,20 +741,21 @@
     // ───────────────────────── مبارياتي (المحفوظة في الحساب) ─────────────────────────
     socket.on('games', (list) => {
         const ul = $('#games-list').empty();
-        $('#games-empty').text('لا توجد مباريات محفوظة بعد. تُحفظ آخر 20 مباراة تلعبها وأنت مسجّل الدخول.').toggleClass('hidden', !!list.length);
+        $('#games-empty').text(tr('لا توجد مباريات محفوظة بعد. تُحفظ آخر 20 مباراة تلعبها وأنت مسجّل الدخول.')).toggleClass('hidden', !!list.length);
         list.forEach((g) => {
             const mine = g.c || 'w';
-            const opp = g.ai ? 'الحاسوب' : (mine === 'w' ? g.b : g.w);
-            const res = !g.res || !g.res.winner ? 'تعادل' : (g.res.winner === mine ? 'فوز' : 'خسارة');
-            const tone = res === 'فوز' ? 'win' : res === 'خسارة' ? 'loss' : '';
+            const opp = tr(g.ai ? tr('الحاسوب') : (mine === 'w' ? g.b : g.w));
+            const outcome = !g.res || !g.res.winner ? 'draw' : (g.res.winner === mine ? 'win' : 'loss');
+            const res = tr(outcome === 'win' ? tr('فوز') : outcome === 'loss' ? tr('خسارة') : tr('تعادل'));
+            const tone = outcome === 'draw' ? '' : outcome;
             const d = new Date(g.t);
-            const info = [tcText(g.tc), g.n + ' حركة', d.toLocaleDateString('ar') + ' ' + d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' })];
-            if (g.v === '960') info.push('فيشر 960');
-            if (g.an) info.push('محلّلة');
+            const info = [tcText(g.tc), tr('{n} حركة', { n: g.n }), d.toLocaleDateString(I18N.tag) + ' ' + d.toLocaleTimeString(I18N.tag, { hour: '2-digit', minute: '2-digit' })];
+            if (g.v === '960') info.push(tr('فيشر 960'));
+            if (g.an) info.push(tr('محلّلة'));
             ul.append($('<li>').append(
                 $('<button type="button" class="game-row">').attr({ 'data-action': 'openGame', 'data-id': g.id }).append(
                     $('<span class="gr-res">').addClass(tone).text(res),
-                    $('<span class="gr-main">').append($('<b>').text('ضد ' + opp), $('<small class="muted">').text(info.join(' · ')))
+                    $('<span class="gr-main">').append($('<b>').text(tr('ضد {opp}', { opp })), $('<small class="muted">').text(info.join(' · ')))
                 )
             ));
         });
@@ -760,9 +773,9 @@
         resetGameUi();
         const opp = myColor === 'w' ? 'b' : 'w';
         const nm = { w: g.w, b: g.b };
-        oppName = nm[opp] || 'الخصم';
+        oppName = tr(nm[opp] || tr('الخصم'));
         $('#opp-name').text(oppName);
-        $('#my-name').text(nm[myColor] || 'أنت');
+        $('#my-name').text(tr(nm[myColor] || tr('أنت')));
         $('#chat-container').addClass('hidden');
         $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
         show('game-screen');
@@ -791,7 +804,7 @@
             analysis = g.an;
             $('#analysis-box').removeClass('hidden');
             $('#analysis-bar').addClass('hidden');
-            $('#analysis-status').text('تحليل محفوظ لهذه المباراة. استعمل الأسهم أو اضغط على أي حركة.').removeClass('err');
+            $('#analysis-status').text(tr('تحليل محفوظ لهذه المباراة. استعمل الأسهم أو اضغط على أي حركة.')).removeClass('err');
             renderAnalysisSummary(analysis);
             renderHistory(state.history, state.history.length);
             reviewTo(positions.length - 1);
@@ -800,7 +813,7 @@
 
     // ───────────────────────── تحليل المباراة ─────────────────────────
     function fmtEval(cp) {
-        if (Math.abs(cp) >= 9000) return cp > 0 ? 'كش مات للأبيض' : 'كش مات للأسود';
+        if (Math.abs(cp) >= 9000) return cp > 0 ? tr('كش مات للأبيض') : tr('كش مات للأسود');
         return (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
     }
     function winPctJs(cp) {
@@ -825,7 +838,7 @@
         bar.toggleClass('flip', (myColor === 'b') !== flipped);
         $('#eval-fill').css('height', winPctJs(cp).toFixed(1) + '%');
         $('#eval-text').text(Math.abs(cp) >= 9000 ? 'M' : (Math.abs(cp) / 100).toFixed(1)).attr('data-lead', cp >= 0 ? 'w' : 'b');
-        bar.attr('title', 'التقييم: ' + fmtEval(cp));
+        bar.attr('title', tr('التقييم: {v}', { v: fmtEval(cp) }));
     }
     function markAnalysis(i) {
         $('#board .square-55d63').removeAttr('data-sym').removeAttr('data-cls');
@@ -838,15 +851,15 @@
         $('#board .square-' + positions[i].to).attr({ 'data-sym': c.sym, 'data-cls': an.cls });
         const num = Math.ceil(i / 2) + (i % 2 ? '.' : '...');
         const line = $('<div>').append($('<b>').addClass('c-' + an.cls).text(num + ' ' + an.san + ' ' + c.sym), document.createTextNode(' ' + c.name));
-        const extra = ['التقييم: ' + fmtEval(an.cp)];
-        if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push('الأفضل كان: ' + an.best);
+        const extra = [tr('التقييم: {v}', { v: fmtEval(an.cp) })];
+        if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push(tr('الأفضل كان: {m}', { m: an.best }));
         note.append(line, $('<div class="muted small">').text(extra.join(' · ')));
     }
     function renderAnalysisSummary(res) {
         const nm = (state && state.names) || {};
-        const rows = [['accuracy', 'الدقة']].concat(Object.keys(CLS).map((k) => [k, CLS[k].sym + ' ' + CLS[k].name]));
+        const rows = [['accuracy', tr('الدقة')]].concat(Object.keys(CLS).map((k) => [k, CLS[k].sym + ' ' + CLS[k].name]));
         const tbl = $('<table class="an-table">');
-        tbl.append($('<tr>').append($('<th>'), $('<th>').text(nm.w || 'الأبيض'), $('<th>').text(nm.b || 'الأسود')));
+        tbl.append($('<tr>').append($('<th>'), $('<th>').text(tr(nm.w || tr('الأبيض'))), $('<th>').text(tr(nm.b || tr('الأسود')))));
         rows.forEach(([k, label]) => {
             let w;
             let b;
@@ -859,9 +872,9 @@
     function setAnalysisProgress(done, total, label) {
         if (!analyzing) return;
         $('#analysis-fill').css('width', Math.max(3, Math.round((done / total) * 100)) + '%');
-        $('#analysis-status').text(label + done + ' من ' + total);
+        $('#analysis-status').text(tr(label) + ' ' + done + ' / ' + total);
     }
-    socket.on('analysis_progress', (d) => setAnalysisProgress(d.done, d.total, 'جارٍ التحليل على الخادم... '));
+    socket.on('analysis_progress', (d) => setAnalysisProgress(d.done, d.total, tr('جارٍ التحليل على الخادم...')));
 
     // تقييم المراكز بمحرك Stockfish يعمل داخل المتصفح (Web Worker). يعيد null إن لم يتوفر فنرجع للخادم.
     function browserEvals(fens, onProgress) {
@@ -944,8 +957,8 @@
         $('#analyze-btn').prop('disabled', false);
         $('#analysis-bar').addClass('hidden');
         $('#analysis-status').text(res.source === 'local'
-            ? 'تحليل مبسّط: محرك Stockfish غير متاح الآن، لذا النتائج أقل دقة.'
-            : 'انتهى التحليل. اضغط على أي حركة أو استعمل الأسهم لرؤية تقييمها.').removeClass('err');
+            ? tr('تحليل مبسّط: محرك Stockfish غير متاح الآن، لذا النتائج أقل دقة.')
+            : tr('انتهى التحليل. اضغط على أي حركة أو استعمل الأسهم لرؤية تقييمها.')).removeClass('err');
         renderAnalysisSummary(res);
         if (state) renderHistory(state.history || [], state.history ? state.history.length : 0);
         reviewTo(positions.length - 1);
@@ -1008,7 +1021,7 @@
         const until = !spectating && state.disc ? state.disc[opp] : null;
         if (until && !state.over) {
             const left = Math.max(0, Math.ceil((until - (Date.now() + serverOffset)) / 1000));
-            $('#disc-text').text('انقطع اتصال ' + oppName + '. سيخسر إن لم يعد خلال ' + left + ' ثانية.').removeClass('hidden');
+            $('#disc-text').text(tr('انقطع اتصال {name}. سيخسر إن لم يعد خلال {n} ثانية.', { name: oppName, n: left })).removeClass('hidden');
         } else {
             $('#disc-text').addClass('hidden');
         }
@@ -1022,30 +1035,31 @@
         if (state.over) {
             const r = state.result;
             const reason = REASONS[r.reason] || '';
-            if (!r.winner) text = 'تعادل: ' + reason;
-            else if (spectating) text = (r.winner === 'w' ? 'فاز الأبيض' : 'فاز الأسود') + ' (' + reason + ')';
-            else if (r.winner === myColor) { text = 'فزت بالمباراة (' + reason + ')'; tone = 'win'; }
-            else { text = 'خسرت المباراة (' + reason + ')'; tone = 'loss'; }
+            if (!r.winner) text = tr('تعادل: {reason}', { reason });
+            else if (spectating) text = tr(r.winner === 'w' ? tr('فاز الأبيض ({reason})') : tr('فاز الأسود ({reason})'), { reason });
+            else if (r.winner === myColor) { text = tr('فزت بالمباراة ({reason})', { reason }); tone = 'win'; }
+            else { text = tr('خسرت المباراة ({reason})', { reason }); tone = 'loss'; }
         } else if (spectating) {
-            text = state.check ? 'كش! الدور على ' : 'الدور على ';
-            text += state.turn === 'w' ? 'الأبيض' : 'الأسود';
+            text = tr(state.check
+                ? (state.turn === 'w' ? tr('كش! الدور على الأبيض') : tr('كش! الدور على الأسود'))
+                : (state.turn === 'w' ? tr('الدور على الأبيض') : tr('الدور على الأسود')));
         } else if (state.check) {
-            text = state.turn === myColor ? 'كش على ملكك' : 'كش على ملك الخصم';
+            text = state.turn === myColor ? tr('كش على ملكك') : tr('كش على ملك الخصم');
             tone = 'check';
         } else if (!state.running) {
-            text = state.turn === myColor ? 'دورك. تبدأ الساعة بعد أول حركتين.' : 'دور الخصم';
+            text = state.turn === myColor ? tr('دورك. تبدأ الساعة بعد أول حركتين.') : tr('دور الخصم');
             if (state.turn === myColor) tone = 'mine';
         } else {
-            text = state.turn === myColor ? 'دورك' : 'دور الخصم';
+            text = state.turn === myColor ? tr('دورك') : tr('دور الخصم');
             if (state.turn === myColor) tone = 'mine';
         }
         $('#status-text').text(text);
         $('#status-card').attr('data-tone', tone);
 
-        let meta = gameMode === 'ai' ? 'ضد الحاسوب' : (state.rated ? 'مباراة مصنَّفة' : 'مباراة ودّية');
-        if (state.variant === '960') meta += ' · شطرنج فيشر 960 (بدون تبييت)';
+        let meta = gameMode === 'ai' ? tr('ضد الحاسوب') : (state.rated ? tr('مباراة مصنَّفة') : tr('مباراة ودّية'));
+        if (state.variant === '960') meta += tr(' · شطرنج فيشر 960 (بدون تبييت)');
         meta += ' · ' + tcText(state.tc);
-        if (state.spectators) meta += ' · ' + state.spectators + ' مشاهد';
+        if (state.spectators) meta += ' · ' + tr('{n} مشاهد', { n: state.spectators });
         $('#game-meta').text(meta);
     }
 
@@ -1053,9 +1067,9 @@
         if (!state || !state.over || spectating) return;
         const r = state.result;
         let title, tone;
-        if (!r.winner) { title = r.reason === 'aborted' ? 'أُلغيت المباراة' : 'انتهت بالتعادل'; tone = 'draw'; }
-        else if (r.winner === myColor) { title = 'فزت بالمباراة'; tone = 'win'; }
-        else { title = 'خسرت المباراة'; tone = 'loss'; }
+        if (!r.winner) { title = r.reason === 'aborted' ? tr('أُلغيت المباراة') : tr('انتهت بالتعادل'); tone = 'draw'; }
+        else if (r.winner === myColor) { title = tr('فزت بالمباراة'); tone = 'win'; }
+        else { title = tr('خسرت المباراة'); tone = 'loss'; }
         $('#result-title').text(title).attr('data-tone', tone);
         $('#result-reason').text(REASONS[r.reason] || '');
         const dl = $('#result-delta').addClass('hidden').removeClass('pos neg');
@@ -1064,7 +1078,7 @@
             const cat = catOf(state.tc);
             ratings[cat] = r.newRatings[myColor];
             renderRatings();
-            dl.text('التصنيف ' + r.newRatings[myColor] + ' (' + (d >= 0 ? '+' : '') + d + ')').addClass(d >= 0 ? 'pos' : 'neg').removeClass('hidden');
+            dl.text(tr('التصنيف {r} ({d})', { r: r.newRatings[myColor], d: (d >= 0 ? '+' : '') + d })).addClass(d >= 0 ? 'pos' : 'neg').removeClass('hidden');
         }
         $('#result-dialog').removeClass('hidden');
         $('#result-rematch:visible').trigger('focus');
@@ -1090,7 +1104,7 @@
         firstState = true;
         $('#notice-text, #flash-text').text('');
         $('#disc-text').addClass('hidden');
-        $('#status-text').text('اللعبة جارية...');
+        $('#status-text').text(tr('اللعبة جارية...'));
         $('#status-card').attr('data-tone', '');
         $('#my-timer, #opponent-timer').removeClass('active low').text('--:--');
         $('#my-dot').attr('class', 'dot ' + myColor);
@@ -1098,10 +1112,10 @@
         $('#game-screen').removeClass('reviewable');
         $('#review-bar, #pgn-btn, #rematch-btn, #abort-btn').addClass('hidden');
         $('#result-rematch').removeClass('hidden');
-        $('#result-rematch, #rematch-btn').prop('disabled', false).text('العب مجددًا');
+        $('#result-rematch, #rematch-btn').prop('disabled', false).text(tr('العب مجددًا'));
         $('#rematch-note').text('');
         $('#draw-banner').addClass('hidden');
-        $('#draw-btn').prop('disabled', false).text('اقترح تعادلًا');
+        $('#draw-btn').prop('disabled', false).text(tr('اقترح تعادلًا'));
         $('#my-captured, #opp-captured').empty();
         $('#my-rating, #opp-rating').text('');
         rematchSent = false;
@@ -1120,9 +1134,9 @@
         gameMode = data.mode;
         if (!data.resumed) { flipped = false; $('#chat-box').empty(); }
         resetGameUi();
-        oppName = gameMode === 'ai' ? 'الحاسوب' : 'الخصم';
+        oppName = gameMode === 'ai' ? tr('الحاسوب') : tr('الخصم');
         $('#opp-name').text(oppName);
-        $('#my-name').text('أنت');
+        $('#my-name').text(tr('أنت'));
         $('#chat-container').toggleClass('hidden', gameMode !== 'multi');
         $('#draw-btn').toggleClass('hidden', gameMode !== 'multi');
         $('#resign-btn, #flip-btn').removeClass('hidden');
@@ -1137,9 +1151,9 @@
         flipped = false;
         $('#chat-box').empty();
         resetGameUi();
-        oppName = 'الأسود';
-        $('#opp-name').text('الأسود');
-        $('#my-name').text('الأبيض');
+        oppName = tr('الأسود');
+        $('#opp-name').text(tr('الأسود'));
+        $('#my-name').text(tr('الأبيض'));
         $('#chat-container').addClass('hidden');
         $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
         show('game-screen');
@@ -1157,9 +1171,9 @@
 
         const nm = s.names || {};
         const opp = myColor === 'w' ? 'b' : 'w';
-        oppName = nm[opp] || (spectating ? (opp === 'b' ? 'الأسود' : 'الأبيض') : (gameMode === 'ai' ? 'الحاسوب' : 'الخصم'));
+        oppName = tr(nm[opp] || (spectating ? (opp === 'b' ? tr('الأسود') : tr('الأبيض')) : (gameMode === 'ai' ? tr('الحاسوب') : tr('الخصم'))));
         $('#opp-name').text(oppName);
-        $('#my-name').text(nm[myColor] || (spectating ? 'الأبيض' : 'أنت'));
+        $('#my-name').text(tr(nm[myColor] || (spectating ? tr('الأبيض') : tr('أنت'))));
         if (gameMode === 'multi' && s.ratings) {
             $('#my-rating').text(s.ratings[myColor] ? '(' + s.ratings[myColor] + ')' : '');
             $('#opp-rating').text(s.ratings[opp] ? '(' + s.ratings[opp] + ')' : '');
@@ -1207,20 +1221,20 @@
 
         // اقتراح التعادل (الحالة من السيرفر، فتصح بعد إعادة الاتصال أيضًا)
         const iOffered = s.drawOffer === myColor;
-        $('#draw-btn').prop('disabled', iOffered).text(iOffered ? 'تم إرسال الاقتراح' : 'اقترح تعادلًا');
+        $('#draw-btn').prop('disabled', iOffered).text(iOffered ? tr('تم إرسال الاقتراح') : tr('اقترح تعادلًا'));
         $('#draw-banner').toggleClass('hidden', !(s.drawOffer && s.drawOffer !== myColor && !s.over));
 
         const gone = oppLeft || (gameMode === 'multi' && s.result && s.result.reason === 'abandoned');
         $('#rematch-btn, #result-rematch').toggleClass('hidden', !s.over || !!gone);
-        if (s.over && gone) $('#rematch-note').text('غادر الخصم المباراة.');
+        if (s.over && gone) $('#rematch-note').text(tr('غادر الخصم المباراة.'));
         if (s.over && s.rematch && gameMode === 'multi') {
             const opp = myColor === 'w' ? 'b' : 'w';
             if (s.rematch[myColor]) {
                 rematchSent = true;
-                $('#result-rematch, #rematch-btn').prop('disabled', true).text('بانتظار الخصم...');
+                $('#result-rematch, #rematch-btn').prop('disabled', true).text(tr('بانتظار الخصم...'));
             } else if (s.rematch[opp]) {
-                $('#rematch-note').text(oppName + ' يريد إعادة المباراة.');
-                $('#result-rematch, #rematch-btn').text('قبول الإعادة');
+                $('#rematch-note').text(tr('{name} يريد إعادة المباراة.', { name: oppName }));
+                $('#result-rematch, #rematch-btn').text(tr('قبول الإعادة'));
             }
         }
     }
@@ -1230,20 +1244,20 @@
     socket.on('toast', (msg) => flash(msg));
     socket.on('draw_offered', () => { $('#draw-banner').removeClass('hidden'); playSound('check'); });
     socket.on('draw_cleared', () => $('#draw-banner').addClass('hidden'));
-    socket.on('draw_declined', () => flash('رفض الخصم اقتراح التعادل.'));
-    socket.on('draw_sent', () => $('#draw-btn').prop('disabled', true).text('تم إرسال الاقتراح'));
-    socket.on('opp_reconnected', () => flash('عاد الخصم إلى المباراة.'));
+    socket.on('draw_declined', () => flash(tr('رفض الخصم اقتراح التعادل.')));
+    socket.on('draw_sent', () => $('#draw-btn').prop('disabled', true).text(tr('تم إرسال الاقتراح')));
+    socket.on('opp_reconnected', () => flash(tr('عاد الخصم إلى المباراة.')));
     socket.on('rematch_offered', () => {
         if (rematchSent) return;
-        $('#rematch-note').text(oppName + ' يريد إعادة المباراة.');
-        $('#result-rematch, #rematch-btn').text('قبول الإعادة');
-        flash(oppName + ' يريد إعادة المباراة.');
+        $('#rematch-note').text(tr('{name} يريد إعادة المباراة.', { name: oppName }));
+        $('#result-rematch, #rematch-btn').text(tr('قبول الإعادة'));
+        flash(tr('{name} يريد إعادة المباراة.', { name: oppName }));
     });
     socket.on('opponent_left', () => {
         oppLeft = true;
         if (state && state.over) {
             $('#rematch-btn, #result-rematch').addClass('hidden');
-            $('#rematch-note').text('غادر الخصم المباراة.');
+            $('#rematch-note').text(tr('غادر الخصم المباراة.'));
         }
     });
 
@@ -1308,7 +1322,7 @@
 
     function renderAccount() {
         const logged = !!account;
-        $('#acc-info').text(logged ? 'مرحبًا، ' + account : 'أنت تلعب كضيف');
+        $('#acc-info').text(logged ? tr('مرحبًا، {name}', { name: account }) : tr('أنت تلعب كضيف'));
         $('#acc-login').toggleClass('hidden', logged);
         $('#acc-friends, #acc-games, #acc-logout').toggleClass('hidden', !logged);
         const nameInput = $('#player-name');
@@ -1324,7 +1338,7 @@
     function setAuthMode(mode) {
         authMode = mode;
         $('#auth-tabs button').each(function () { $(this).attr('aria-pressed', String($(this).data('mode') === mode)); });
-        $('#auth-submit').text(mode === 'login' ? 'دخول' : 'إنشاء الحساب');
+        $('#auth-submit').text(mode === 'login' ? tr('دخول') : tr('إنشاء الحساب'));
         $('#auth-pass').attr('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
         $('#auth-hint').toggleClass('hidden', mode === 'login');
         $('#auth-note').toggleClass('hidden', mode === 'login');
@@ -1333,7 +1347,7 @@
     function authSubmit() {
         const username = $('#auth-user').val().trim();
         const password = $('#auth-pass').val();
-        if (!username || !password) return $('#auth-error').text('أدخل اسم المستخدم وكلمة المرور.');
+        if (!username || !password) return $('#auth-error').text(tr('أدخل اسم المستخدم وكلمة المرور.'));
         $('#auth-error').text('');
         socket.emit(authMode, { username, password });
     }
@@ -1346,11 +1360,11 @@
         $('#auth-pass').val('');
         $('#auth-error').text('');
         show('menu-screen');
-        gtoast(authMode === 'register' ? 'تم إنشاء حسابك. أهلًا بك!' : 'تم تسجيل الدخول.');
+        gtoast(authMode === 'register' ? tr('تم إنشاء حسابك. أهلًا بك!') : tr('تم تسجيل الدخول.'));
     });
-    socket.on('logged_out', () => { show('menu-screen'); gtoast('تم تسجيل الخروج.'); });
+    socket.on('logged_out', () => { show('menu-screen'); gtoast(tr('تم تسجيل الخروج.')); });
 
-    const STATUS_TEXT = { online: 'متصل', playing: 'يلعب الآن', searching: 'يبحث عن خصم', offline: 'غير متصل' };
+    const STATUS_TEXT = { online: tr('متصل'), playing: tr('يلعب الآن'), searching: tr('يبحث عن خصم'), offline: tr('غير متصل') };
 
     function renderFriends() {
         const d = friendsData;
@@ -1359,12 +1373,12 @@
         d.incoming.forEach((u) => {
             inc.append($('<li>').append(
                 $('<span class="nm">').text(u),
-                $('<button class="btn primary">').text('قبول').attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '1' }),
-                $('<button class="btn ghost">').text('رفض').attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '0' })
+                $('<button class="btn primary">').text(tr('قبول')).attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '1' }),
+                $('<button class="btn ghost">').text(tr('رفض')).attr({ 'data-action': 'friendRespond', 'data-user': u, 'data-accept': '0' })
             ));
         });
         const list = $('#fr-list').empty();
-        if (!d.friends.length) list.append($('<li class="empty">').text('لا يوجد أصدقاء بعد. أضف صديقًا باسم المستخدم.'));
+        if (!d.friends.length) list.append($('<li class="empty">').text(tr('لا يوجد أصدقاء بعد. أضف صديقًا باسم المستخدم.')));
         const order = { online: 0, searching: 1, playing: 2, offline: 3 };
         d.friends.slice().sort((a, b) => order[a.status] - order[b.status] || a.username.localeCompare(b.username)).forEach((f) => {
             const li = $('<li>').append(
@@ -1374,14 +1388,14 @@
                 $('<span class="rt">').text(f.rating)
             );
             if (f.status === 'online' || f.status === 'searching') {
-                li.append($('<button class="btn secondary">').text('دعوة').attr({ 'data-action': 'friendInvite', 'data-user': f.username }));
+                li.append($('<button class="btn secondary">').text(tr('دعوة')).attr({ 'data-action': 'friendInvite', 'data-user': f.username }));
             }
-            li.append($('<button class="btn ghost">').text('إزالة').attr({ 'data-action': 'friendRemove', 'data-user': f.username }));
+            li.append($('<button class="btn ghost">').text(tr('إزالة')).attr({ 'data-action': 'friendRemove', 'data-user': f.username }));
             list.append(li);
         });
         const out = $('#fr-out').empty();
         $('#fr-out-box').toggleClass('hidden', !d.outgoing.length);
-        d.outgoing.forEach((u) => out.append($('<li>').append($('<span class="nm">').text(u), $('<span class="st">').text('بانتظار الرد'))));
+        d.outgoing.forEach((u) => out.append($('<li>').append($('<span class="nm">').text(u), $('<span class="st">').text(tr('بانتظار الرد')))));
         const n = d.incoming.length;
         $('#friends-badge').text(n).toggleClass('hidden', !n);
     }
@@ -1391,12 +1405,12 @@
     socket.on('notify', (d) => gtoast(d.text));
     socket.on('invite', (d) => {
         if (currentScreen === 'game-screen' && state && !state.over) {
-            gtoast('دعوة من ' + d.from + ' (أنت في مباراة الآن)');
+            gtoast(tr('دعوة من {name} (أنت في مباراة الآن)', { name: d.from }));
             socket.emit('invite_decline', { username: d.from });
             return;
         }
         pendingInvite = d;
-        $('#invite-text').text(d.from + ' يدعوك إلى مباراة ودّية (' + tcText(d.tc) + ')' + (d.variant === '960' ? ' بشطرنج فيشر 960' : ''));
+        $('#invite-text').text(tr(d.variant === '960' ? tr('{name} يدعوك إلى مباراة ودّية ({tc}) بشطرنج فيشر 960') : tr('{name} يدعوك إلى مباراة ودّية ({tc})'), { name: d.from, tc: tcText(d.tc) }));
         $('#invite-dialog').removeClass('hidden');
         playSound('check');
     });
@@ -1530,13 +1544,13 @@
         pzRating = Math.max(100, pzRating + delta);
         lsSet('chess-pz-rating', String(pzRating));
         lsSet('chess-pz-rated', JSON.stringify([...pzRated]));
-        return ' (' + (delta >= 0 ? '+' : '') + delta + ' تصنيف)';
+        return ' ' + tr('({d} تصنيف)', { d: (delta >= 0 ? '+' : '') + delta });
     }
     function pzPool() { return PUZZLES.filter((p) => !pzLevelN || p.n === pzLevelN); }
     function pzStats() {
         const pool = pzPool();
         const done = pool.filter((p) => pzSolved.has(p.id)).length;
-        $('#pz-stats').text('تصنيف الألغاز: ' + pzRating + ' · حللت ' + done + ' من ' + pool.length + ' · سلسلة متتالية: ' + pzStreak);
+        $('#pz-stats').text(tr('تصنيف الألغاز: {r} · حللت {d} من {n} · سلسلة متتالية: {s}', { r: pzRating, d: done, n: pool.length, s: pzStreak }));
     }
     function pzSetText(text, tone, temp) {
         clearTimeout(pzMsgTimer);
@@ -1546,11 +1560,11 @@
     }
     function pzPrompt() {
         if (!pzCur || pzDone) return;
-        const who = pzSide === 'w' ? 'الأبيض' : 'الأسود';
-        pzSetText(pzCur.n === 3 ? who + ' يلعب ويكسب مادة (ابحث عن أقوى حركة)'
+        const who = tr(pzSide === 'w' ? tr('الأبيض') : tr('الأسود'));
+        pzSetText(pzCur.n === 3 ? tr('{who} يلعب ويكسب مادة (ابحث عن أقوى حركة)', { who })
             : pzStep === 0
-            ? who + ' يلعب ويُكش مات في ' + (pzCur.n === 1 ? 'حركة واحدة' : 'حركتين')
-            : 'أحسنت! والآن أنهِ المباراة بكش مات.', 'mine');
+            ? tr(pzCur.n === 1 ? tr('{who} يلعب ويُكش مات في حركة واحدة') : tr('{who} يلعب ويُكش مات في حركتين'), { who })
+            : tr('أحسنت! والآن أنهِ المباراة بكش مات.'), 'mine');
     }
 
     // اللغز التالي: أول لغز لم يُحل بعد (من الأسهل إلى الأصعب)
@@ -1560,7 +1574,7 @@
         let list = pool.filter((p) => !pzSolved.has(p.id));
         if (!list.length) {
             list = pool;
-            pzSetText('أنهيت كل ألغاز هذا النوع! سنعيدها من البداية.', 'draw');
+            pzSetText(tr('أنهيت كل ألغاز هذا النوع! سنعيدها من البداية.'), 'draw');
         }
         // عند الضغط على «التالي» نتخطى اللغز الحالي إن لم يُحل
         let next = list[0];
@@ -1600,7 +1614,7 @@
             },
             onSnapEnd: () => { pzClearMarks(); pzBoard.position(pzGame.fen()); }
         });
-        $('#pz-meta').text('اللغز ' + p.id + ' من ' + PUZZLES.length + ' · ' + (p.n === 1 ? 'كش مات في حركة' : p.n === 2 ? 'كش مات في حركتين' : 'تكتيك: اكسب مادة') + ' · صعوبة ' + (p.d || ''));
+        $('#pz-meta').text(tr('اللغز {id} من {n} · {kind} · صعوبة {d}', { id: p.id, n: PUZZLES.length, kind: tr(p.n === 1 ? tr('كش مات في حركة') : p.n === 2 ? tr('كش مات في حركتين') : tr('تكتيك: اكسب مادة')), d: p.d || '' }));
         $('#pz-hint').prop('disabled', false);
         pzPrompt();
         pzStats();
@@ -1650,7 +1664,7 @@
             pzGame.undo();
             pzMistakes++;
             playSound('check');
-            pzSetText(tactic ? 'ليست أقوى حركة، ابحث عن طريقة لكسب مادة.' : finalMove ? 'ليست كش مات، حاول مرة أخرى.' : 'ليست الحركة الصحيحة، حاول مرة أخرى.', 'check', true);
+            pzSetText(tactic ? tr('ليست أقوى حركة، ابحث عن طريقة لكسب مادة.') : finalMove ? tr('ليست كش مات، حاول مرة أخرى.') : tr('ليست الحركة الصحيحة، حاول مرة أخرى.'), 'check', true);
             return false;
         }
         playSound(mv.captured ? 'capture' : 'move');
@@ -1660,7 +1674,7 @@
         pzStep = 1;
         pzBusy = true;
         const run = pzRun;
-        pzSetText('حركة صحيحة! الخصم يرد...', 'mine');
+        pzSetText(tr('حركة صحيحة! الخصم يرد...'), 'mine');
         setTimeout(() => {
             if (run !== pzRun) return;
             const replies = pzGame.moves({ verbose: true });
@@ -1681,7 +1695,7 @@
         if (played !== pzCur.s.slice(0, 4) || !pzCur.r) { pzFinish(); return; }
         const run = pzRun;
         pzBusy = true;
-        pzSetText('حركة قوية! لنرَ كيف تستمر الخطة...', 'mine');
+        pzSetText(tr('حركة قوية! لنرَ كيف تستمر الخطة...'), 'mine');
         const step = (uci, next) => setTimeout(() => {
             if (run !== pzRun) return;
             const m = pzGame.moves({ verbose: true }).find((x) => x.from + x.to === uci.slice(0, 4));
@@ -1710,9 +1724,9 @@
         }
         pzSave();
         pzStats();
-        const what = pzCur.n === 3 ? 'كسبت مادة!' : 'كش مات!';
-        const msg = pzHelped ? what + ' (بمساعدة التلميح، لن يُحتسب لغزًا محلولًا)' + delta
-            : pzMistakes === 0 ? 'ممتاز! ' + what + ' من أول محاولة.' + delta : what + ' أحسنت.' + delta;
+        const what = tr(pzCur.n === 3 ? tr('كسبت مادة!') : tr('كش مات!'));
+        const msg = pzHelped ? tr('{what} (بمساعدة التلميح، لن يُحتسب لغزًا محلولًا)', { what }) + delta
+            : pzMistakes === 0 ? tr('ممتاز! {what} من أول محاولة.', { what }) + delta : tr('{what} أحسنت.', { what }) + delta;
         pzSetText(msg, 'win');
     }
 
@@ -1738,7 +1752,7 @@
         else if (pzCur.n === 1 || pzStep === 1) { const m = pzFindMate(); from = m && m.from; }
         else from = pzCur.s.slice(0, 2);
         if (from) $('#pboard .square-' + from).addClass('hint-sq');
-        pzSetText('القطعة المضيئة بالأخضر هي التي يجب تحريكها.', 'mine');
+        pzSetText(tr('القطعة المضيئة بالأخضر هي التي يجب تحريكها.'), 'mine');
     }
 
     function pzSolution() {
@@ -1767,7 +1781,7 @@
         pzSave();
         pzStats();
         pzClear();
-        pzSetText('الحل: ' + san.join('  ') + delta, 'draw');
+        pzSetText(tr('الحل: {moves}', { moves: san.join('  ') }) + delta, 'draw');
     }
 
     // تحذير قبل إغلاق الصفحة أثناء مباراة جارية
