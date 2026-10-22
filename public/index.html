@@ -407,6 +407,7 @@
                         <input type="text" id="chat-input" class="field" placeholder="اكتب رسالة" maxlength="200" autocomplete="off">
                         <button class="btn secondary" data-action="sendChat">أرسل</button>
                     </div>
+                    <button class="btn ghost small" id="chat-mute-btn" data-action="toggleChatMute" aria-pressed="false">🔇 اكتم رسائل الخصم</button>
                 </div>
 
                 <div class="actions">
@@ -418,6 +419,7 @@
                     <button id="flip-btn" class="btn ghost" data-action="flipBoard">اقلب اللوحة</button>
                     <button id="sound-btn" class="btn ghost" aria-pressed="true" data-action="toggleSound">الصوت مفعّل</button>
                     <button id="theme-btn" class="btn ghost" data-action="cycleTheme">شكل اللوحة</button>
+                    <button id="report-btn" class="btn ghost hidden" data-action="openReport">🚩 إبلاغ عن اللاعب</button>
                     <button class="btn ghost full" data-action="exitGame">العودة إلى القائمة</button>
                 </div>
             </aside>
@@ -461,6 +463,20 @@
         <div class="dialog-actions">
             <button class="btn primary" data-action="inviteAccept">قبول</button>
             <button class="btn ghost" data-action="inviteDecline">رفض</button>
+        </div>
+    </div>
+</div>
+
+<!-- الإبلاغ عن لاعب -->
+<div id="report-dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="report-title">
+    <div class="dialog">
+        <h2 id="report-title" style="font-size:1.3rem">الإبلاغ عن الخصم</h2>
+        <p class="reason">اختر السبب. تُراجع البلاغات، وإساءة استعمال الإبلاغ قد تعرّض حسابك للتقييد.</p>
+        <div class="dialog-actions">
+            <button class="btn secondary" data-action="sendReport" data-reason="abuse">إساءة في الدردشة</button>
+            <button class="btn secondary" data-action="sendReport" data-reason="cheat">غش (استخدام محرك)</button>
+            <button class="btn secondary" data-action="sendReport" data-reason="behavior">سلوك مزعج</button>
+            <button class="btn ghost" data-action="closeReport">إلغاء</button>
         </div>
     </div>
 </div>
