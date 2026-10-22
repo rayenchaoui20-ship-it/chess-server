@@ -94,7 +94,7 @@
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
         $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen');
-        $('#wordmark').text(id === 'mono-screen' ? 'مونوبولي' : 'شطرنج');
+        $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'مونوبولي' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
