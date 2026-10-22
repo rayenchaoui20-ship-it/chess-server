@@ -294,6 +294,13 @@
         },
         showAIOptions() { show('ai-options-screen'); },
         showMono() { show('mono-screen'); if (window.Mono) window.Mono.open(); },
+        openReport() { $('#report-dialog').removeClass('hidden'); },
+        closeReport() { $('#report-dialog').addClass('hidden'); },
+        sendReport(el) { socket.emit('report', { reason: el.dataset.reason }); $('#report-dialog').addClass('hidden'); },
+        toggleChatMute() {
+            chatMuted = !chatMuted;
+            $('#chat-mute-btn').attr('aria-pressed', String(chatMuted)).text(chatMuted ? '🔊 أظهر رسائل الخصم' : '🔇 اكتم رسائل الخصم');
+        },
         pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
         changeWorld() {
@@ -786,7 +793,7 @@
         $('#opp-name').text(oppName);
         $('#my-name').text(tr(nm[myColor] || tr('أنت')));
         $('#chat-container').addClass('hidden');
-        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
+        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn, #report-btn').addClass('hidden');
         show('game-screen');
         initBoard();
         positions = buildPositions(g.h || [], g.sf || null);
@@ -1148,6 +1155,7 @@
         $('#my-name').text(tr('أنت'));
         $('#chat-container').toggleClass('hidden', gameMode !== 'multi');
         $('#draw-btn').toggleClass('hidden', gameMode !== 'multi');
+        $('#report-btn').toggleClass('hidden', gameMode !== 'multi');
         $('#resign-btn, #flip-btn').removeClass('hidden');
         show('game-screen');
         initBoard();
@@ -1164,7 +1172,7 @@
         $('#opp-name').text(tr('الأسود'));
         $('#my-name').text(tr('الأبيض'));
         $('#chat-container').addClass('hidden');
-        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn').addClass('hidden');
+        $('#resign-btn, #draw-btn, #abort-btn, #rematch-btn, #report-btn').addClass('hidden');
         show('game-screen');
         initBoard();
     });
@@ -1221,6 +1229,7 @@
         $('#review-bar, #pgn-btn, #analyze-btn').toggleClass('hidden', !s.over);
         if (spectating) {
             $('#resign-btn, #abort-btn, #draw-btn, #rematch-btn').addClass('hidden');
+            $('#report-btn').toggleClass('hidden', gameMode !== 'multi');
             return;
         }
         const canAbort = gameMode === 'multi' && !s.over && s.moveCount < 2;
@@ -1276,7 +1285,8 @@
         const box = document.getElementById('chat-box');
         box.scrollTop = box.scrollHeight;
     }
-    socket.on('chat', (d) => appendChat(oppName, d && d.message ? d.message : ''));
+    let chatMuted = false;
+    socket.on('chat', (d) => chatMuted || appendChat(oppName, d && d.message ? d.message : ''));
 
     // ───────────────────────── PGN ─────────────────────────
     function downloadPGN() {
