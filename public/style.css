@@ -435,3 +435,56 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .mp-plist .chips i.mort{opacity:.35}
 #mp-snd{padding:6px 10px;min-width:44px}
 .mp-top{flex-wrap:wrap}
+
+/* اختيار اللعبة */
+#world-screen{max-width:720px;margin:0 auto;padding:8px 0}
+.world-title{text-align:center;font-size:1.7rem;margin:10px 0 4px}
+#world-screen .lead{text-align:center}
+.world-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+.world-card{position:relative;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;min-height:260px;padding:16px;border-radius:18px;border:2px solid rgba(255,255,255,.14);color:#fff;font:inherit;text-align:start;cursor:pointer;overflow:hidden;transition:transform .15s,border-color .15s,box-shadow .15s}
+.world-card:hover,.world-card:focus-visible{transform:translateY(-3px);border-color:#e2b14b;box-shadow:0 10px 28px rgba(0,0,0,.4)}
+.world-card .w-name{font-size:1.6rem;font-weight:800;position:relative}
+.world-card .w-desc{font-size:.88rem;line-height:1.5;opacity:.92;position:relative}
+.world-card.chess{background:radial-gradient(circle at 70% 20%,#34508a,#0b1324 70%)}
+.world-card .w-icon{position:absolute;top:6px;inset-inline-end:14px;font-size:6.5rem;line-height:1;opacity:.9;color:#e4e9f2;text-shadow:0 6px 18px rgba(0,0,0,.5)}
+.world-card.mono{background:linear-gradient(to top,rgba(8,14,30,.96) 30%,rgba(8,14,30,.15) 70%),url(/monopoly-bg.webp) center 12%/cover}
+@media (max-width:520px){.world-grid{grid-template-columns:1fr}.world-card{min-height:200px}}
+#world-switch{margin-inline-start:auto;font-size:.82rem;padding:6px 10px}
+.brand{display:flex;align-items:center;gap:10px}
+
+/* لوحة مونوبولي بالصورة */
+.mp-board{background:#b8995a;border:3px solid #d9b866;gap:1px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.mp-sq{background:#f6ecd2;color:#2a261c}
+.mp-sq .pr{opacity:.75;font-weight:700}
+.mp-sq.corner{background:#efe0b4}
+.mp-sq.sel{outline-color:#b4232a}
+.mp-center{background:#0c1530 url(/monopoly-bg.webp) center/cover;justify-content:flex-end;padding-bottom:3%;gap:4px}
+.mp-center .mp-logo{display:none}
+.mp-event{background:rgba(8,14,30,.72);color:#fff;border-radius:10px;padding:3px 8px;min-height:0;max-width:86%;backdrop-filter:blur(2px)}
+.mp-event:empty{display:none}
+
+/* لوحات إضافية */
+.mp-center{background-size:cover;background-position:center}
+.mp-center[data-title]:not([data-title=""])::before{content:attr(data-title);position:absolute;top:9%;left:50%;transform:translateX(-50%);padding:4px 14px;border-radius:999px;font-weight:800;font-size:clamp(.7rem,3.4vw,1.25rem);white-space:nowrap;background:rgba(10,12,30,.55);color:#fff;border:1px solid rgba(255,255,255,.45);backdrop-filter:blur(3px)}
+.mp-board[data-map="desert"]{background:#9a5528;border-color:#e0a24d}
+.mp-board[data-map="desert"] .mp-sq{background:#f7e6c0;color:#3a2412}
+.mp-board[data-map="desert"] .mp-sq.corner{background:#ecd093}
+.mp-board[data-map="future"]{background:#2a1160;border-color:#35f0ff;box-shadow:0 0 26px rgba(53,240,255,.35)}
+.mp-board[data-map="future"] .mp-sq{background:#120a36;color:#d7ecff}
+.mp-board[data-map="future"] .mp-sq.corner{background:#1d1052}
+.mp-board[data-map="future"] .mp-sq .pr{color:#7dfff0}
+.mp-board[data-map="future"] .mp-sq.sel{outline-color:#ff4fd8}
+.mp-center{position:relative}
+
+/* التبادل */
+#mp-trade .t{font-weight:800;margin-bottom:6px}
+#mp-trade .l{font-size:.9rem;margin:2px 0}
+.tr-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.tr-col{min-width:0;display:flex;flex-direction:column;gap:4px;padding:8px;border-radius:10px;background:rgba(255,255,255,.05)}
+.tr-list{display:flex;flex-direction:column;gap:4px;max-height:190px;overflow:auto}
+.tr-chip{display:flex;align-items:center;gap:6px;width:100%;padding:5px 7px;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:transparent;color:inherit;font:inherit;font-size:.8rem;text-align:start;cursor:pointer;min-width:0}
+.tr-chip i{width:12px;height:12px;border-radius:3px;flex:none}
+.tr-chip span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-chip.on{background:#e2b14b;color:#1a1305;border-color:#e2b14b;font-weight:700}
+.tr-cash,.tr-cards{width:100%;min-width:0}
+@media (max-width:400px){.tr-grid{grid-template-columns:1fr}}
