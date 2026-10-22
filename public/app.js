@@ -14,7 +14,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
+    const SCREENS = ['world-screen', 'menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -93,6 +93,8 @@
         currentScreen = id;
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
+        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen');
+        $('#wordmark').text(id === 'mono-screen' ? 'مونوبولي' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
@@ -292,6 +294,13 @@
         },
         showAIOptions() { show('ai-options-screen'); },
         showMono() { show('mono-screen'); if (window.Mono) window.Mono.open(); },
+        pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
+        pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
+        changeWorld() {
+            if (window.Mono && window.Mono.busy && window.Mono.busy() && !window.confirm('مغادرة مونوبولي الآن تعني الإفلاس. هل تريد تغيير اللعبة؟')) return;
+            if (window.Mono && window.Mono.leave) window.Mono.leave();
+            show('world-screen');
+        },
         setAiColor(el) {
             const c = el.dataset.color;
             $('#ai-options-screen').data('color', c);
@@ -1783,6 +1792,14 @@
         pzClear();
         pzSetText(tr('الحل: {moves}', { moves: san.join('  ') }) + delta, 'draw');
     }
+
+    // اللعبة المختارة: أول زيارة تعرض شاشة الاختيار
+    (function () {
+        const w = lsGet('chess-world');
+        if (w !== 'chess' && w !== 'mono') show('world-screen');
+        else if (w === 'mono') setTimeout(() => { if (currentScreen === 'menu-screen') A.showMono(); }, 0);
+        else show('menu-screen');
+    })();
 
     // تحذير قبل إغلاق الصفحة أثناء مباراة جارية
     window.addEventListener('beforeunload', (e) => {
