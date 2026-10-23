@@ -104,6 +104,10 @@
                     <span class="t">حل الألغاز</span>
                     <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
                 </button>
+                <button class="mode-row" data-action="showLive">
+                    <span class="t">🔴 مباريات مباشرة</span>
+                    <span class="d">شاهد مباريات أصدقائك وأفضل اللاعبين الآن</span>
+                </button>
                 <button class="mode-row" data-action="showLeaderboard">
                     <span class="t">المتصدرون</span>
                     <span class="d">أفضل اللاعبين في كل نظام</span>
@@ -239,6 +243,17 @@
             <h2 class="section-title" style="margin-bottom:0">مبارياتي</h2>
             <p class="muted small" id="games-empty"></p>
             <ul class="fr-list" id="games-list"></ul>
+            <button class="btn ghost block" data-action="goMenu">رجوع</button>
+        </div>
+    </section>
+
+    <!-- مباريات مباشرة -->
+    <section id="live-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0">🔴 مباريات مباشرة</h2>
+            <p class="muted small">المباريات المصنَّفة ظاهرة للجميع، والودّية تظهر لأصدقاء اللاعبين فقط. تتحدث القائمة تلقائيًا.</p>
+            <p class="muted small" id="live-empty"></p>
+            <ul class="fr-list" id="live-list"></ul>
             <button class="btn ghost block" data-action="goMenu">رجوع</button>
         </div>
     </section>
