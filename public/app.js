@@ -301,6 +301,7 @@
             chatMuted = !chatMuted;
             $('#chat-mute-btn').attr('aria-pressed', String(chatMuted)).text(chatMuted ? '🔊 أظهر رسائل الخصم' : '🔇 اكتم رسائل الخصم');
         },
+        reviewPly(el) { reviewTo(parseInt(el.dataset.ply, 10) || 0); },
         pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
         changeWorld() {
@@ -365,7 +366,7 @@
             socket.emit('rematch');
         },
         downloadPGN() { downloadPGN(); },
-        flipBoard() { flipped = !flipped; if (board) board.flip(); setEvalBar(reviewIndex === null ? positions.length - 1 : reviewIndex); },
+        flipBoard() { flipped = !flipped; if (board) board.flip(); markAnalysis(reviewIndex === null ? positions.length - 1 : reviewIndex); },
         toggleSound() {
             soundOn = !soundOn;
             lsSet('chess-sound', soundOn ? 'on' : 'off');
@@ -859,7 +860,9 @@
     function markAnalysis(i) {
         $('#board .square-55d63').removeAttr('data-sym').removeAttr('data-cls');
         const note = $('#analysis-note').empty();
+        $('#best-arrow').remove();
         setEvalBar(i);
+        updateGraphMarker(i);
         if (!analysis || i < 1 || !positions[i]) return;
         const an = analysis.plies[i - 1];
         const c = an && CLS[an.cls];
@@ -870,6 +873,7 @@
         const extra = [tr('التقييم: {v}', { v: fmtEval(an.cp) })];
         if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push(tr('الأفضل كان: {m}', { m: an.best }));
         note.append(line, $('<div class="muted small">').text(extra.join(' · ')));
+        if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) drawBestArrow(i, an.best);
     }
     function renderAnalysisSummary(res) {
         const nm = (state && state.names) || {};
@@ -883,7 +887,130 @@
             else { w = res.counts.w[k] || 0; b = res.counts.b[k] || 0; if (!w && !b) return; }
             tbl.append($('<tr>').append($('<td>').text(label).addClass(k === 'accuracy' ? '' : 'c-' + k), $('<td>').text(w), $('<td>').text(b)));
         });
-        $('#analysis-summary').empty().append(tbl);
+        const box = $('#analysis-summary').empty().append(tbl);
+        try { renderDeep(res, box); } catch (e) { /* التحليل الأعمق اختياري */ }
+    }
+
+    // ───────────────────────── تحليل أعمق: الرسم والحركات الحاسمة والمراحل والسهم ─────────────────────────
+    const plyNum = (i) => Math.ceil(i / 2) + (i % 2 ? '.' : '...');
+    const accFromLoss = (l) => Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * Math.max(0, l)) - 3.1669));
+    function phaseOf(i) {
+        if (i <= 20) return 0;
+        const bd = ((positions[i - 1] || {}).fen || '').split(' ')[0] || '';
+        let minor = 0;
+        let queen = 0;
+        for (const ch of bd) { const c = ch.toLowerCase(); if (c === 'q') queen++; else if (c === 'r' || c === 'n' || c === 'b') minor++; }
+        return (queen === 0 && minor <= 6) || queen + minor <= 4 ? 2 : 1;
+    }
+    function renderDeep(res, box) {
+        const n = res.plies.length;
+        if (!n) return;
+        // رسم التقييم
+        const pts = [];
+        let prev = res.startCp == null ? 20 : res.startCp;
+        for (let i = 0; i <= n; i++) {
+            const cp = i === 0 ? prev : (res.plies[i - 1].cp == null ? prev : res.plies[i - 1].cp);
+            prev = cp;
+            pts.push([n ? (i / n) * 300 : 0, 80 * (1 - winPctJs(cp) / 100)]);
+        }
+        const line = pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+        const g = $('<div class="an-graph" role="img">').attr({ 'aria-label': tr('رسم التقييم'), title: tr('اضغط على الرسم للانتقال إلى الحركة') });
+        g.html('<svg viewBox="0 0 300 80" preserveAspectRatio="none"><rect width="300" height="80" fill="#1b2438"/>'
+            + '<polygon points="0,80 ' + line + ' 300,80" fill="#e9edf5"/>'
+            + '<line x1="0" y1="40" x2="300" y2="40" stroke="#7a88a8" stroke-width=".6" stroke-dasharray="3 3"/>'
+            + '<polyline points="' + line + '" fill="none" stroke="#7d93c4" stroke-width="1"/></svg>');
+        const DOT = { blunder: '#ef4444', mistake: '#f97316', brilliant: '#22d3ee' };
+        res.plies.forEach((p, k) => {
+            if (!DOT[p.cls]) return;
+            g.append($('<i class="an-dot">').css({ left: (pts[k + 1][0] / 3).toFixed(2) + '%', top: (pts[k + 1][1] / 0.8).toFixed(1) + '%', background: DOT[p.cls] }));
+        });
+        g.append($('<b id="an-mark">').css('left', '100%'));
+        g.data('n', n);
+        box.append($('<h4 class="an-h">').text(tr('رسم التقييم')), g,
+            $('<div class="an-legend muted small">').append($('<span class="lg-b">').text(tr('خطأ فادح')), ' ', $('<span class="lg-m">').text(tr('خطأ')), ' ', $('<span class="lg-r">').text(tr('رائعة'))));
+
+        // اللحظات الحاسمة
+        const bad = [];
+        const gems = [];
+        res.plies.forEach((p, k) => {
+            if (p.cls === 'blunder' || p.cls === 'mistake') bad.push([p, k + 1]);
+            else if (p.cls === 'brilliant') gems.push([p, k + 1]);
+        });
+        bad.sort((x, y) => y[0].loss - x[0].loss);
+        const mom = $('<div class="an-moments">');
+        const addMoment = (pair, icon) => {
+            const [p, i] = pair;
+            const c = CLS[p.cls];
+            const txt = icon + ' ' + plyNum(i) + ' ' + p.san + ' ' + c.sym + (p.best && icon !== '✨' ? ' · ' + tr('الأفضل كان: {m}', { m: p.best }) : '') + (icon !== '✨' ? ' (−' + Math.round(p.loss) + '%)' : '');
+            mom.append($('<button type="button" class="an-moment">').addClass('c-' + p.cls).attr({ 'data-action': 'reviewPly', 'data-ply': i }).text(txt));
+        };
+        box.append($('<h4 class="an-h">').text(tr('اللحظات الحاسمة')));
+        if (!bad.length && !gems.length) mom.append($('<p class="muted small">').text(tr('لا أخطاء كبيرة في هذه المباراة.')));
+        bad.slice(0, 4).forEach((x) => addMoment(x, '⚠'));
+        gems.slice(0, 2).forEach((x) => addMoment(x, '✨'));
+        box.append(mom);
+
+        // مراحل المباراة ومتوسط الخسارة
+        const ph = [[[], []], [[], []], [[], []]];
+        const all = [[], []];
+        res.plies.forEach((p, k) => { const ci = p.color === 'w' ? 0 : 1; ph[phaseOf(k + 1)][ci].push(p.loss || 0); all[ci].push(p.loss || 0); });
+        const mean = (arr) => arr.reduce((s, x) => s + x, 0) / arr.length;
+        const accTxt = (arr) => (arr.length ? Math.round(mean(arr.map(accFromLoss))) + '%' : '-');
+        const t2 = $('<table class="an-table">');
+        const nm = (state && state.names) || {};
+        t2.append($('<tr>').append($('<th>').text(tr('المرحلة')), $('<th>').text(tr(nm.w || tr('الأبيض'))), $('<th>').text(tr(nm.b || tr('الأسود')))));
+        [tr('الافتتاح'), tr('الوسط'), tr('النهاية')].forEach((label, k) => {
+            if (!ph[k][0].length && !ph[k][1].length) return;
+            t2.append($('<tr>').append($('<td>').text(label), $('<td>').text(accTxt(ph[k][0])), $('<td>').text(accTxt(ph[k][1]))));
+        });
+        t2.append($('<tr>').append($('<td>').text(tr('متوسط الخسارة لكل حركة')), $('<td>').text(all[0].length ? mean(all[0]).toFixed(1) + '%' : '-'), $('<td>').text(all[1].length ? mean(all[1]).toFixed(1) + '%' : '-')));
+        box.append($('<h4 class="an-h">').text(tr('الدقة حسب المرحلة')), t2);
+    }
+    function updateGraphMarker(i) {
+        const g = $('.an-graph');
+        const n = g.data('n');
+        if (!g.length || !n) return;
+        $('#an-mark').css('left', ((Math.max(0, Math.min(n, i)) / n) * 100).toFixed(2) + '%');
+    }
+    $(document).on('click', '.an-graph', function (e) {
+        const n = $(this).data('n');
+        if (!n || !state || !state.over) return;
+        const r = this.getBoundingClientRect();
+        const x = (e.clientX - r.left) / Math.max(1, r.width);
+        reviewTo(Math.round(Math.max(0, Math.min(1, x)) * n));
+    });
+    // سهم أفضل حركة فوق اللوحة
+    function drawBestArrow(i, bestSan) {
+        try {
+            const g = new Chess(positions[i - 1].fen);
+            const mv = g.move(bestSan);
+            const bEl = document.getElementById('board');
+            if (!mv || !bEl) return;
+            const sa = bEl.querySelector('.square-' + mv.from);
+            const sb = bEl.querySelector('.square-' + mv.to);
+            if (!sa || !sb) return;
+            const r = bEl.getBoundingClientRect();
+            const c = (el) => { const q = el.getBoundingClientRect(); return [q.left - r.left + q.width / 2, q.top - r.top + q.height / 2, q.width]; };
+            const [x1, y1, sz] = c(sa);
+            const [x2, y2] = c(sb);
+            const dx = x2 - x1;
+            const dy = y2 - y1;
+            const len = Math.hypot(dx, dy) || 1;
+            const ux = dx / len;
+            const uy = dy / len;
+            const head = sz * 0.42;
+            const w = sz * 0.13;
+            const ex = x2 - ux * head * 0.6;
+            const ey = y2 - uy * head * 0.6;
+            const sx = x1 + ux * sz * 0.25;
+            const sy = y1 + uy * sz * 0.25;
+            const px = -uy;
+            const py = ux;
+            const poly = [[sx + px * w, sy + py * w], [ex + px * w, ey + py * w], [ex + px * head * 0.55, ey + py * head * 0.55], [x2, y2], [ex - px * head * 0.55, ey - py * head * 0.55], [ex - px * w, ey - py * w], [sx - px * w, sy - py * w]]
+                .map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ');
+            const svg = '<svg id="best-arrow" xmlns="http://www.w3.org/2000/svg" width="' + r.width + '" height="' + r.height + '" viewBox="0 0 ' + r.width + ' ' + r.height + '"><polygon points="' + poly + '" fill="#22c55e" fill-opacity=".82" stroke="#0b3d1c" stroke-width="1"/></svg>';
+            $(bEl).append(svg);
+        } catch (e) { /* ignore */ }
     }
     function setAnalysisProgress(done, total, label) {
         if (!analyzing) return;
