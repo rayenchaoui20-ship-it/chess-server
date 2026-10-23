@@ -14,7 +14,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['world-screen', 'menu-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
+    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -81,6 +81,7 @@
     let account = null;
     let authMode = 'login';
     let friendsTimer = null;
+    let liveTimer = null;
     let friendsData = { friends: [], incoming: [], outgoing: [] };
     let pendingInvite = null;
     let gtoastTimer = null;
@@ -92,6 +93,7 @@
     function show(id) {
         currentScreen = id;
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
+        if (id !== 'live-screen' && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
         $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen');
         $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : 'شطرنج');
@@ -332,6 +334,15 @@
         cancelSearch() { socket.emit('cancel_search'); },
         copyRoomCode() { copyText($('#room-code').text(), '#copy-btn', tr('انسخ الكود')); },
         copyRoomLink() { copyText(location.origin + '/?room=' + $('#room-code').text(), '#copy-link-btn', tr('انسخ الرابط')); },
+        showLive() {
+            $('#live-list').empty();
+            $('#live-empty').text(tr('جارٍ التحميل...')).removeClass('hidden');
+            show('live-screen');
+            socket.emit('live_games');
+            if (liveTimer) clearInterval(liveTimer);
+            liveTimer = setInterval(() => { if (socket.connected) socket.emit('live_games'); }, 5000);
+        },
+        watchGame(el) { socket.emit('spectate', { roomId: el.dataset.id }); },
         showLeaderboard() { show('leaderboard-screen'); requestLeaderboard(); },
         lbTab(el) {
             lbCat = el.dataset.cat;
@@ -1533,6 +1544,7 @@
                 $('<span class="st">').text(STATUS_TEXT[f.status] || ''),
                 $('<span class="rt">').text(f.rating)
             );
+            if (f.watch) li.append($('<button class="btn secondary">').text(tr('شاهد')).attr({ 'data-action': 'watchGame', 'data-id': f.watch }));
             if (f.status === 'online' || f.status === 'searching') {
                 li.append($('<button class="btn secondary">').text(tr('دعوة')).attr({ 'data-action': 'friendInvite', 'data-user': f.username }));
             }
@@ -1546,6 +1558,21 @@
         $('#friends-badge').text(n).toggleClass('hidden', !n);
     }
     socket.on('friends', (d) => { friendsData = d; renderFriends(); });
+    socket.on('live_list', (list) => {
+        const ul = $('#live-list').empty();
+        $('#live-empty').text(tr('لا توجد مباريات مباشرة الآن. جرّب بعد قليل.')).toggleClass('hidden', !!list.length);
+        list.forEach((g) => {
+            const side = (p, c) => $('<span class="lv-p">').append($('<i class="dot ' + c + '">'), document.createTextNode(' ' + p.name + (p.r ? ' (' + p.r + ')' : '')));
+            const meta = [tcText(g.tc), tr('{n} حركة', { n: g.n }), '👁 ' + g.sp];
+            if (g.v === '960') meta.push(tr('فيشر 960'));
+            ul.append($('<li>').append(
+                $('<button type="button" class="game-row">').attr({ 'data-action': 'watchGame', 'data-id': g.id }).append(
+                    $('<span class="gr-res">').addClass(g.fr ? 'win' : '').text(g.fr ? tr('صديق') : (g.rated ? tr('مصنَّفة') : tr('ودّية'))),
+                    $('<span class="gr-main">').append($('<b>').append(side(g.w, 'w'), document.createTextNode(' ⚔ '), side(g.b, 'b')), $('<small class="muted">').text(meta.join(' · ')))
+                )
+            ));
+        });
+    });
     socket.on('friend_error', (m) => $('#fr-msg').text(m).removeClass('good').addClass('err'));
     socket.on('friend_ok', (m) => $('#fr-msg').text(m).removeClass('err').addClass('good'));
     socket.on('notify', (d) => gtoast(d.text));
