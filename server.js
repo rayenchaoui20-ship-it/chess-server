@@ -847,11 +847,16 @@ function statusOf(t) {
     for (const id of Object.keys(queues)) if (queues[id].some((e) => e.token === t)) return 'searching';
     return 'online';
 }
+function watchRoom(t) {
+    const l = live.get(t);
+    const room = l && rooms.get(l.roomId);
+    return room && room.type === 'multi' && room.matched && !room.over && room.plies >= 2 ? room.id : null;
+}
 function friendsPayload(token) {
     const rec = db.players[token];
     ensureSocial(rec);
     return {
-        friends: rec.friends.filter(uname).map((t) => ({ username: uname(t), status: statusOf(t), rating: ratingOf(t, 'blitz') })),
+        friends: rec.friends.filter(uname).map((t) => ({ username: uname(t), status: statusOf(t), rating: ratingOf(t, 'blitz'), watch: watchRoom(t) })),
         incoming: rec.reqIn.map(uname).filter(Boolean),
         outgoing: rec.reqOut.map(uname).filter(Boolean)
     };
@@ -1155,6 +1160,29 @@ io.on('connection', (socket) => {
         socket.emit('spectate_start', { roomId: room.id, tc: room.tcId, rated: room.rated });
         socket.emit('state', publicState(room));
         broadcast(room);
+    });
+
+    // ───── المباريات المباشرة: العلنية (المصنَّفة) لكل الناس، والودّية لأصدقاء اللاعبين فقط ─────
+    socket.on('live_games', () => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const me = db.players[ctx.token];
+        const friends = new Set((me && me.user && me.friends) || []);
+        const list = [];
+        for (const room of rooms.values()) {
+            if (room.type !== 'multi' || !room.matched || room.over || !room.game || room.plies < 2) continue;
+            if (room.players.w === ctx.token || room.players.b === ctx.token) continue;
+            const fr = friends.has(room.players.w) || friends.has(room.players.b);
+            if (!room.rated && !fr) continue;
+            const rw = room.ratings.w || 0;
+            const rb = room.ratings.b || 0;
+            list.push({
+                id: room.id, tc: room.tcId, rated: !!room.rated, v: room.variant, n: room.plies, sp: room.spectators.size, fr,
+                w: { name: room.names.w, r: room.ratings.w }, b: { name: room.names.b, r: room.ratings.b }, avg: Math.round((rw + rb) / 2)
+            });
+        }
+        list.sort((a, b) => (b.fr - a.fr) || (b.avg - a.avg) || (b.n - a.n));
+        socket.emit('live_list', list.slice(0, 12));
     });
 
     socket.on('leave_room', () => {
