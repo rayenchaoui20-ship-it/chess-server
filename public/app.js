@@ -33,7 +33,19 @@
     socket.on = (ev, fn) => rawOn(ev, MSG_EVENTS.has(ev)
         ? (m) => fn(typeof m === 'string' ? tr(m) : m)
         : ev === 'notify' ? (d) => fn(d && typeof d.text === 'string' ? Object.assign({}, d, { text: tr(d.text) }) : d) : fn);
-    const game = new Chess();          // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
+    let game = new Chess();            // نسخة محلية للتحقق السريع فقط، السيرفر هو المرجع
+    const plainGame = game;
+    let wrapGame = null;
+    // شطرنج فيشر (له startFen) يمر عبر Castle960 لدعم التبييت؛ الشطرنج العادي لا يتغيّر إطلاقًا
+    function pickGame(startFen) {
+        if (startFen && window.Castle960) {
+            if (!wrapGame || wrapGame.startFen !== startFen) wrapGame = window.Castle960.createGame(Chess, startFen);
+            game = wrapGame;
+        } else game = plainGame;
+    }
+    function makeGame(startFen) {
+        return startFen && window.Castle960 ? window.Castle960.createGame(Chess, startFen) : (startFen ? new Chess(startFen) : new Chess());
+    }
     let board = null;
     let myColor = 'w';
     let gameMode = '';
@@ -670,6 +682,11 @@
         clearLegal();
         game.moves({ square: source, verbose: true }).forEach((m) => {
             const isCapture = m.captured || m.flags.indexOf('e') !== -1;
+            if (m.castle) {                                   // تبييت 960: نضيء قلعة الملك ووجهته (إن تحرّك الملك فعلًا)
+                $('#board .square-' + m.rook).addClass('legal-move');
+                if (m.to !== source) $('#board .square-' + m.to).addClass('legal-move');
+                return;
+            }
             $('#board .square-' + m.to).addClass(isCapture ? 'legal-capture' : 'legal-move');
         });
     }
@@ -687,7 +704,7 @@
         return attemptMove(source, target) === 'moved' ? undefined : 'snapback';
     }
     function attemptMove(source, target) {
-        const legal = game.moves({ square: source, verbose: true }).filter((m) => m.to === target);
+        const legal = game.moves({ square: source, verbose: true }).filter((m) => m.to === target || (m.castle && m.rook === target));
         if (!legal.length) return false;
         if (legal[0].flags.indexOf('p') !== -1) {
             pendingMove = { from: source, to: target };
@@ -793,7 +810,7 @@
     });
 
     function buildPositions(history, startFen) {
-        const g = startFen ? new Chess(startFen) : new Chess();
+        const g = makeGame(startFen);
         const pos = [{ fen: g.fen(), from: null, to: null, cap: null, color: null }];
         history.forEach((san) => {
             const mv = g.move(san);
@@ -876,7 +893,8 @@
         serverOffset = 0;
         lastOver = true;
         firstState = false;
-        game.load(fen);
+        pickGame(state.startFen);
+        game.load(fen, state.cr);
         if (board) board.position(fen);
         reviewIndex = null;
         renderHistory(state.history);
@@ -1268,7 +1286,7 @@
         $('#status-card').attr('data-tone', tone);
 
         let meta = gameMode === 'ai' ? tr('ضد الحاسوب') : (state.rated ? tr('مباراة مصنَّفة') : tr('مباراة ودّية'));
-        if (state.variant === '960') meta += tr(' · شطرنج فيشر 960 (بدون تبييت)');
+        if (state.variant === '960') meta += tr(' · شطرنج فيشر 960');
         meta += ' · ' + tcText(state.tc);
         if (state.spectators) meta += ' · ' + tr('{n} مشاهد', { n: state.spectators });
         $('#game-meta').text(meta);
@@ -1377,7 +1395,8 @@
         state = s;
         clearSelection();
         serverOffset = s.serverNow - Date.now();
-        game.load(s.fen);
+        pickGame(s.startFen);
+        game.load(s.fen, s.cr);
         if (board) board.position(s.fen);
         highlightLastMove(s.lastMove);
         markCheck(s.fen);
@@ -1496,14 +1515,23 @@
         const d = new Date();
         const pad = (n) => String(n).padStart(2, '0');
         const t = TCS[state.tc];
-        const g = state.startFen ? new Chess(state.startFen) : new Chess();
+        const g = new Chess();
         if (state.startFen) g.header('Variant', 'Chess960', 'SetUp', '1', 'FEN', state.startFen);
         g.header('Event', 'Online game', 'Site', location.host, 'Date',
             d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()),
             'White', nm.w || 'Player', 'Black', nm.b || 'Player', 'Result', res,
             'TimeControl', t ? (t.base + (t.inc ? '+' + t.inc : '')) : '-');
-        (state.history || []).forEach((san) => g.move(san));
-        const blob = new Blob([g.pgn() + '\n'], { type: 'application/x-chess-pgn' });
+        let pgnText;
+        if (state.startFen) {
+            const tags = [['Event', 'Online game'], ['Site', location.host], ['Date', d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate())],
+                ['White', nm.w || 'Player'], ['Black', nm.b || 'Player'], ['Result', res], ['Variant', 'Chess960'], ['SetUp', '1'], ['FEN', state.startFen]];
+            const moves = (state.history || []).map((san, i) => (i % 2 === 0 ? (i / 2 + 1) + '. ' : '') + san).join(' ');
+            pgnText = tags.map((t) => '[' + t[0] + ' "' + String(t[1]).replace(/"/g, "'") + '"]').join('\n') + '\n\n' + moves + ' ' + res;
+        } else {
+            (state.history || []).forEach((san) => g.move(san));
+            pgnText = g.pgn();
+        }
+        const blob = new Blob([pgnText + '\n'], { type: 'application/x-chess-pgn' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = 'chess-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.pgn';
