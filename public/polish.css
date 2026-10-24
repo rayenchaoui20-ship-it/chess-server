@@ -1,0 +1,86 @@
+/* ═════════ طبقة التنسيق الموحّد (الشطرنج + ملك المدينة) ═════════
+   تُحمَّل بعد style.css فتوحّد الألوان والحواف والحركة بين اللعبتين. */
+:root {
+    --ease: cubic-bezier(.2, .8, .2, 1);
+    --shadow-1: 0 8px 24px rgba(0, 0, 0, .28);
+    --gold-soft: rgba(226, 177, 75, .14);
+}
+
+/* ───── حركة مشتركة ───── */
+.btn, .mode-row, .time-card, .world-card, .seg button, .promo, .variant-toggle, .tr-chip, .an-moment {
+    transition: background-color .15s, border-color .15s, color .15s, transform .15s var(--ease), box-shadow .15s;
+}
+.mode-row:hover, .time-card:hover { transform: translateY(-2px); }
+.mode-row:active, .time-card:active, .seg button:active, .promo:active { transform: scale(.98); }
+.btn.primary { box-shadow: 0 2px 0 rgba(0, 0, 0, .25); }
+.overlay { animation: pl-fade .18s ease-out; }
+.dialog { animation: pl-pop .24s var(--ease); }
+.global-toast { animation: pl-rise .25s var(--ease); }
+@keyframes pl-fade { from { opacity: 0; } }
+@keyframes pl-pop { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+@keyframes pl-rise { from { opacity: 0; transform: translateY(14px); } }
+
+/* ───── الشطرنج: القطع واللوحة ───── */
+/* القطعة المسحوبة (تُضاف إلى body في chessboard.js) ترتفع وتكبر قليلًا */
+body > img[class^="piece-"], body > img[class*=" piece-"] {
+    transform: scale(1.16);
+    filter: drop-shadow(0 8px 8px rgba(0, 0, 0, .45));
+    cursor: grabbing;
+    z-index: 100;
+}
+#board img[class*="piece-"], #pboard img[class*="piece-"] { filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .3)); }
+/* وميض آخر نقلة */
+#board .highlight-last, #pboard .highlight-last { animation: pl-last .45s ease-out; }
+@keyframes pl-last { from { box-shadow: inset 0 0 0 100px rgba(226, 177, 75, .95); } }
+/* الملك في كش */
+#board .in-check { background-image: radial-gradient(circle, rgba(239, 107, 114, .95) 0, rgba(239, 107, 114, .55) 45%, rgba(239, 107, 114, 0) 72%) !important; animation: pl-check .9s ease-in-out 2; }
+@keyframes pl-check { 50% { filter: brightness(1.25); } }
+/* نقاط الحركات القانونية تظهر بنعومة */
+#board .legal-move, #board .legal-capture, #pboard .legal-move, #pboard .legal-capture { animation: pl-fade .12s ease-out; }
+#board .selected-sq, #pboard .selected-sq { animation: pl-fade .1s ease-out; }
+/* ساعة قليلة الوقت تنبض */
+.clock.low.active { animation: pl-pulse 1s ease-in-out infinite; }
+@keyframes pl-pulse { 50% { transform: scale(1.05); } }
+
+/* ───── ملك المدينة: نفس لغة الشطرنج ───── */
+.mp-top { margin-bottom: 8px; }
+.mp-status {
+    background: var(--surface); border: 1px solid var(--line); border-inline-start: 4px solid var(--gold);
+    border-radius: var(--radius); padding: 14px 16px; font-weight: 600; font-size: 1.05rem; text-align: start;
+}
+.mp-plist li, .mp-players li {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px; position: relative;
+}
+.mp-plist li.cur { outline: 0; border-color: var(--gold); background: var(--surface-2); }
+.mp-sel, .mp-auction, #mp-trade {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.mp-auction { border-color: var(--gold); background: var(--gold-soft); }
+.mp-card { background: var(--gold-soft); border: 1px solid var(--gold); border-radius: var(--radius); font-weight: 600; animation: pl-pop .3s var(--ease); }
+.mp-log { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.mp-codebox { font-family: var(--font-display); color: var(--gold); }
+.mp-board { border-radius: 10px; }
+.tr-col { background: var(--bg); border: 1px solid var(--line); }
+.tr-chip.on { background: var(--gold); border-color: var(--gold); }
+.mp-dice .die { border-radius: 10px; font-family: var(--font-display); }
+
+/* الرمز يقفز عند المشي، والرمز صاحب الدور يطفو */
+.mp-sq .tk i.hop { animation: mp-hop .115s ease-out; z-index: 3; }
+@keyframes mp-hop { 40% { transform: translateY(-9px) scale(1.18); } }
+.mp-sq.sel { animation: pl-fade .1s ease-out; }
+
+/* أرقام المال الطافية */
+.mp-float {
+    position: absolute; inset-inline-end: 12px; top: 2px; font-weight: 800; pointer-events: none;
+    font-variant-numeric: tabular-nums; text-shadow: 0 1px 4px rgba(0, 0, 0, .7);
+    animation: mp-float 1.5s ease-out forwards; z-index: 4;
+}
+.mp-float.pos { color: var(--win); }
+.mp-float.neg { color: var(--loss); }
+@keyframes mp-float { from { opacity: 0; transform: translateY(8px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(-22px); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .mp-sq .tk i.hop, .mp-float, .overlay, .dialog, .global-toast, .clock.low.active,
+    #board .highlight-last, #pboard .highlight-last, #board .in-check { animation: none !important; }
+    .mode-row:hover, .time-card:hover { transform: none; }
+}
