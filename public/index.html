@@ -109,6 +109,10 @@
                     <span class="t">🔴 مباريات مباشرة</span>
                     <span class="d">شاهد مباريات أصدقائك وأفضل اللاعبين الآن</span>
                 </button>
+                <button class="mode-row" data-action="showClubs">
+                    <span class="t">🛡 الأندية</span>
+                    <span class="d">أنشئ نادٍ أو انضم إلى نادٍ، وتحدَّ أعضاءه وتحدّث معهم</span>
+                </button>
                 <button class="mode-row" data-action="showLeaderboard">
                     <span class="t">المتصدرون</span>
                     <span class="d">أفضل اللاعبين في كل نظام</span>
@@ -273,10 +277,54 @@
         </div>
     </section>
 
+    <!-- الأندية -->
+    <section id="club-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0" id="club-title">الأندية</h2>
+
+            <div id="club-none" class="stack hidden">
+                <div>
+                    <h3 class="sub-title">أنشئ نادِيك</h3>
+                    <input type="text" id="club-name" class="field" maxlength="24" placeholder="اسم النادي" autocomplete="off">
+                    <input type="text" id="club-desc-in" class="field" maxlength="80" placeholder="وصف قصير (اختياري)" autocomplete="off" style="margin-top:8px">
+                    <button class="btn primary block" style="margin-top:8px" data-action="clubCreate">أنشئ النادي</button>
+                </div>
+                <div>
+                    <h3 class="sub-title">أو انضم إلى نادٍ</h3>
+                    <input type="search" id="club-search" class="field" maxlength="24" placeholder="ابحث باسم النادي" autocomplete="off">
+                    <ul class="fr-list" id="club-list" style="margin-top:8px"></ul>
+                </div>
+            </div>
+
+            <div id="club-mine" class="stack hidden">
+                <p class="muted" id="club-desc"></p>
+                <p class="muted small" id="club-meta"></p>
+                <div>
+                    <h3 class="sub-title">الأعضاء</h3>
+                    <ul class="fr-list" id="club-members"></ul>
+                </div>
+                <div>
+                    <h3 class="sub-title">دردشة النادي</h3>
+                    <div id="club-chat" class="club-chat" aria-live="polite"></div>
+                    <div class="chat-row">
+                        <input type="text" id="club-input" class="field" maxlength="200" placeholder="اكتب رسالة للنادي" autocomplete="off">
+                        <button class="btn secondary" data-action="clubSend">أرسل</button>
+                    </div>
+                </div>
+                <button class="btn danger block" data-action="clubLeave">غادر النادي</button>
+            </div>
+
+            <div class="fr-msg" id="club-msg" role="status"></div>
+            <button class="btn ghost block" data-action="goMenu">رجوع</button>
+        </div>
+    </section>
+
     <!-- الألغاز -->
     <section id="mono-screen" class="hidden">
         <div class="mp-top">
             <h2 class="section-title">ملك المدينة</h2>
+            <button class="btn ghost hidden" id="mp-voice" data-voice="toggle" aria-pressed="false">🎙 انضم للصوت</button>
+            <button class="btn ghost hidden" id="mp-mic" data-voice="mute" aria-pressed="true">🎤 يعمل</button>
             <button class="btn ghost" id="mp-snd" data-action="monoSound" aria-label="الصوت">🔊</button>
             <button class="btn ghost" id="mp-leave" data-action="monoLeave">رجوع</button>
         </div>
