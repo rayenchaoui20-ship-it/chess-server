@@ -113,10 +113,6 @@
             c.toggleClass('mort', !!g.mort[i]).toggleClass('sel', selSq === i);
             var h = g.houses[i] || 0;
             c.find('.band').text(h >= 5 ? '🏨' : h > 0 ? new Array(h + 1).join('▪') : '');
-            var tk = c.find('.tk').empty();
-            g.players.forEach(function (p, pi) {
-                if (!p.out && p.pos === i) tk.append($('<i>').text(TOKEN[pi % 8]).css('background', last.players[pi].color).toggleClass('me', pi === me).toggleClass('cur', pi === g.turn));
-            });
         }
         // حالة الدور
         var cp = g.players[g.turn];
@@ -128,8 +124,13 @@
         else if (g.turn === me) st = T('دورك') + ' — ' + phaseText(g);
         else st = T('دور {n}', { n: cp.name }) + (last.players[g.turn].bot ? ' 🤖…' : '');
         if (g.mult > 1 && g.phase !== 'over') st += ' · ' + T('الإيجارات ×{m}', { m: g.mult });
-        $('#mp-status').text(st).css('border-color', g.phase === 'over' ? '#e2b14b' : colorOf(g.turn));
+        $('#mp-status').text(st);
+        $('#mp-status')[0].style.setProperty('border-inline-start-color', g.phase === 'over' ? '#e2b14b' : colorOf(g.turn));
         showDice(g);
+        syncShown(g);
+        paintTokens();
+        if (needsWalk(g)) startWalk(diceFresh ? DICE_MS : 0);
+        diceFresh = false;
         $('#mp-event').text(g.log.length ? T(g.log[g.log.length - 1][0], tp(g.log[g.log.length - 1][1])) : '');
         // البطاقة المسحوبة
         var cd = $('#mp-card');
@@ -202,6 +203,7 @@
         });
         paintSel();
         paintTrade(g, me);
+        applyFloats();
     }
 
     function tp(pr) { var p = {}; for (var k in (pr || {})) p[k] = typeof pr[k] === 'string' ? T(pr[k]) : pr[k]; return p; }
@@ -215,6 +217,7 @@
         if (key === lastDiceKey) return;
         var fresh = lastDiceKey !== '' && g.log.length && /رمى النرد/.test(g.log[g.log.length - 1][0] || '');
         lastDiceKey = key;
+        diceFresh = fresh;
         function put(a, b, cls) { dc.empty().append($('<b class="die ' + (cls || '') + '">').text(a), $('<b class="die ' + (cls || '') + '">').text(b)); }
         clearInterval(diceTimer);
         if (!fresh) return put(g.dice[0], g.dice[1]);
@@ -225,41 +228,133 @@
             put(1 + Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 6), 'shake');
         }, 70);
     }
-    var muted = false, actx = null;
+    var muted = false;
     try { muted = localStorage.getItem('mp-mute') === '1'; } catch (e) { /* ignore */ }
-    function tone(f, d, type, when, vol) {
-        if (muted) return;
-        try {
-            actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-            if (actx.state === 'suspended') actx.resume();
-            var o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + (when || 0);
-            o.type = type || 'sine'; o.frequency.value = f;
-            g.gain.setValueAtTime(vol || 0.08, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
-            o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + d + 0.02);
-        } catch (e) { /* ignore */ }
+    function sfx(name, arg) { if (!muted && window.SFX) window.SFX.play(name, arg); }
+    function soundBtn() { $('#mp-snd').text(muted ? '🔇' : '🔊').attr('aria-pressed', String(!muted)); }
+
+    // أرقام المال الطافية فوق صف اللاعب بعد كل تغيّر في الرصيد
+    var pendingFloats = [];
+    function applyFloats() {
+        var rows = $('#mp-plist li');
+        pendingFloats.forEach(function (f) {
+            var li = rows.eq(f.pi);
+            if (!li.length) return;
+            var el = $('<span class="mp-float">').addClass(f.d > 0 ? 'pos' : 'neg').text((f.d > 0 ? '+' : '−') + '$' + Math.abs(f.d));
+            li.append(el);
+            setTimeout(function () { el.remove(); }, 1600);
+        });
+        pendingFloats = [];
     }
-    var SND = {
-        roll: function () { for (var i = 0; i < 6; i++) tone(180 + Math.random() * 120, 0.05, 'square', i * 0.07, 0.04); },
-        turn: function () { tone(660, 0.12, 'sine', 0); tone(880, 0.18, 'sine', 0.12); },
-        buy: function () { tone(520, 0.08, 'triangle', 0); tone(780, 0.14, 'triangle', 0.08); },
-        pay: function () { tone(300, 0.12, 'sawtooth', 0, 0.05); tone(200, 0.18, 'sawtooth', 0.1, 0.05); },
-        win: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.2, 'triangle', i * 0.13); }); }
-    };
-    function soundBtn() { $('#mp-snd').text(muted ? '🔇' : '🔊'); }
+
+    // مدة مشي الرموز بعد هذا التحديث (لنؤخر أصوات النتيجة حتى يصل الرمز)
+    function walkMs(pg, g, fresh) {
+        var ms = 0;
+        g.players.forEach(function (p, pi) {
+            var q = pg.players[pi];
+            if (!q || p.out || q.pos === p.pos) return;
+            var d = (p.pos - q.pos + 40) % 40;
+            ms = Math.max(ms, d > WALK_MAX ? 450 : d * STEP_MS);
+        });
+        return ms + (fresh ? DICE_MS : 0);
+    }
+
     function diffSounds(prev, next) {
+        pendingFloats = [];
         if (!next.game) return;
         var g = next.game, pg = prev && prev.game;
         if (!pg) return;
-        if (g.phase === 'over' && pg.phase !== 'over') return SND.win();
-        if (g.log.length && JSON.stringify(g.log[g.log.length - 1]) !== JSON.stringify(pg.log[pg.log.length - 1] || null)) {
-            var k = g.log[g.log.length - 1][0] || '';
-            if (/رمى النرد/.test(k)) SND.roll();
-            else if (/اشترى|ربح مزاد/.test(k)) SND.buy();
-            else if (/دفع|أفلس/.test(k)) SND.pay();
+        var me = next.me, k, i;
+        if (g.phase === 'over' && pg.phase !== 'over') { setTimeout(function () { sfx(g.winner === me ? 'win' : 'lose'); }, 300); return; }
+
+        var lastNew = g.log.length ? g.log[g.log.length - 1] : null;
+        var lastOld = pg.log.length ? pg.log[pg.log.length - 1] : null;
+        var fresh = !!lastNew && JSON.stringify(lastNew) !== JSON.stringify(lastOld) && /رمى النرد/.test(lastNew[0] || '');
+        if (fresh) sfx('dice');
+
+        var bought = false, tradeDone = pg.phase === 'trade' && g.phase !== 'trade', built = 0, mort = 0, jailed = false, broke = false, auctionStart = false, bid = false, card = false;
+        for (k in g.owner) if (pg.owner[k] !== g.owner[k]) bought = true;
+        for (i = 0; i < 40; i++) {
+            var h1 = g.houses[i] || 0, h0 = pg.houses[i] || 0;
+            if (h1 > h0) built = 1; else if (h1 < h0 && !built) built = -1;
+            var m1 = !!g.mort[i], m0 = !!pg.mort[i];
+            if (m1 && !m0) mort = 1; else if (!m1 && m0) mort = -1;
         }
-        if (g.turn === next.me && (pg.turn !== g.turn) && g.phase !== 'over') setTimeout(SND.turn, 350);
+        g.players.forEach(function (p, pi) {
+            var q = pg.players[pi];
+            if (!q) return;
+            if (p.jail && !q.jail) jailed = true;
+            if (p.out && !q.out) broke = true;
+            var d = p.cash - q.cash;
+            if (d !== 0) pendingFloats.push({ pi: pi, d: d });
+        });
+        if (g.phase === 'auction' && pg.phase !== 'auction') auctionStart = true;
+        if (g.phase === 'auction' && g.auction && pg.auction && g.auction.bid > pg.auction.bid) bid = true;
+        if (g.drawn && (!pg.drawn || g.drawn.k !== pg.drawn.k)) card = true;
+        var myDelta = 0;
+        pendingFloats.forEach(function (f) { if (f.pi === me) myDelta = f.d; });
+
+        var name = null;
+        if (broke) name = 'bankrupt';
+        else if (jailed) name = 'jail';
+        else if (tradeDone && bought) name = 'trade';
+        else if (bought) name = 'buy';
+        else if (built) name = 'build';
+        else if (mort) name = mort > 0 ? 'mortgage' : 'unmortgage';
+        else if (card) name = 'card';
+        else if (auctionStart) name = 'auction';
+        else if (bid) name = 'bid';
+        else if (g.phase === 'trade' && pg.phase !== 'trade' && g.trade && g.trade.to === me) name = 'notify';
+        else if (myDelta > 0) name = 'receive';
+        else if (myDelta < 0) name = 'pay';
+
+        var delay = walkMs(pg, g, fresh);
+        if (name) setTimeout(function () { sfx(name); }, name === 'bid' || name === 'auction' || name === 'notify' ? 0 : delay);
+        if (g.turn === me && pg.turn !== g.turn && g.phase !== 'over') setTimeout(function () { sfx('turn'); }, Math.max(delay, 0) + 450);
     }
 
+    // ───────── مشي الرموز خانة خانة ─────────
+    var shown = {}, shownKey = '', walking = false, diceFresh = false;
+    var STEP_MS = 115, DICE_MS = 560, WALK_MAX = 14;
+    function syncShown(g) {
+        var key = last.code + '|' + (g.map || '');
+        if (key !== shownKey) { shownKey = key; shown = {}; }
+        g.players.forEach(function (p, pi) { if (shown[pi] === undefined) shown[pi] = p.pos; });
+    }
+    function paintTokens() {
+        if (!last || !last.game) return;
+        var g = last.game, me = last.me;
+        $('#mp-board .mp-sq .tk').empty();
+        g.players.forEach(function (p, pi) {
+            if (p.out) return;
+            var sq = shown[pi] === undefined ? p.pos : shown[pi];
+            $('#mp-board .mp-sq[data-sq="' + sq + '"] .tk').append(
+                $('<i>').text(TOKEN[pi % 8]).css('background', last.players[pi].color)
+                    .toggleClass('me', pi === me).toggleClass('cur', pi === g.turn).toggleClass('hop', sq !== p.pos));
+        });
+    }
+    function needsWalk(g) { return g.players.some(function (p, pi) { return !p.out && shown[pi] !== undefined && shown[pi] !== p.pos; }); }
+    function stepWalk() {
+        walking = false;
+        if (!last || !last.game) return;
+        var moving = false;
+        last.game.players.forEach(function (p, pi) {
+            var cur = shown[pi];
+            if (p.out || cur === undefined || cur === p.pos) { shown[pi] = p.pos; return; }
+            var d = (p.pos - cur + 40) % 40;
+            if (d > WALK_MAX) { shown[pi] = p.pos; sfx('jump'); return; }
+            shown[pi] = (cur + 1) % 40;
+            moving = true;
+            sfx('step', d);
+        });
+        paintTokens();
+        if (moving) { walking = true; setTimeout(stepWalk, STEP_MS); }
+    }
+    function startWalk(delay) {
+        if (walking) return;
+        walking = true;
+        setTimeout(stepWalk, delay || 0);
+    }
 
     // ───────── التبادل ─────────
     var draft = { open: false, to: null, gp: {}, tp: {}, gc: 0, tc: 0, gk: 0, tk: 0 };
@@ -373,7 +468,7 @@
     });
     socket.on('mp_error', function (k) { err(translateErr(k)); });
     socket.on('mp_none', function () {
-        last = null; selSq = null;
+        last = null; selSq = null; shown = {}; shownKey = '';
         try { sessionStorage.removeItem('mp-in'); } catch (e) { /* ignore */ }
         view('home');
     });
@@ -415,7 +510,7 @@
         }
         if (a === 'monoQuick') { err(''); socket.emit('mp_quick'); return; }
         if (a === 'monoCreate') { err(''); socket.emit('mp_create', { map: $('#mp-map').val() }); }
-        else if (a === 'monoSound') { muted = !muted; try { localStorage.setItem('mp-mute', muted ? '1' : '0'); } catch (e2) { /* ignore */ } soundBtn(); if (!muted) SND.buy(); }
+        else if (a === 'monoSound') { muted = !muted; try { localStorage.setItem('mp-mute', muted ? '1' : '0'); } catch (e2) { /* ignore */ } soundBtn(); if (!muted) sfx('buy'); }
         else if (a === 'monoAI') { err(''); socket.emit('mp_create_ai', { bots: +$('#mp-bots').val() || 1, map: $('#mp-map').val() }); }
         else if (a === 'monoJoin') {
             var c = String($('#mp-code').val() || '').trim().toUpperCase();
