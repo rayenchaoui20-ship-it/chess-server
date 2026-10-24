@@ -161,6 +161,7 @@
     }
     function playSound(type) {
         if (!soundOn) return;
+        if (window.SFX) { window.SFX.play(type); return; }
         try {
             ensureAudio();
             if (!audioCtx) return;
@@ -169,6 +170,14 @@
             else if (type === 'check') { tone(660, 0, 0.12, 0.3, 'sine'); tone(880, 0.1, 0.16, 0.3, 'sine'); }
             else if (type === 'end') { [523, 659, 784].forEach((f, i) => tone(f, i * 0.14, 0.3, 0.35, 'sine')); }
         } catch (e) { /* ignore */ }
+    }
+    // نوع صوت النقلة من رمزها (SAN): تبييت، ترقية، أخذ، كش
+    function moveSound(san, captured) {
+        san = san || '';
+        if (san.indexOf('#') !== -1 || san.indexOf('+') !== -1) return 'check';
+        if (san.indexOf('O-O') === 0) return 'castle';
+        if (san.indexOf('=') !== -1) return 'promote';
+        return captured || san.indexOf('x') !== -1 ? 'capture' : 'move';
     }
     function updateSoundButton() {
         $('#sound-btn').text(soundOn ? tr('الصوت مفعّل') : tr('الصوت مكتوم')).attr('aria-pressed', String(soundOn));
@@ -615,6 +624,7 @@
             position: 'start',
             orientation: (myColor === 'b') !== flipped ? 'black' : 'white',
             pieceTheme: PIECE_THEME,
+            moveSpeed: 130, snapSpeed: 40, snapbackSpeed: 130, appearSpeed: 120, trashSpeed: 90,
             onDragStart,
             onDrop,
             onSnapEnd: () => { clearLegal(); board.position(game.fen()); }
@@ -702,6 +712,19 @@
     }
     function cancelPromotion() { $('#promotion-dialog').addClass('hidden'); pendingMove = null; }
 
+    // يضيء مربع الملك الواقع في كش (fen = المركز المعروض)
+    function markCheck(fen) {
+        $('#board .square-55d63').removeClass('in-check');
+        if (!fen) return;
+        try {
+            const g = new Chess(fen);
+            if (!g.in_check()) return;
+            const files = 'abcdefgh';
+            g.board().forEach((row, r) => row.forEach((p, f) => {
+                if (p && p.type === 'k' && p.color === g.turn()) $('#board .square-' + files[f] + (8 - r)).addClass('in-check');
+            }));
+        } catch (e) { /* ignore */ }
+    }
     function highlightLastMove(lm) {
         $('#board .square-55d63').removeClass('highlight-last');
         if (!lm) return;
@@ -752,6 +775,7 @@
         const p = positions[i];
         board.position(p.fen);
         highlightLastMove(p.from ? { from: p.from, to: p.to } : null);
+        markCheck(p.fen);
         markAnalysis(i);
         renderHistory(state.history || [], i);
         renderCaptured(i);
@@ -1323,6 +1347,7 @@
         game.load(s.fen);
         if (board) board.position(s.fen);
         highlightLastMove(s.lastMove);
+        markCheck(s.fen);
 
         const nm = s.names || {};
         const opp = myColor === 'w' ? 'b' : 'w';
@@ -1348,11 +1373,14 @@
         } else {
             if (s.moveCount > lastSoundCount) {
                 if (s.check && !s.over) playSound('check');
-                else playSound(s.lastMove && s.lastMove.captured ? 'capture' : 'move');
+                else playSound(s.lastMove ? moveSound(s.lastMove.san, s.lastMove.captured) : 'move');
             }
             lastSoundCount = s.moveCount;
             if (s.over && !lastOver) {
-                setTimeout(() => playSound('end'), 350);
+                setTimeout(() => {
+                    const w = s.result && s.result.winner;
+                    playSound(!w ? 'draw' : spectating || w === myColor ? 'win' : 'lose');
+                }, 350);
                 clearTimeout(resultTimer);
                 resultTimer = setTimeout(showResult, 900);
             }
@@ -1398,7 +1426,7 @@
     // ───────────────────────── أحداث اللعب ─────────────────────────
     socket.on('notice', (msg) => $('#notice-text').text(msg));
     socket.on('toast', (msg) => flash(msg));
-    socket.on('draw_offered', () => { $('#draw-banner').removeClass('hidden'); playSound('check'); });
+    socket.on('draw_offered', () => { $('#draw-banner').removeClass('hidden'); playSound('notify'); });
     socket.on('draw_cleared', () => $('#draw-banner').addClass('hidden'));
     socket.on('draw_declined', () => flash(tr('رفض الخصم اقتراح التعادل.')));
     socket.on('draw_sent', () => $('#draw-btn').prop('disabled', true).text(tr('تم إرسال الاقتراح')));
@@ -1585,7 +1613,7 @@
         pendingInvite = d;
         $('#invite-text').text(tr(d.variant === '960' ? tr('{name} يدعوك إلى مباراة ودّية ({tc}) بشطرنج فيشر 960') : tr('{name} يدعوك إلى مباراة ودّية ({tc})'), { name: d.from, tc: tcText(d.tc) }));
         $('#invite-dialog').removeClass('hidden');
-        playSound('check');
+        playSound('notify');
     });
 
     // ───────────────────────── الألغاز (تعمل في المتصفح بلا سيرفر) ─────────────────────────
@@ -1775,6 +1803,7 @@
             position: p.f,
             orientation: pzSide === 'b' ? 'black' : 'white',
             pieceTheme: PIECE_THEME,
+            moveSpeed: 130, snapSpeed: 40, snapbackSpeed: 130, appearSpeed: 120, trashSpeed: 90,
             onDragStart: (source, piece) => {
                 if (!pzCanMove() || piece.charAt(0) !== pzSide) return false;
                 pzShowLegal(source, true);
@@ -1836,11 +1865,11 @@
         if (!correct) {
             pzGame.undo();
             pzMistakes++;
-            playSound('check');
+            playSound('wrong');
             pzSetText(tactic ? tr('ليست أقوى حركة، ابحث عن طريقة لكسب مادة.') : finalMove ? tr('ليست كش مات، حاول مرة أخرى.') : tr('ليست الحركة الصحيحة، حاول مرة أخرى.'), 'check', true);
             return false;
         }
-        playSound(mv.captured ? 'capture' : 'move');
+        playSound(moveSound(mv.san, mv.captured));
         if (tactic) { pzTactic(from + to); return true; }
         if (finalMove) { pzFinish(); return true; }
         // حركة أولى صحيحة: يردّ الخصم ثم يكمل اللاعب
@@ -1854,7 +1883,7 @@
             const rep = replies.find((m) => m.from + m.to === (pzCur.r || '').slice(0, 4)) || replies[0];
             if (rep) {
                 const rm = pzGame.move({ from: rep.from, to: rep.to, promotion: 'q' });
-                playSound(rm && rm.captured ? 'capture' : 'move');
+                playSound(rm ? moveSound(rm.san, rm.captured) : 'move');
                 pzBoard.position(pzGame.fen());
             }
             pzBusy = false;
@@ -1874,7 +1903,7 @@
             const m = pzGame.moves({ verbose: true }).find((x) => x.from + x.to === uci.slice(0, 4));
             if (m) {
                 const r = pzGame.move({ from: m.from, to: m.to, promotion: 'q' });
-                playSound(r && r.captured ? 'capture' : 'move');
+                playSound(r ? moveSound(r.san, r.captured) : 'move');
                 pzBoard.position(pzGame.fen());
             }
             next();
@@ -1885,7 +1914,7 @@
     function pzFinish() {
         pzDone = true;
         pzClear();
-        playSound('end');
+        playSound('good');
         let delta = '';
         if (!pzHelped) {
             pzSolved.add(pzCur.id);
