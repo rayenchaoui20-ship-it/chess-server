@@ -186,7 +186,7 @@
         var pl = $('#mp-plist').empty();
         g.players.forEach(function (p, pi) {
             var n = 0; for (var k in g.owner) if (g.owner[k] === pi) n++;
-            var li = $('<li>').toggleClass('out', p.out).toggleClass('cur', pi === g.turn && g.phase !== 'over');
+            var li = $('<li>').attr('data-pi', pi).toggleClass('out', p.out).toggleClass('cur', pi === g.turn && g.phase !== 'over');
             li.append($('<span class="dot">').css('background', last.players[pi].color),
                 $('<span class="nm">').text(p.name + (pi === me ? ' (' + T('أنت') + ')' : '') + (!last.players[pi].on ? ' ⚠' : '')),
                 $('<span class="mc">').text((TOKEN[pi % 8]) + ' ' + (p.out ? T('مُفلس') : money(p.cash) + ' · ' + T('{n} ملكية', { n: n }) + (p.jail ? ' ⛓' : '') + (p.cards ? ' 🎟' + p.cards : ''))));
@@ -204,6 +204,7 @@
         paintSel();
         paintTrade(g, me);
         applyFloats();
+        if (window.Voice) window.Voice.decorate();
     }
 
     function tp(pr) { var p = {}; for (var k in (pr || {})) p[k] = typeof pr[k] === 'string' ? T(pr[k]) : pr[k]; return p; }
@@ -531,8 +532,9 @@
     fetch('/monopoly-maps.json').then(function (r) { return r.json(); }).then(function (m) { MAPS = m; }).catch(function () {});
 
     window.Mono = {
+        state: function () { return last; },
         busy: function () { return !!(last && last.started && last.game && last.game.phase !== 'over'); },
         leave: function () { if (last) socket.emit('mp_leave'); },
-        open: function () { err(''); soundBtn(); if (!last) view('home'); else render(); }
+        open: function () { err(''); soundBtn(); if (window.Voice) window.Voice.decorate(); if (!last) view('home'); else render(); }
     };
 })();
