@@ -182,6 +182,7 @@
                 btn(T('أنهِ الدور'), 'end', 'primary');
             }
         }
+        if (mine && (g.phase === 'debt' || g.phase === 'buy')) quickRaise(A, g, me, mp);
         // لاعبون
         var pl = $('#mp-plist').empty();
         g.players.forEach(function (p, pi) {
@@ -205,6 +206,39 @@
         paintTrade(g, me);
         applyFloats();
         if (window.Voice) window.Voice.decorate();
+    }
+
+    // لوحة «وفِّر المال»: تظهر عند وجود دَين أو نقص رصيد لشراء الخانة، وتعرض ما يمكن رهنه أو بيعه مباشرة
+    function quickRaise(A, g, me, mp) {
+        var need = 0, what = '';
+        if (g.phase === 'debt' && g.pending) need = g.pending.amount - mp.cash;
+        else if (g.phase === 'buy') { var bs = BOARD[mp.pos]; need = bs.p - mp.cash; what = T(bs.n); }
+        if (need <= 0) return;
+        var rows = [], raise = 0;
+        for (var sq = 0; sq < 40; sq++) {
+            if (g.owner[sq] !== me || g.mort[sq]) continue;
+            var s = BOARD[sq], h = g.houses[sq] || 0;
+            var grpHouses = !!s.g && BOARD.some(function (b, q) { return b.g === s.g && (g.houses[q] || 0) > 0; });
+            raise += s.p / 2 + h * Math.floor((s.h || 0) / 2);
+            if (h > 0) rows.push({ sq: sq, act: 'sell', label: T('بِع مبنى'), amt: Math.floor(s.h / 2) });
+            else if (!grpHouses) rows.push({ sq: sq, act: 'mortgage', label: T('ارهن'), amt: s.p / 2 });
+        }
+        var box = $('<div class="mp-raise">');
+        box.append($('<b>').text(g.phase === 'debt'
+            ? T('عليك دَين {a}، وينقصك {n}. وفِّر المال برهن ممتلكاتك:', { a: money(g.pending.amount), n: money(need) })
+            : T('ينقصك {n} لشراء {s}. وفِّر المال برهن ممتلكاتك:', { n: money(need), s: what })));
+        rows.forEach(function (r) {
+            var s = BOARD[r.sq];
+            box.append($('<div class="rr">').append(
+                $('<i>').css('background', s.g ? GCOL[s.g] : '#8a94ad'),
+                $('<span class="nm">').text(T(s.n)),
+                $('<button class="btn secondary">').text(r.label + ' +' + money(r.amt)).attr('data-mp', r.act).data('sq', r.sq)));
+        });
+        if (!rows.length) box.append($('<div class="muted small">').text(T('لا تملك ما يمكن رهنه الآن.')));
+        box.append($('<div class="muted small">').text(raise >= need
+            ? T('أقصى ما يمكنك توفيره: {r}', { r: money(raise) })
+            : T('حتى لو رهنت كل شيء لن يكفي.') + ' ' + (g.phase === 'debt' ? T('يمكنك إعلان الإفلاس.') : T('يمكنك طرحها للمزاد.'))));
+        A.append(box);
     }
 
     function tp(pr) { var p = {}; for (var k in (pr || {})) p[k] = typeof pr[k] === 'string' ? T(pr[k]) : pr[k]; return p; }
