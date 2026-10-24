@@ -10,6 +10,7 @@ const axios = require('axios');
 const { Chess } = require('chess.js');
 const { analyzeGame } = require('./analysis');
 const safety = require('./safety');
+const Castle960 = require('./public/castle960.js');   // تبييت شطرنج فيشر
 
 const app = express();
 const server = http.createServer(app);
@@ -201,7 +202,7 @@ function socketOf(token) {
 }
 
 // شطرنج فيشر (960): ترتيب عشوائي للصف الخلفي، الفيلان على لونين مختلفين، الملك بين القلعتين.
-// تُلعب بدون تبييت (حقل التبييت في FEN هو «-») لأن مكتبة اللعب لا تدعم تبييت 960.
+// مكتبة chess.js لا تدعم تبييت 960، فيتولاه الغلاف Castle960 (انظر public/castle960.js).
 function chess960Fen() {
     const row = new Array(8).fill(null);
     const pick = (arr) => arr[crypto.randomInt(arr.length)];
@@ -219,7 +220,7 @@ function chess960Fen() {
 function resolveVariant(data) { return data && data.variant === '960' ? '960' : 'std'; }
 function freshGame(room) {
     room.startFen = room.variant === '960' ? chess960Fen() : null;
-    return room.startFen ? new Chess(room.startFen) : new Chess();
+    return room.startFen ? Castle960.createGame(Chess, room.startFen) : new Chess();
 }
 
 function makeGameId() { return crypto.randomBytes(6).toString('hex'); }
@@ -329,6 +330,7 @@ function publicState(room) {
         check: room.game.inCheck(),
         lastMove: room.lastMove,
         history: room.game.history(),
+        cr: typeof room.game.rights === 'function' ? room.game.rights() : undefined,
         names: room.names,
         ratings: room.ratings,
         rated: room.rated,
