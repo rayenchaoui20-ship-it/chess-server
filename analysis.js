@@ -5,6 +5,7 @@ const path = require('path');
 const axios = require('axios');
 const { Worker } = require('worker_threads');
 const { Chess } = require('chess.js');
+const Castle960 = require('./public/castle960.js');
 
 const STOCKFISH_URL = 'https://stockfish.online/api/s/v2.php';
 const SF_DEPTH = 12;
@@ -248,7 +249,7 @@ function terminalValue(g) {
 // history: قائمة SAN، startFen: مركز البداية (أو null). onProgress(done, total)
 async function analyzeGame(startFen, history, onProgress, clientEvals) {
     if (!Array.isArray(history) || !history.length || history.length > MAX_PLIES) throw new Error('bad history');
-    const g = startFen ? new Chess(startFen) : new Chess();
+    const g = startFen ? Castle960.createGame(Chess, startFen) : new Chess();   // 960: تبييت فيشر
     const fens = [g.fen()];
     const terminal = [terminalValue(g)];
     const moves = [];
