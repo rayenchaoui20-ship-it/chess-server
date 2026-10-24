@@ -14,7 +14,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
+    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -81,6 +81,9 @@
     let account = null;
     let authMode = 'login';
     let friendsTimer = null;
+    let clubTimer = null;
+    let clubData = null;
+    let clubSearchTimer = null;
     let liveTimer = null;
     let friendsData = { friends: [], incoming: [], outgoing: [] };
     let pendingInvite = null;
@@ -93,6 +96,7 @@
     function show(id) {
         currentScreen = id;
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
+        if (id !== 'club-screen' && clubTimer) { clearInterval(clubTimer); clubTimer = null; }
         if (id !== 'live-screen' && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
         $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen');
@@ -439,6 +443,35 @@
         authSubmit() { authSubmit(); },
         logout() {
             askConfirm(tr('هل تريد تسجيل الخروج من حسابك؟'), () => { resetToMenu(); socket.emit('logout'); });
+        },
+        showClubs() {
+            if (!account) { gtoast(tr('سجّل الدخول أولًا لاستخدام الأندية.')); A.showAuth(); return; }
+            $('#club-msg').text('').removeClass('err good');
+            $('#club-none, #club-mine').addClass('hidden');
+            show('club-screen');
+            socket.emit('club_get');
+            if (clubTimer) clearInterval(clubTimer);
+            clubTimer = setInterval(() => { if (socket.connected) socket.emit('club_get'); }, 10000);
+        },
+        clubCreate() {
+            const name = $('#club-name').val().trim();
+            if (!name) return;
+            socket.emit('club_create', { name, desc: $('#club-desc-in').val().trim() });
+        },
+        clubJoin(el) { socket.emit('club_join', { id: el.dataset.id }); },
+        clubLeave() {
+            askConfirm(tr('هل تريد مغادرة النادي؟'), () => socket.emit('club_leave'));
+        },
+        clubKick(el) {
+            const u = el.dataset.user;
+            askConfirm(tr('إخراج {u} من النادي؟', { u }), () => socket.emit('club_kick', { username: u }));
+        },
+        clubChallenge(el) { socket.emit('club_challenge', { username: el.dataset.user }); },
+        clubSend() {
+            const t = $('#club-input').val().trim();
+            if (!t) return;
+            socket.emit('club_chat', { message: t });
+            $('#club-input').val('');
         },
         showFriends() {
             $('#fr-msg').text('').removeClass('err good');
@@ -1586,6 +1619,80 @@
         $('#friends-badge').text(n).toggleClass('hidden', !n);
     }
     socket.on('friends', (d) => { friendsData = d; renderFriends(); });
+    // ───────────────────────── الأندية ─────────────────────────
+    function clubChatLine(m) {
+        return $('<div>').append($('<b>').text(m.u), document.createTextNode(': ' + m.t));
+    }
+    function renderClubList(list) {
+        const ul = $('#club-list').empty();
+        if (!list.length) ul.append($('<li class="empty">').text(tr('لا توجد أندية مطابقة. كن أول من ينشئ نادٍ!')));
+        list.forEach((c) => {
+            ul.append($('<li>').append(
+                $('<span class="nm">').text(c.name),
+                $('<span class="st">').text(tr('{n} عضو', { n: c.count })),
+                $('<span class="rt">').text(c.score),
+                $('<button class="btn secondary">').text(tr('انضم')).attr({ 'data-action': 'clubJoin', 'data-id': c.id })
+            ));
+        });
+    }
+    function renderClub(d) {
+        clubData = d.club;
+        $('#club-msg').text('');
+        if (!d.club) {
+            $('#club-mine').addClass('hidden');
+            $('#club-none').removeClass('hidden');
+            $('#club-title').text(tr('الأندية'));
+            renderClubList(d.list || []);
+            return;
+        }
+        const c = d.club;
+        $('#club-none').addClass('hidden');
+        $('#club-mine').removeClass('hidden');
+        $('#club-title').text('🛡 ' + c.name);
+        $('#club-desc').text(c.desc || '').toggleClass('hidden', !c.desc);
+        $('#club-meta').text(tr('{n} من {m} عضو · تصنيف النادي {s}', { n: c.count, m: c.max, s: c.score }));
+        const ul = $('#club-members').empty();
+        c.members.forEach((m) => {
+            const li = $('<li>').append(
+                $('<span class="sdot">').addClass(m.status),
+                $('<span class="nm">').text((m.owner ? '👑 ' : '') + m.username + (m.username === account ? ' (' + tr('أنت') + ')' : '')),
+                $('<span class="st">').text(STATUS_TEXT[m.status] || ''),
+                $('<span class="rt">').text(m.rating)
+            );
+            if (m.username !== account && (m.status === 'online' || m.status === 'searching')) {
+                li.append($('<button class="btn secondary">').text(tr('تحدَّ')).attr({ 'data-action': 'clubChallenge', 'data-user': m.username }));
+            }
+            if (c.isOwner && m.username !== account) {
+                li.append($('<button class="btn ghost">').text(tr('إخراج')).attr({ 'data-action': 'clubKick', 'data-user': m.username }));
+            }
+            ul.append(li);
+        });
+        const box = $('#club-chat');
+        const atEnd = box[0].scrollHeight - box.scrollTop() - box.innerHeight() < 40;
+        box.empty();
+        if (!c.chat.length) box.append($('<div class="muted">').text(tr('لا رسائل بعد. ابدأ المحادثة!')));
+        c.chat.forEach((m) => box.append(clubChatLine(m)));
+        if (atEnd || !box.data('seen')) box.scrollTop(box[0].scrollHeight);
+        box.data('seen', true);
+    }
+    socket.on('club', renderClub);
+    socket.on('club_list', renderClubList);
+    socket.on('club_error', (m) => $('#club-msg').text(m).removeClass('good').addClass('err'));
+    socket.on('club_chat', (m) => {
+        if (!clubData) return;
+        clubData.chat.push(m);
+        const box = $('#club-chat');
+        if (box.find('.muted').length) box.empty();
+        box.append(clubChatLine(m));
+        box.scrollTop(box[0].scrollHeight);
+    });
+    $('#club-search').on('input', function () {
+        const q = $(this).val().trim();
+        clearTimeout(clubSearchTimer);
+        clubSearchTimer = setTimeout(() => socket.emit('club_list', { q }), 250);
+    });
+    $('#club-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); A.clubSend(); } });
+
     socket.on('live_list', (list) => {
         const ul = $('#live-list').empty();
         $('#live-empty').text(tr('لا توجد مباريات مباشرة الآن. جرّب بعد قليل.')).toggleClass('hidden', !!list.length);
