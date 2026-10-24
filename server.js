@@ -78,6 +78,7 @@ async function loadDb() {
     }
     if (!db || typeof db.players !== 'object') db = { players: {}, users: {} };
     if (!db.users || typeof db.users !== 'object') db.users = {};
+    if (!db.clubs || typeof db.clubs !== 'object') db.clubs = {};
     // تنظيف حسابات الضيوف الفارغة القديمة (الحسابات المسجلة لا تُحذف أبدًا)
     const cutoff = Date.now() - 14 * 86400000;
     for (const [t, p] of Object.entries(db.players)) {
@@ -946,7 +947,32 @@ function playerCtx(socket) {
 }
 
 app.get('/monopoly-board.json', (req, res) => res.json(require('./monopoly').BOARD));
-require('./monopoly').attach(io, { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
+// دعوة لاعب إلى مباراة ودّية (للأصدقاء ولأعضاء النادي). تعيد نص الخطأ أو null
+function sendInvite(socket, token, target, data) {
+    const st = statusOf(target);
+    if (st === 'offline') return 'اللاعب غير متصل الآن.';
+    if (st === 'playing') return 'اللاعب في مباراة الآن.';
+    const inviter = db.players[token];
+    const tcId = resolveTc(data) || DEFAULT_TC;
+    removeFromQueues(token);
+    leaveRoom(token, true);
+    const room = newRoom('multi', tcId, resolveVariant(data));
+    seat(token, room, 'w');
+    socket.emit('room_created', { roomId: room.id, tc: tcId, variant: room.variant });
+    emitTo(target, 'invite', { from: inviter.user, roomId: room.id, tc: tcId, variant: room.variant });
+    return null;
+}
+
+// الأندية
+const clubs = require('./clubs').init({
+    getDb: () => db, saveSoon, playerCtx, emitTo, uname, ratingOf, statusOf, safety,
+    tokenOfUser: (n) => db.users[cleanUser(n).toLowerCase()] || null,
+    challenge: (socket, token, target) => sendInvite(socket, token, target, {})
+});
+
+// الدردشة الصوتية في ملك المدينة (WebRTC). voice يغلّف io ليتتبّع عضوية الغرف من رسائل الخادم نفسه
+const voice = require('./voice').init({ io, nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
+require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
 
 io.on('connection', (socket) => {
     socket.data.token = null;
@@ -1447,16 +1473,8 @@ io.on('connection', (socket) => {
         if (!a) return;
         const target = db.users[cleanUser(data && data.username).toLowerCase()];
         if (!target || !a.rec.friends.includes(target)) return socket.emit('friend_error', 'هذا المستخدم ليس في قائمة أصدقائك.');
-        const st = statusOf(target);
-        if (st === 'offline') return socket.emit('friend_error', 'صديقك غير متصل الآن.');
-        if (st === 'playing') return socket.emit('friend_error', 'صديقك في مباراة الآن.');
-        const tcId = resolveTc(data) || DEFAULT_TC;
-        removeFromQueues(a.token);
-        leaveRoom(a.token, true);
-        const room = newRoom('multi', tcId, resolveVariant(data));
-        seat(a.token, room, 'w');
-        socket.emit('room_created', { roomId: room.id, tc: tcId, variant: room.variant });
-        emitTo(target, 'invite', { from: a.rec.user, roomId: room.id, tc: tcId, variant: room.variant });
+        const err = sendInvite(socket, a.token, target, data);
+        if (err) socket.emit('friend_error', err);
     });
 
     socket.on('invite_decline', (data) => {
@@ -1465,6 +1483,9 @@ io.on('connection', (socket) => {
         const target = db.users[cleanUser(data && data.username).toLowerCase()];
         if (target) emitTo(target, 'notify', { text: a.rec.user + ' رفض دعوتك.' });
     });
+
+    clubs.register(socket);
+    voice.register(socket);
 
     socket.on('disconnect', () => onDisconnect(socket));
 });
