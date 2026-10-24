@@ -55,6 +55,6 @@
             app.insertBefore(b, app.firstChild);
             return;
         }
-        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/app.js']); }).then(function () { return loadScript(['/monopoly.js']).catch(function () {}); });
+        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/app.js']); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}); });
     });
 })();
