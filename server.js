@@ -769,6 +769,23 @@ function findStockfish() {
         return null;
     }
 }
+// تشخيص المحركات: افتح /api/engine-status في المتصفح وأرسل لي النتيجة إن لم يعمل التحليل
+let engStatus = null;
+app.get('/api/engine-status', async (req, res) => {
+    if (engStatus && Date.now() - engStatus.at < 60000) return res.json(engStatus.data);
+    if (sfFile === undefined) sfFile = findStockfish();
+    const out = { browserStockfish: sfFile || 'غير مثبّت', api: null, local: null, node: process.version };
+    try {
+        const t = Date.now();
+        const r = await axios.get(STOCKFISH_URL, { params: { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', depth: 5 }, timeout: 6000 });
+        out.api = { ok: !!(r.data && r.data.success), ms: Date.now() - t, sample: String(JSON.stringify(r.data)).slice(0, 120) };
+    } catch (e) { out.api = { ok: false, error: e.message }; }
+    const t2 = Date.now();
+    const mv = await localEngineMove('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 5);
+    out.local = { ok: !!mv, ms: Date.now() - t2, move: mv || null };
+    engStatus = { at: Date.now(), data: out };
+    res.json(out);
+});
 let sfFile;
 app.get('/vendor/stockfish/manifest.json', (req, res) => {
     if (sfFile === undefined) { sfFile = findStockfish(); console.log('Browser Stockfish: ' + (sfFile || 'not installed')); }
