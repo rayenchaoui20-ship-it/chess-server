@@ -458,6 +458,9 @@
         pzSolution() { pzSolution(); },
         showAuth() { $('#auth-error').text(''); show('auth-screen'); $('#auth-user').trigger('focus'); },
         authTab(el) { setAuthMode(el.dataset.mode); },
+        showKey() { askConfirm(tr('سيُبطل المفتاح السابق. أنشئ مفتاحًا جديدًا؟'), () => socket.emit('recovery_new')); },
+        copyKey() { copyText($('#key-value').text(), '#key-copy', tr('انسخ المفتاح')); },
+        closeKey() { $('#key-dialog').addClass('hidden'); $('#key-value').text(''); },
         authSubmit() { authSubmit(); },
         logout() {
             askConfirm(tr('هل تريد تسجيل الخروج من حسابك؟'), () => { resetToMenu(); socket.emit('logout'); });
@@ -1588,7 +1591,7 @@
         const logged = !!account;
         $('#acc-info').text(logged ? tr('مرحبًا، {name}', { name: account }) : tr('أنت تلعب كضيف'));
         $('#acc-login').toggleClass('hidden', logged);
-        $('#acc-friends, #acc-games, #acc-logout').toggleClass('hidden', !logged);
+        $('#acc-friends, #acc-games, #acc-logout, #acc-key').toggleClass('hidden', !logged);
         const nameInput = $('#player-name');
         if (logged) nameInput.val(account).prop('disabled', true);
         else {
@@ -1602,10 +1605,13 @@
     function setAuthMode(mode) {
         authMode = mode;
         $('#auth-tabs button').each(function () { $(this).attr('aria-pressed', String($(this).data('mode') === mode)); });
-        $('#auth-submit').text(mode === 'login' ? tr('دخول') : tr('إنشاء الحساب'));
+        $('#auth-submit').text(mode === 'login' ? tr('دخول') : mode === 'reset' ? tr('تعيين كلمة المرور') : tr('إنشاء الحساب'));
         $('#auth-pass').attr('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
-        $('#auth-hint').toggleClass('hidden', mode === 'login');
-        $('#auth-note').toggleClass('hidden', mode === 'login');
+        $('label[for=auth-pass]').text(mode === 'reset' ? tr('كلمة المرور الجديدة') : tr('كلمة المرور'));
+        $('#auth-key-row').toggleClass('hidden', mode !== 'reset');
+        $('#auth-forgot').toggleClass('hidden', mode !== 'login');
+        $('#auth-hint').toggleClass('hidden', mode !== 'register');
+        $('#auth-note').toggleClass('hidden', mode !== 'register');
         $('#auth-error').text('');
     }
     function authSubmit() {
@@ -1613,12 +1619,30 @@
         const password = $('#auth-pass').val();
         if (!username || !password) return $('#auth-error').text(tr('أدخل اسم المستخدم وكلمة المرور.'));
         $('#auth-error').text('');
+        if (authMode === 'reset') {
+            const key = $('#auth-key').val().trim();
+            if (!key) return $('#auth-error').text(tr('أدخل مفتاح الاستعادة.'));
+            return socket.emit('reset_password', { username, key, password });
+        }
         socket.emit(authMode, { username, password });
     }
     $('#auth-pass, #auth-user').on('keydown', (e) => { if (e.key === 'Enter') authSubmit(); });
     $('#friend-input').on('keydown', (e) => { if (e.key === 'Enter') A.friendAdd(); });
     setAuthMode('login');
 
+    function showKeyDialog(key) {
+        $('#key-value').text(key);
+        $('#key-copy').text(tr('انسخ المفتاح'));
+        $('#key-dialog').removeClass('hidden');
+    }
+    socket.on('recovery_key', (d) => { if (d && d.key) showKeyDialog(d.key); });
+    socket.on('reset_ok', (d) => {
+        $('#auth-pass, #auth-key').val('');
+        setAuthMode('login');
+        $('#auth-error').text('');
+        gtoast(tr('تم تعيين كلمة المرور. سجّل الدخول بها الآن.'));
+        if (d && d.key) showKeyDialog(d.key);
+    });
     socket.on('auth_error', (msg) => $('#auth-error').text(msg));
     socket.on('auth_ok', () => {
         $('#auth-pass').val('');
