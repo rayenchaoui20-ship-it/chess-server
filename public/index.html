@@ -109,6 +109,10 @@
                         <button class="btn secondary" data-action="joinRoom" data-src="fp-code">انضم</button>
                     </div>
                 </div>
+                <button class="mode-row" data-action="showDaily">
+                    <span class="t">🗓 لغز اليوم</span>
+                    <span class="d" id="daily-d">لغز جديد كل يوم</span>
+                </button>
                 <button class="mode-row" data-action="showLessons">
                     <span class="t">📚 دروس مصغرة</span>
                     <span class="d">افتتاحيات ونهايات وتكتيك، تتعلمها بتحريك القطع بنفسك</span>
@@ -356,6 +360,10 @@
             <button class="btn ghost" id="mp-leave" data-action="monoLeave">رجوع</button>
         </div>
         <div id="mp-error" class="error" role="alert"></div>
+        <div class="mp-reactbar" id="mp-reactbar" role="group" aria-label="تفاعلات سريعة">
+            <button type="button" data-react="👍">👍</button><button type="button" data-react="😂">😂</button><button type="button" data-react="😮">😮</button><button type="button" data-react="😡">😡</button><button type="button" data-react="🎉">🎉</button><button type="button" data-react="💸">💸</button><button type="button" data-react="🤝">🤝</button><button type="button" data-react="😭">😭</button>
+        </div>
+        <div id="mp-reacts" class="mp-reacts" aria-live="polite"></div>
 
         <div id="mp-home" class="stack narrow">
             <p class="lead">من 2 إلى 8 لاعبين. أنشئ غرفة وأرسل الكود لأصدقائك، أو انضم بكود.</p>
