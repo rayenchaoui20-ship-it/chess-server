@@ -444,14 +444,15 @@
             socket.emit('chat', { message: msg });
             $('#chat-input').val('');
         },
+        showDaily() { pzIsDaily = true; show('puzzle-screen'); pzStart(dailyPuzzle()); },
         showLessons() { show('lessons-screen'); if (window.Lessons) window.Lessons.open(); },
-        showPuzzles() { show('puzzle-screen'); pzNext(false); },
+        showPuzzles() { pzIsDaily = false; show('puzzle-screen'); pzNext(false); },
         pzLevel(el) {
             pzLevelN = Number(el.dataset.n);
             $('#pz-levels button').each(function () { $(this).attr('aria-pressed', String(Number($(this).data('n')) === pzLevelN)); });
             pzNext(false);
         },
-        pzNext() { pzNext(true); },
+        pzNext() { pzIsDaily = false; pzNext(true); },
         pzRetry() { if (pzCur) pzStart(pzCur); },
         pzHint() { pzHint(); },
         pzSolution() { pzSolution(); },
@@ -602,6 +603,7 @@
         renderAccount();
         if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
         if (account) socket.emit('t_get');
+        renderDaily();
         setOnline(w.online);
         if (!$('#player-name').val() && w.name) $('#player-name').val(w.name);
 
@@ -2120,6 +2122,27 @@
         step(pzCur.r, () => step(pzCur.l || '', () => { pzBusy = false; pzFinish(); }));
     }
 
+    // ───── لغز اليوم ─────
+    function dayNum() { return Math.floor(Date.now() / 864e5); }
+    function dayStr(n) { return new Date(n * 864e5).toISOString().slice(0, 10); }
+    function dailyPuzzle() { return PUZZLES[(dayNum() * 7919) % PUZZLES.length]; }
+    function dailyState() { try { const s = JSON.parse(lsGet('chess-daily') || '{}'); return { last: s.last || '', streak: Number(s.streak) || 0 }; } catch (e) { return { last: '', streak: 0 }; } }
+    function renderDaily() {
+        const s = dailyState();
+        const live = s.last === dayStr(dayNum()) || s.last === dayStr(dayNum() - 1) ? s.streak : 0;
+        $('#daily-d').text((s.last === dayStr(dayNum()) ? '✅ ' + tr('حللته اليوم') : tr('لغز جديد كل يوم')) + (live ? ' · 🔥 ' + tr('{n} يوم متتالٍ', { n: live }) : ''));
+    }
+    function dailyCheck() {
+        if (!pzCur || !pzIsDaily || pzCur.id !== dailyPuzzle().id) return;
+        const s = dailyState(), today = dayStr(dayNum());
+        if (s.last === today) return;
+        const streak = s.last === dayStr(dayNum() - 1) ? s.streak + 1 : 1;
+        lsSet('chess-daily', JSON.stringify({ last: today, streak }));
+        renderDaily();
+        gtoast('🔥 ' + tr('لغز اليوم: سلسلة {n} يوم', { n: streak }));
+    }
+    let pzIsDaily = false;
+
     function pzFinish() {
         pzDone = true;
         pzClear();
@@ -2133,6 +2156,7 @@
             pzStreak = 0;
             delta = pzApplyRating(0.2);
         }
+        if (!pzHelped) dailyCheck();
         pzSave();
         pzStats();
         const what = tr(pzCur.n === 3 ? tr('كسبت مادة!') : tr('كش مات!'));
