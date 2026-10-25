@@ -7,6 +7,7 @@
 
 const MAX_VOICE = 8;
 const MAX_SDP = 8000;
+const REACTIONS = ['👍', '😂', '😮', '😡', '🎉', '💸', '🤝', '😭'];
 
 function iceFromEnv(env) {
     const servers = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
@@ -94,6 +95,18 @@ function init({ io, nameOf, iceServers }) {
             if (socket.data.vlog.length >= 40) return;
             socket.data.vlog.push(now);
             io.to(d.to).emit('voice_signal', { from: sid(), name: r.get(sid()), data: { type: t, sdp: d.data.sdp } });
+        });
+
+        // تفاعلات سريعة (إيموجي) لكل من في غرفة ملك المدينة نفسها
+        socket.on('mp_react', (d) => {
+            const code = codeOf.get(sid());
+            const e = d && d.e;
+            if (!code || typeof e !== 'string' || !REACTIONS.includes(e)) return;
+            const now = Date.now();
+            if (now - (socket.data.lastReact || 0) < 600) return;
+            socket.data.lastReact = now;
+            const name = String(nameOf(socket.data && socket.data.token) || 'لاعب').slice(0, 20);
+            codeOf.forEach((c, other) => { if (c === code) io.to(other).emit('mp_react', { from: name, e }); });
         });
 
         socket.on('voice_leave', () => leave(sid()));
