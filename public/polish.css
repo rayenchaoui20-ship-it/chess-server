@@ -114,3 +114,12 @@ body > img[class^="piece-"], body > img[class*=" piece-"] {
 .t-banner .btn { min-height: 34px; padding: 2px 16px; }
 .t-banner.hidden { display: none; }
 .t-banner .btn.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
+
+/* ───── الدروس ───── */
+#ls-board .hint-sq { box-shadow: inset 0 0 0 4px var(--win); }
+#ls-board .square-55d63 { cursor: pointer; }
+.ls-sub { margin-top: 8px; font-weight: 600; }
+.ls-sub[data-tone="good"] { color: var(--win); }
+.ls-sub[data-tone="err"] { color: var(--loss); }
+#lessons-screen .fr-list .btn { white-space: nowrap; }
+#ls-list .sub-title { margin-top: 10px; }
