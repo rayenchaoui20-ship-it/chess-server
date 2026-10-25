@@ -14,7 +14,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
+    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -444,6 +444,7 @@
             socket.emit('chat', { message: msg });
             $('#chat-input').val('');
         },
+        showLessons() { show('lessons-screen'); if (window.Lessons) window.Lessons.open(); },
         showPuzzles() { show('puzzle-screen'); pzNext(false); },
         pzLevel(el) {
             pzLevelN = Number(el.dataset.n);
