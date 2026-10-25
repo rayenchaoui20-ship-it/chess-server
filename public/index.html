@@ -97,10 +97,18 @@
                     <span class="t">العب ضد الحاسوب</span>
                     <span class="d">اختر لونك ومستوى الصعوبة</span>
                 </button>
-                <button class="mode-row" data-action="createRoom">
-                    <span class="t">ادعُ صديقًا</span>
-                    <span class="d">مباراة ودّية: أنشئ غرفة وأرسل الرابط لصديقك</span>
+                <button class="mode-row" data-action="toggleFriendPlay">
+                    <span class="t">العب مع صديق</span>
+                    <span class="d">أنشئ غرفة وأرسل الكود، أو أدخل كود صديقك للانضمام</span>
                 </button>
+                <div id="friend-play" class="panel hidden" style="display:grid;gap:10px">
+                    <button class="btn primary block" data-action="createRoom">أنشئ غرفة (أحصل على كود)</button>
+                    <label class="label" for="fp-code">أرسل لك صديقك كودًا؟ أدخله هنا</label>
+                    <div class="join-row">
+                        <input type="text" id="fp-code" class="field code-input" placeholder="ABC123" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false">
+                        <button class="btn secondary" data-action="joinRoom" data-src="fp-code">انضم</button>
+                    </div>
+                </div>
                 <button class="mode-row" data-action="showPuzzles">
                     <span class="t">حل الألغاز</span>
                     <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
@@ -310,6 +318,21 @@
                         <input type="text" id="club-input" class="field" maxlength="200" placeholder="اكتب رسالة للنادي" autocomplete="off">
                         <button class="btn secondary" data-action="clubSend">أرسل</button>
                     </div>
+                </div>
+                <div>
+                    <h3 class="sub-title">🏆 بطولات النادي</h3>
+                    <div id="t-create" class="stack hidden">
+                        <div class="chat-row">
+                            <select id="t-format" class="field"><option value="swiss">سويسرية (جولات ثابتة)</option><option value="ko">إقصائية (خروج المغلوب)</option></select>
+                            <select id="t-tc" class="field"><option value="3+0">3+0</option><option value="3+2">3+2</option><option value="5+0" selected>5+0</option><option value="10+0">10+0</option><option value="15+10">15+10</option></select>
+                        </div>
+                        <div class="chat-row">
+                            <input type="text" id="t-name" class="field" maxlength="30" placeholder="اسم البطولة (اختياري)" autocomplete="off">
+                            <label class="muted small" style="white-space:nowrap"><input type="checkbox" id="t-960"> فيشر 960</label>
+                        </div>
+                        <button class="btn secondary block" data-action="tCreate">افتح التسجيل في بطولة</button>
+                    </div>
+                    <div id="t-list" class="stack"></div>
                 </div>
                 <button class="btn danger block" data-action="clubLeave">غادر النادي</button>
             </div>
@@ -565,6 +588,7 @@
     </div>
 </div>
 
+<div id="t-banner" class="t-banner hidden" role="alert"></div>
 <div id="global-toast" class="global-toast hidden" role="status"></div>
 
 <script src="/boot.js"></script>
