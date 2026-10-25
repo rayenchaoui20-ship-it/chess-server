@@ -103,3 +103,14 @@ body > img[class^="piece-"], body > img[class*=" piece-"] {
 .mp-raise .rr i { width: 12px; height: 12px; border-radius: 3px; flex: none; }
 .mp-raise .rr .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mp-raise .rr .btn { min-height: 36px; padding: 4px 12px; font-size: .88rem; white-space: nowrap; }
+
+/* ───── بطولات النادي ───── */
+.t-card { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: start; }
+.t-card summary { cursor: pointer; }
+.t-card > * + * { margin-top: 8px; }
+.t-st, .t-bd { margin: 0; padding-inline-start: 20px; font-size: .92rem; }
+.t-bd { list-style: none; padding: 0; }
+.t-banner { position: fixed; top: 0; inset-inline: 0; z-index: 200; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: var(--gold); color: #1a1a1a; font-weight: 700; box-shadow: var(--shadow-1); animation: pl-rise .25s var(--ease); }
+.t-banner .btn { min-height: 34px; padding: 2px 16px; }
+.t-banner.hidden { display: none; }
+.t-banner .btn.primary { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }
