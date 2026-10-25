@@ -109,6 +109,10 @@
                         <button class="btn secondary" data-action="joinRoom" data-src="fp-code">انضم</button>
                     </div>
                 </div>
+                <button class="mode-row" data-action="showLessons">
+                    <span class="t">📚 دروس مصغرة</span>
+                    <span class="d">افتتاحيات ونهايات وتكتيك، تتعلمها بتحريك القطع بنفسك</span>
+                </button>
                 <button class="mode-row" data-action="showPuzzles">
                     <span class="t">حل الألغاز</span>
                     <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
@@ -399,6 +403,34 @@
             <ul id="mp-plist" class="mp-plist"></ul>
             <h3 class="section-title">السجل</h3>
             <ul id="mp-log" class="mp-log"></ul>
+        </div>
+    </section>
+
+    <!-- دروس مصغرة -->
+    <section id="lessons-screen" class="hidden">
+        <div id="ls-menu" class="narrow panel stack">
+            <h2 class="section-title">📚 دروس مصغرة</h2>
+            <p class="muted small" id="ls-progress"></p>
+            <div id="ls-list" class="stack"></div>
+            <button class="btn ghost block" data-action="goMenu">رجوع</button>
+        </div>
+        <div id="ls-view" class="game hidden">
+            <div class="board-col">
+                <div class="board-wrap"><div id="ls-board"></div></div>
+            </div>
+            <aside class="side">
+                <div class="status-card">
+                    <p class="muted small"><b id="ls-title"></b> · <span id="ls-step"></span></p>
+                    <p id="ls-say" aria-live="polite"></p>
+                    <p id="ls-sub" class="ls-sub" aria-live="polite"></p>
+                </div>
+                <div class="actions">
+                    <button class="btn ghost hidden" id="ls-hint">تلميح</button>
+                    <button class="btn primary hidden" id="ls-next">التالي</button>
+                    <button class="btn secondary" id="ls-restart">أعد الدرس</button>
+                    <button class="btn ghost full" id="ls-back">قائمة الدروس</button>
+                </div>
+            </aside>
         </div>
     </section>
 
