@@ -16,7 +16,10 @@
     <meta name="twitter:card" content="summary">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="شطرنج">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Reem+Kufi:wght@500;700&display=swap" rel="stylesheet">
@@ -67,6 +70,7 @@
                 <button class="btn secondary hidden" id="acc-friends" data-action="showFriends">الأصدقاء<span id="friends-badge" class="badge hidden">0</span></button>
                 <button class="btn secondary hidden" id="acc-games" data-action="showGames">مبارياتي</button>
                 <button class="btn ghost" id="acc-login" data-action="showAuth">دخول / حساب جديد</button>
+                <button class="btn ghost hidden" id="acc-key" data-action="showKey" title="مفتاح استعادة الحساب">🔑</button>
                 <button class="btn ghost hidden" id="acc-logout" data-action="logout">خروج</button>
             </span>
         </div>
@@ -145,6 +149,7 @@
             </div>
             <div class="error" id="menu-error" role="alert"></div>
             <p class="muted small center" id="online-count"></p>
+            <button class="btn ghost block hidden" id="install-btn" type="button">📲 ثبّت الموقع كتطبيق على جهازك</button>
         </div>
 
         <div class="panel support-card hidden" id="support-card">
@@ -221,11 +226,16 @@
                 <label class="label" for="auth-pass">كلمة المرور</label>
                 <input type="password" id="auth-pass" class="field" maxlength="100" autocomplete="current-password">
             </div>
+            <div id="auth-key-row" class="hidden">
+                <label class="label" for="auth-key">مفتاح الاستعادة</label>
+                <input type="text" id="auth-key" class="field code-input" maxlength="19" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" dir="ltr">
+            </div>
             <div class="error" id="auth-error" role="alert"></div>
             <div class="btn-row">
                 <button class="btn primary" id="auth-submit" data-action="authSubmit">دخول</button>
                 <button class="btn ghost" data-action="goMenu">رجوع</button>
             </div>
+            <button type="button" class="btn ghost block" id="auth-forgot" data-action="authTab" data-mode="reset">نسيت كلمة المرور؟</button>
             <p class="muted small" id="auth-note">عند إنشاء حساب يُحفظ تصنيفك الحالي ويمكنك إضافة الأصدقاء واللعب من أي جهاز.</p>
         </div>
     </section>
@@ -609,6 +619,19 @@
 </div>
 
 <!-- تأكيد المغادرة -->
+<!-- مفتاح الاستعادة -->
+<div id="key-dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="key-title">
+    <div class="dialog">
+        <h2 id="key-title" style="font-size:1.3rem">🔑 مفتاح استعادة حسابك</h2>
+        <p class="muted small" style="margin:8px 0">احفظه في مكان آمن. به تستعيد حسابك إن نسيت كلمة المرور، ولن يظهر مرة أخرى. توليد مفتاح جديد يُبطل القديم.</p>
+        <div class="key-box" id="key-value" dir="ltr"></div>
+        <div class="dialog-actions">
+            <button class="btn primary" id="key-copy" data-action="copyKey">انسخ المفتاح</button>
+            <button class="btn ghost" data-action="closeKey">حفظته</button>
+        </div>
+    </div>
+</div>
+
 <div id="confirm-dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-text">
     <div class="dialog">
         <p id="confirm-text" style="margin-bottom:18px;font-weight:600"></p>
