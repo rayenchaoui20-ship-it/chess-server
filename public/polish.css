@@ -134,3 +134,7 @@ body > img[class^="piece-"], body > img[class*=" piece-"] {
 .mp-react .rn { font-size: .85rem; font-weight: 600; }
 @keyframes mp-react { from { opacity: 0; transform: translateY(14px) scale(.8); } 10% { opacity: 1; transform: none; } 80% { opacity: 1; } to { opacity: 0; transform: translateY(-14px); } }
 @media (prefers-reduced-motion: reduce) { .mp-react { animation: none; } }
+
+/* ───── مفتاح الاستعادة ───── */
+.key-box { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.35rem; letter-spacing: .08em; font-weight: 700; text-align: center; user-select: all; background: var(--bg); border: 1px dashed var(--gold); border-radius: 10px; padding: 14px 8px; margin-bottom: 14px; color: var(--gold); }
+#install-btn { margin-top: 8px; }
