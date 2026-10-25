@@ -29,6 +29,27 @@
         })();
     }
 
+    if ('serviceWorker' in navigator && location.protocol === 'https:') {
+        window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+    }
+
+    var installEv = null;
+    window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault(); installEv = e;
+        var btn = document.getElementById('install-btn');
+        if (btn) btn.classList.remove('hidden');
+    });
+    window.addEventListener('appinstalled', function () {
+        installEv = null;
+        var btn = document.getElementById('install-btn');
+        if (btn) btn.classList.add('hidden');
+    });
+    document.addEventListener('click', function (ev) {
+        if (!ev.target.closest || !ev.target.closest('#install-btn') || !installEv) return;
+        installEv.prompt();
+        installEv.userChoice.then(function () { installEv = null; document.getElementById('install-btn').classList.add('hidden'); });
+    });
+
     loadCss([
         '/vendor/chessboard/chessboard-1.0.0.min.css',
         'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css'
