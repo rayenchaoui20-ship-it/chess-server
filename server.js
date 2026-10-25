@@ -56,6 +56,7 @@ let db = { players: {}, users: {} };
 let dirty = false;
 let saveTimer = null;
 let mongoColl = null;
+let mongoDbRef = null;
 
 async function loadDb() {
     // تخزين دائم اختياري: اضبط MONGODB_URI (مثلًا من MongoDB Atlas المجاني)
@@ -64,7 +65,8 @@ async function loadDb() {
             const { MongoClient } = require('mongodb');
             const client = new MongoClient(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
             await client.connect();
-            mongoColl = client.db(process.env.MONGODB_DB || 'chess').collection('state');
+            mongoDbRef = client.db(process.env.MONGODB_DB || 'chess');
+            mongoColl = mongoDbRef.collection('state');
             const doc = await mongoColl.findOne({ _id: 'db' });
             if (doc && doc.json) db = JSON.parse(doc.json);
             console.log('Storage: MongoDB');
@@ -816,6 +818,74 @@ app.get('/admin/mute', (req, res) => {
     saveSoon();
     res.json({ ok: true, hours });
 });
+// ───── نسخ احتياطي يومي (آخر 7 نسخ) + تنزيل يدوي للمشرف ─────
+const BACKUP_KEEP = 7;
+const dayKey = () => new Date().toISOString().slice(0, 10);
+async function backupDb() {
+    const day = dayKey();
+    const json = JSON.stringify(db);
+    try {
+        if (mongoColl) {
+            const bk = mongoDbRef.collection('backups');
+            await bk.updateOne({ _id: day }, { $set: { json, at: Date.now() } }, { upsert: true });
+            const old = await bk.find({}, { projection: { _id: 1 } }).sort({ _id: -1 }).skip(BACKUP_KEEP).toArray();
+            if (old.length) await bk.deleteMany({ _id: { $in: old.map((d) => d._id) } });
+        } else {
+            const dir = path.join(DATA_DIR, 'backups');
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, day + '.json'), json);
+            fs.readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().reverse().slice(BACKUP_KEEP).forEach((f) => { try { fs.unlinkSync(path.join(dir, f)); } catch (e) { /* */ } });
+        }
+        console.log('Backup saved: ' + day + ' (' + Math.round(json.length / 1024) + ' KB)');
+        return true;
+    } catch (e) { console.error('Backup failed:', e.message); return false; }
+}
+function startBackups() {
+    setTimeout(() => backupDb(), 90 * 1000).unref();
+    setInterval(() => backupDb(), 24 * 3600 * 1000).unref();
+}
+app.get('/admin/backup', async (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    res.set('Cache-Control', 'no-store');
+    const day = String(req.query.day || '');
+    try {
+        let json = null;
+        if (!day) json = JSON.stringify(db);
+        else if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+            if (mongoColl) { const d = await mongoDbRef.collection('backups').findOne({ _id: day }); json = d && d.json; }
+            else { try { json = fs.readFileSync(path.join(DATA_DIR, 'backups', day + '.json'), 'utf8'); } catch (e) { json = null; } }
+        }
+        if (!json) return res.status(404).json({ ok: false, error: 'لا توجد نسخة بهذا التاريخ' });
+        res.set('Content-Type', 'application/json; charset=utf-8');
+        res.set('Content-Disposition', 'attachment; filename="chess-backup-' + (day || dayKey()) + '.json"');
+        res.send(json);
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.get('/admin/backups', async (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    try {
+        let days;
+        if (mongoColl) days = (await mongoDbRef.collection('backups').find({}, { projection: { _id: 1 } }).sort({ _id: -1 }).toArray()).map((d) => d._id);
+        else { try { days = fs.readdirSync(path.join(DATA_DIR, 'backups')).filter((f) => /\.json$/.test(f)).map((f) => f.slice(0, -5)).sort().reverse(); } catch (e) { days = []; } }
+        res.json({ ok: true, storage: mongoColl ? 'mongodb' : 'file', days });
+    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+});
+app.post('/admin/backup-now', async (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    res.json({ ok: await backupDb() });
+});
+// تعيين كلمة مرور مؤقتة للاعب نسي كلمته ولا يملك مفتاحًا. المفتاح في ترويسة وليس في الرابط
+app.post('/admin/resetpw', express.json({ limit: '2kb' }), async (req, res) => {
+    const key = process.env.ADMIN_KEY, got = String(req.get('x-admin-key') || '');
+    if (!key || key.length < 12 || got.length !== key.length || !crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key))) return res.status(404).end();
+    const tok = db.users[cleanUser(req.body && req.body.user).toLowerCase()];
+    const pw = req.body && req.body.password;
+    if (!tok || !db.players[tok]) return res.status(404).json({ ok: false, error: 'مستخدم غير موجود' });
+    if (typeof pw !== 'string' || pw.length < 6 || pw.length > 100) return res.status(400).json({ ok: false, error: 'كلمة مرور قصيرة' });
+    db.players[tok].pass = await hashPassword(pw);
+    saveSoon();
+    res.json({ ok: true });
+});
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online: io.engine.clientsCount }));
 app.get('/api/leaderboard', (req, res) => res.json({ cat: req.query.cat, rows: leaderboard(String(req.query.cat || 'blitz')) }));
 
@@ -833,6 +903,20 @@ async function verifyPassword(pw, rec) {
     const key = await scryptAsync(pw, Buffer.from(rec.s, 'hex'));
     const want = Buffer.from(rec.h, 'hex');
     return key.length === want.length && crypto.timingSafeEqual(key, want);
+}
+// مفتاح الاستعادة: 16 حرفًا (بلا حروف ملتبسة) يُعرض مرة واحدة، ويُخزَّن مجزَّأً فقط
+const KEY_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function newRecoveryKey() {
+    const b = crypto.randomBytes(16);
+    let k = '';
+    for (let i = 0; i < 16; i++) k += KEY_ALPHA[b[i] % KEY_ALPHA.length];
+    return k.match(/.{4}/g).join('-');
+}
+const normKey = (v) => String(v == null ? '' : v).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+async function issueRecoveryKey(rec) {
+    const key = newRecoveryKey();
+    rec.recov = await hashPassword(normKey(key));
+    return key;
 }
 function cleanUser(v) {
     return String(v == null ? '' : v).normalize('NFC').replace(/[^\w\u0600-\u06FF]/g, '').slice(0, 20);
@@ -1387,6 +1471,7 @@ io.on('connection', (socket) => {
         sendWelcome(socket, token, rec);
         pushFriends(token);
         socket.emit('auth_ok', { user: u });
+        try { socket.emit('recovery_key', { key: await issueRecoveryKey(rec), first: true }); saveSoon(); } catch (e) { /* يمكنه طلب مفتاح لاحقًا */ }
     });
 
     socket.on('login', async (data) => {
@@ -1424,6 +1509,46 @@ io.on('connection', (socket) => {
         rec.last = Date.now();
         attach(socket, token, rec);
         socket.emit('auth_ok', { user: rec.user });
+    });
+
+    // مفتاح استعادة جديد (يُبطل القديم). للمسجّلين فقط
+    socket.on('recovery_new', async () => {
+        const ctx = playerCtx(socket);
+        const rec = ctx && db.players[ctx.token];
+        if (!rec || !rec.user) return socket.emit('auth_error', 'سجّل الدخول أولًا.');
+        const now = Date.now();
+        socket.data.recAt = socket.data.recAt || 0;
+        if (now - socket.data.recAt < 5000) return;
+        socket.data.recAt = now;
+        try { socket.emit('recovery_key', { key: await issueRecoveryKey(rec) }); saveSoon(); }
+        catch (e) { socket.emit('auth_error', 'تعذّر إنشاء المفتاح.'); }
+    });
+
+    // استعادة الحساب بالمفتاح: اسم المستخدم + المفتاح + كلمة مرور جديدة
+    socket.on('reset_password', async (data) => {
+        data = data && typeof data === 'object' ? data : {};
+        const u = cleanUser(data.username);
+        const k = normKey(data.key);
+        const pw = typeof data.password === 'string' ? data.password : '';
+        const fkey = 'reset:' + u.toLowerCase();
+        socket.data.rfails = socket.data.rfails || 0;
+        if (tooManyFails(fkey) || socket.data.rfails >= 6) return socket.emit('auth_error', 'محاولات كثيرة، حاول بعد عشر دقائق.');
+        if (typeof pw !== 'string' || pw.length < 6 || pw.length > 100) return socket.emit('auth_error', 'كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل.');
+        const token = db.users[u.toLowerCase()];
+        const rec = token && db.players[token];
+        let ok = false;
+        try { ok = !!(rec && rec.recov && k.length === 16 && await verifyPassword(k, rec.recov)); } catch (e) { ok = false; }
+        if (!ok) {
+            addFail(fkey); socket.data.rfails++;
+            return socket.emit('auth_error', 'اسم المستخدم أو مفتاح الاستعادة غير صحيح.');
+        }
+        try {
+            rec.pass = await hashPassword(pw);
+            const fresh = await issueRecoveryKey(rec);        // المفتاح يُستعمل مرة واحدة
+            loginFails.delete(u.toLowerCase()); loginFails.delete(fkey);
+            saveSoon();
+            socket.emit('reset_ok', { key: fresh });
+        } catch (e) { socket.emit('auth_error', 'تعذّرت العملية، حاول مرة أخرى.'); }
     });
 
     socket.on('logout', () => {
@@ -1539,6 +1664,7 @@ io.on('connection', (socket) => {
 async function start(port) {
     await loadDb();
     tourneys.resume();
+    startBackups();
     return new Promise((resolve) => {
         server.listen(port === undefined ? PORT : port, () => {
             console.log(`Server running on port ${server.address().port}`);
