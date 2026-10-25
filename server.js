@@ -80,6 +80,7 @@ async function loadDb() {
     if (!db || typeof db.players !== 'object') db = { players: {}, users: {} };
     if (!db.users || typeof db.users !== 'object') db.users = {};
     if (!db.clubs || typeof db.clubs !== 'object') db.clubs = {};
+    if (!db.tourneys || typeof db.tourneys !== 'object') db.tourneys = {};
     // تنظيف حسابات الضيوف الفارغة القديمة (الحسابات المسجلة لا تُحذف أبدًا)
     const cutoff = Date.now() - 14 * 86400000;
     for (const [t, p] of Object.entries(db.players)) {
@@ -453,6 +454,7 @@ function endGame(room, result) {
     try { fairPlayCheck(room); } catch (e) { /* لا يُعطّل إنهاء المباراة */ }
     saveGameRecords(room);
     broadcast(room);
+    if (room.tour) { try { tourneys.gameEnded(room.tour, result); } catch (e) { /* لا يُعطّل الإنهاء */ } }
     // أبلغ الغرفة بأن زر الإعادة لم يعد متاحًا إن غاب أحد الطرفين
     ['w', 'b'].forEach((c) => {
         if (!room.players[c] && room.type === 'multi') emitPlayers(room, 'opponent_left');
@@ -972,6 +974,29 @@ const clubs = require('./clubs').init({
     challenge: (socket, token, target) => sendInvite(socket, token, target, {})
 });
 
+// بطولات النوادي (سويسرية / إقصائية)
+const tourneys = require('./tournaments').init({
+    getDb: () => db, saveSoon, playerCtx, emitTo, uname, statusOf, safety,
+    ratingOf: (t) => ratingOf(t, 'blitz'),
+    clubOf: (t) => require('./clubs').clubOf(db, t),
+    tcIds: Object.keys(TIME_CONTROLS),
+    launchGame: ({ tid, round, bi, w, b, tc, variant }) => {
+        for (const t of [w, b]) {
+            if (!live.get(t) || !socketOf(t)) return { error: 'خصمك غير متصل الآن.', who: t === w ? b : w };
+            const r = rooms.get(live.get(t).roomId);
+            if (r && r.matched && !r.over) return { error: 'لاعب لا يزال في مباراة أخرى.', who: t };
+        }
+        [w, b].forEach((t) => { removeFromQueues(t); leaveRoom(t, true); });
+        const room = newRoom('multi', tc, variant);
+        room.rated = false;
+        room.tour = { id: tid, round, bi };
+        seat(w, room, 'w');
+        seat(b, room, 'b');
+        startMatch(room);
+        return { roomId: room.id };
+    }
+});
+
 // الدردشة الصوتية في ملك المدينة (WebRTC). voice يغلّف io ليتتبّع عضوية الغرف من رسائل الخادم نفسه
 const voice = require('./voice').init({ io, nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
 require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
@@ -1307,7 +1332,7 @@ io.on('connection', (socket) => {
     socket.on('rematch', () => {
         const ctx = playerCtx(socket);
         const room = ctx && ctx.room;
-        if (!room || room.type !== 'multi' || !room.over) return;
+        if (!room || room.type !== 'multi' || !room.over || room.tour) return;
         if (!room.players.w || !room.players.b) return socket.emit('toast', 'غادر الخصم المباراة.');
         room.rematch[ctx.color] = true;
         if (room.rematch.w && room.rematch.b) {
@@ -1487,6 +1512,7 @@ io.on('connection', (socket) => {
     });
 
     clubs.register(socket);
+    tourneys.register(socket);
     voice.register(socket);
 
     socket.on('disconnect', () => onDisconnect(socket));
@@ -1495,6 +1521,7 @@ io.on('connection', (socket) => {
 // ───────────────────────── التشغيل والإيقاف ─────────────────────────
 async function start(port) {
     await loadDb();
+    tourneys.resume();
     return new Promise((resolve) => {
         server.listen(port === undefined ? PORT : port, () => {
             console.log(`Server running on port ${server.address().port}`);
