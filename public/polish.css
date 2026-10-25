@@ -123,3 +123,14 @@ body > img[class^="piece-"], body > img[class*=" piece-"] {
 .ls-sub[data-tone="err"] { color: var(--loss); }
 #lessons-screen .fr-list .btn { white-space: nowrap; }
 #ls-list .sub-title { margin-top: 10px; }
+
+/* ───── تفاعلات ملك المدينة ───── */
+.mp-reactbar { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; margin: 6px 0; }
+.mp-reactbar button { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; font-size: 1.15rem; width: 42px; height: 38px; cursor: pointer; transition: transform .12s var(--ease); }
+.mp-reactbar button:active { transform: scale(1.25); }
+.mp-reacts { position: fixed; inset-inline-start: 12px; bottom: 16px; display: grid; gap: 6px; z-index: 150; pointer-events: none; }
+.mp-react { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--gold); border-radius: 999px; padding: 4px 12px 4px 8px; animation: mp-react 2.8s ease-out forwards; }
+.mp-react .re { font-size: 1.6rem; }
+.mp-react .rn { font-size: .85rem; font-weight: 600; }
+@keyframes mp-react { from { opacity: 0; transform: translateY(14px) scale(.8); } 10% { opacity: 1; transform: none; } 80% { opacity: 1; } to { opacity: 0; transform: translateY(-14px); } }
+@media (prefers-reduced-motion: reduce) { .mp-react { animation: none; } }
