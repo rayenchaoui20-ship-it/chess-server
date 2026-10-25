@@ -309,8 +309,12 @@
         },
         findMatch() { $('#menu-error').text(''); socket.emit('find_match', { tc: selectedTc }); },
         createRoom() { socket.emit('create_room', { tc: selectedTc, variant }); },
-        joinRoom() {
-            const roomId = $('#join-room-input').val().trim();
+        toggleFriendPlay() {
+            $('#friend-play').toggleClass('hidden');
+            if (!$('#friend-play').hasClass('hidden')) $('#fp-code').trigger('focus');
+        },
+        joinRoom(el) {
+            const roomId = $('#' + ((el && el.dataset && el.dataset.src) || 'join-room-input')).val().trim();
             if (!roomId) return $('#menu-error').text(tr('أدخل كود الغرفة أولًا.'));
             socket.emit('join_room', { roomId });
         },
@@ -463,13 +467,23 @@
             show('club-screen');
             socket.emit('club_get');
             if (clubTimer) clearInterval(clubTimer);
-            clubTimer = setInterval(() => { if (socket.connected) socket.emit('club_get'); }, 10000);
+            clubTimer = setInterval(() => { if (socket.connected) { socket.emit('club_get'); socket.emit('t_get'); } }, 10000);
+            socket.emit('t_get');
         },
         clubCreate() {
             const name = $('#club-name').val().trim();
             if (!name) return;
             socket.emit('club_create', { name, desc: $('#club-desc-in').val().trim() });
         },
+        tCreate() {
+            socket.emit('t_create', { format: $('#t-format').val(), tc: $('#t-tc').val(), name: $('#t-name').val().trim(), variant: $('#t-960').prop('checked') ? '960' : 'std' });
+            $('#t-name').val('');
+        },
+        tJoin(el) { socket.emit('t_join', { id: el.dataset.id }); },
+        tLeave(el) { socket.emit('t_leave', { id: el.dataset.id }); },
+        tStart(el) { socket.emit('t_start', { id: el.dataset.id }); },
+        tReady(el) { socket.emit('t_ready', { id: el.dataset.id }); },
+        tCancel(el) { const id = el.dataset.id; askConfirm(tr('إلغاء البطولة؟'), () => socket.emit('t_cancel', { id })); },
         clubJoin(el) { socket.emit('club_join', { id: el.dataset.id }); },
         clubLeave() {
             askConfirm(tr('هل تريد مغادرة النادي؟'), () => socket.emit('club_leave'));
@@ -586,6 +600,7 @@
         account = w.user || null;
         renderAccount();
         if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
+        if (account) socket.emit('t_get');
         setOnline(w.online);
         if (!$('#player-name').val() && w.name) $('#player-name').val(w.name);
 
@@ -1703,6 +1718,63 @@
         if (atEnd || !box.data('seen')) box.scrollTop(box[0].scrollHeight);
         box.data('seen', true);
     }
+    // ───────────────────────── بطولات النادي ─────────────────────────
+    let tData = [], tSkew = 0, tClock = null, tHadPlay = false;
+    const T_RES = { w: '1-0', b: '0-1', d: '½-½', x: '—' };
+    function tSecs(ms) { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+    function renderTourneys(d) {
+        tSkew = d.now - Date.now();
+        tData = d.list || [];
+        const isOwner = !!(clubData && clubData.isOwner);
+        const busy = tData.some((t) => t.status === 'open' || t.status === 'running');
+        $('#t-create').toggleClass('hidden', !isOwner || busy);
+        const box = $('#t-list').empty();
+        if (!tData.length) box.append($('<p class="muted small">').text(isOwner ? tr('لا بطولات. افتح التسجيل في أولى بطولاتك!') : tr('لا توجد بطولات حاليًا.')));
+        tData.forEach((t) => {
+            const names = { open: tr('التسجيل مفتوح'), running: tr('الجولة {n} من {m}', { n: t.round, m: t.totalRounds }), done: tr('انتهت'), cancelled: tr('أُلغيت') };
+            const det = $('<details class="t-card">').prop('open', t.status !== 'done' && t.status !== 'cancelled');
+            const sum = $('<summary>').append($('<b>').text('🏆 ' + t.name), document.createTextNode(' · ' + (t.format === 'swiss' ? tr('سويسرية') : tr('إقصائية')) + ' · ' + t.tc + (t.variant === '960' ? ' · 960' : '') + ' · ' + names[t.status] + ' · ' + t.count + '/' + t.max));
+            det.append(sum);
+            if (t.winner) det.append($('<p>').text('👑 ' + tr('البطل: {u}', { u: t.winner })));
+            const acts = $('<div class="chat-row">');
+            const mk = (txt, act, cls) => $('<button class="btn ' + (cls || 'secondary') + '">').text(txt).attr({ 'data-action': act, 'data-id': t.id });
+            if (t.status === 'open') {
+                if (!t.joined) acts.append(mk(tr('شارك'), 'tJoin'));
+                else if (!t.isOwner) acts.append(mk(tr('انسحب'), 'tLeave', 'ghost'));
+                if (t.isOwner) acts.append(mk(t.canStart ? tr('ابدأ البطولة') : tr('يلزم {n} لاعبين', { n: t.min }), 'tStart', 'primary').prop('disabled', !t.canStart));
+            }
+            if (t.isOwner && (t.status === 'open' || t.status === 'running')) acts.append(mk(tr('إلغاء'), 'tCancel', 'danger'));
+            if (acts.children().length) det.append(acts);
+            if (t.status !== 'cancelled') {
+                const ol = $('<ol class="t-st">');
+                t.standings.forEach((r) => ol.append($('<li>').text(r.u + ' (' + r.rating + ')' + (r.pts !== undefined ? ' — ' + r.pts : (r.alive ? ' ✔' : ' ✖ ' + tr('خرج في الجولة {n}', { n: r.round }))))));
+                if (t.status !== 'open') det.append(ol);
+                else det.append($('<p class="muted small">').text(t.standings.map((r) => r.u).join('، ')));
+            }
+            if (t.status === 'running' && t.boards.length) {
+                const ul = $('<ul class="t-bd">');
+                t.boards.forEach((b) => ul.append($('<li>').text(b.bye ? b.w + ' — ' + tr('راحة') : b.w + ' ⚪ ' + (T_RES[b.res] || (b.state === 'playing' ? '▶' : '…')) + ' ⚫ ' + b.b + (b.note ? ' · ' + b.note : ''))));
+                det.append(ul);
+            }
+            box.append(det);
+        });
+        renderTBanner();
+    }
+    function renderTBanner() {
+        const t = tData.find((x) => x.play);
+        const el = $('#t-banner');
+        if (!t) { el.addClass('hidden'); tHadPlay = false; if (tClock) { clearInterval(tClock); tClock = null; } return; }
+        const p = t.play;
+        const left = p.deadline - (Date.now() + tSkew);
+        el.removeClass('hidden').empty().append(
+            $('<span>').text('🏆 ' + t.name + ' — ' + tr('جولتك ضد {u}', { u: p.opp }) + ' · ' + tSecs(left)),
+            p.ready ? $('<b>').text(' ' + tr('بانتظار الخصم…')) : $('<button class="btn primary">').text(tr('العب')).attr({ 'data-action': 'tReady', 'data-id': t.id })
+        );
+        if (!tHadPlay && !p.ready) { tHadPlay = true; try { if (soundOn && window.SFX) SFX.play('notify'); } catch (e) { /* */ } }
+        if (!tClock) tClock = setInterval(renderTBanner, 1000);
+    }
+    socket.on('tourneys', renderTourneys);
+    socket.on('t_error', (m) => { $('#club-msg').text(m).removeClass('good').addClass('err'); gtoast(m); });
     socket.on('club', renderClub);
     socket.on('club_list', renderClubList);
     socket.on('club_error', (m) => $('#club-msg').text(m).removeClass('good').addClass('err'));
@@ -1719,6 +1791,7 @@
         clearTimeout(clubSearchTimer);
         clubSearchTimer = setTimeout(() => socket.emit('club_list', { q }), 250);
     });
+    $('#fp-code').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); A.joinRoom({ dataset: { src: 'fp-code' } }); } });
     $('#club-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); A.clubSend(); } });
 
     socket.on('live_list', (list) => {
