@@ -737,10 +737,12 @@ app.use((req, res, next) => {
 const nm = (p) => path.join(__dirname, 'node_modules', p);
 // أيقونات التثبيت (مضمَّنة في icons.js)
 const APP_ICONS = require('./icons');
-app.get('/:icon(icon-192.png|icon-512.png|icon-maskable-512.png)', (req, res) => {
-    res.set('Content-Type', 'image/png');
-    res.set('Cache-Control', 'public, max-age=86400');
-    res.send(Buffer.from(APP_ICONS[req.params.icon], 'base64'));
+Object.keys(APP_ICONS).forEach((name) => {
+    app.get('/' + name, (req, res) => {
+        res.set('Content-Type', 'image/png');
+        res.set('Cache-Control', 'public, max-age=86400');
+        res.send(Buffer.from(APP_ICONS[name], 'base64'));
+    });
 });
 app.use('/vendor/jquery', express.static(nm('jquery/dist'), { maxAge: '7d' }));
 app.use('/vendor/chessboard', express.static(nm('@chrisoakman/chessboardjs/dist'), { maxAge: '7d' }));
