@@ -58,7 +58,7 @@
     var libs = [
         ['socket.io', ['/socket.io/socket.io.js']],
         ['jQuery', ['/vendor/jquery/jquery.min.js', 'https://code.jquery.com/jquery-3.6.0.min.js']],
-        ['chess.js', ['/vendor/chess/chess.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js']],
+        ['chess.js', ['/vendor/chess/chess.js', '/vendor/chess/chess.min.js', 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js']],
         ['chessboard.js', ['/vendor/chessboard/chessboard-1.0.0.min.js', 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js']]
     ];
 
