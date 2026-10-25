@@ -185,6 +185,17 @@
     });
     window.addEventListener('pagehide', function () { leave(); });
 
+    // ───────── تفاعلات إيموجي ─────────
+    $(document).on('click', '#mp-reactbar [data-react]', function () { socket.emit('mp_react', { e: $(this).attr('data-react') }); });
+    socket.on('mp_react', function (d) {
+        if (!d || typeof d.e !== 'string') return;
+        var el = $('<div class="mp-react">').append($('<span class="re">').text(d.e), $('<span class="rn">').text(String(d.from || '')));
+        var box = $('#mp-reacts').append(el);
+        while (box.children().length > 6) box.children().first().remove();
+        try { if (window.SFX && localStorage.getItem('mp-mute') !== '1') window.SFX.play('tick'); } catch (e) { /* */ }
+        setTimeout(function () { el.remove(); }, 2800);
+    });
+
     window.Voice = { decorate: decorate, leave: leave, active: function () { return joined; } };
     buttons();
 })();
