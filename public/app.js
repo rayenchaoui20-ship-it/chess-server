@@ -14,7 +14,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'game-screen'];
+    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -111,8 +111,8 @@
         if (id !== 'club-screen' && clubTimer) { clearInterval(clubTimer); clubTimer = null; }
         if (id !== 'live-screen' && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
-        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen');
-        $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : 'شطرنج');
+        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen' && id !== 'snk-screen');
+        $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
@@ -335,9 +335,12 @@
         reviewPly(el) { reviewTo(parseInt(el.dataset.ply, 10) || 0); },
         pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
+        pickSnake() { lsSet('chess-world', 'snake'); A.showSnake(); },
+        showSnake() { show('snk-screen'); if (window.Snake) window.Snake.open(); },
         changeWorld() {
             if (window.Mono && window.Mono.busy && window.Mono.busy() && !window.confirm('مغادرة ملك المدينة الآن تعني الإفلاس. هل تريد تغيير اللعبة؟')) return;
             if (window.Mono && window.Mono.leave) window.Mono.leave();
+            if (window.Snake && window.Snake.leave) window.Snake.leave();
             show('world-screen');
         },
         setAiColor(el) {
@@ -2246,7 +2249,8 @@
     // اللعبة المختارة: أول زيارة تعرض شاشة الاختيار
     (function () {
         const w = lsGet('chess-world');
-        if (w !== 'chess' && w !== 'mono') show('world-screen');
+        if (w !== 'chess' && w !== 'mono' && w !== 'snake') show('world-screen');
+        else if (w === 'snake') setTimeout(() => { if (currentScreen === 'menu-screen') A.showSnake(); }, 0);
         else if (w === 'mono') setTimeout(() => { if (currentScreen === 'menu-screen') A.showMono(); }, 0);
         else show('menu-screen');
     })();
