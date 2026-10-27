@@ -138,3 +138,39 @@ body > img[class^="piece-"], body > img[class*=" piece-"] {
 /* ───── مفتاح الاستعادة ───── */
 .key-box { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.35rem; letter-spacing: .08em; font-weight: 700; text-align: center; user-select: all; background: var(--bg); border: 1px dashed var(--gold); border-radius: 10px; padding: 14px 8px; margin-bottom: 14px; color: var(--gold); }
 #install-btn { margin-top: 8px; }
+
+/* ───── دعوات ملك المدينة ───── */
+.mp-invbox { margin: 6px 0; }
+.mp-clubroom { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: var(--gold-soft); border: 1px solid var(--gold); border-radius: var(--radius); padding: 10px 14px; margin: 8px 0; font-weight: 600; }
+.mp-clubroom.hidden { display: none; }
+
+/* ───── سلم وثعبان ───── */
+.world-card.snake .w-icon { font-size: 2rem; }
+.snk-game { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .snk-game { grid-template-columns: minmax(0, 560px) 1fr; align-items: start; } }
+.snk-boardwrap { width: min(100%, 560px); margin-inline: auto; padding-bottom: 34px; }
+.snk-board { position: relative; width: 100%; aspect-ratio: 1; background: var(--surface); border: 2px solid var(--line); border-radius: 10px; direction: ltr; overflow: visible; }
+.snk-c { position: absolute; width: 10%; height: 10%; background: #1b2a4a; display: flex; align-items: flex-start; justify-content: flex-start; font-size: clamp(.5rem, 1.9vw, .8rem); color: var(--muted); }
+.snk-c.alt { background: #223559; }
+.snk-c.goal { background: var(--gold-soft); box-shadow: inset 0 0 0 2px var(--gold); }
+.snk-c span { padding: 1px 3px; font-variant-numeric: tabular-nums; opacity: .85; }
+.snk-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.snk-rail { stroke: #d4a24c; stroke-width: .7; stroke-linecap: round; }
+.snk-rung { stroke: #b9863a; stroke-width: .6; stroke-linecap: round; }
+.snk-body { fill: none; stroke-width: 2.4; stroke-linecap: round; opacity: .92; }
+.snk-scales { fill: none; stroke: rgba(255,255,255,.55); stroke-width: .5; stroke-dasharray: .1 1.6; stroke-linecap: round; }
+.snk-tokens { position: absolute; inset: 0; pointer-events: none; }
+.snk-tk { position: absolute; width: 3.6%; aspect-ratio: 1; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,.5); transform: translate(-50%, -50%); transition: left .11s linear, top .11s linear; z-index: 3; }
+.snk-tk.me { box-shadow: 0 0 0 2px var(--gold), 0 2px 4px rgba(0,0,0,.5); }
+.snk-tk.climb { transition: left .6s ease-in-out, top .6s ease-in-out; }
+.snk-tk.slide { transition: left .6s cubic-bezier(.5,0,.8,.6), top .6s cubic-bezier(.5,0,.8,.6); }
+.snk-dice { display: flex; align-items: center; gap: 14px; }
+.snk-die { font-size: 4.2rem; line-height: 1; width: 82px; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 0; }
+.snk-die.rolling { animation: snk-shake .14s linear infinite; }
+@keyframes snk-shake { 25% { transform: rotate(-8deg); } 75% { transform: rotate(8deg); } }
+.snk-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; flex: none; }
+.snk-plist li, #snk-lplayers li { display: flex; align-items: center; gap: 10px; }
+.snk-plist li.cur { border-color: var(--gold); background: var(--surface-2); }
+.snk-plist li.off { opacity: .55; }
+#snk-roll { min-height: 52px; font-size: 1.1rem; flex: 1; }
+@media (prefers-reduced-motion: reduce) { .snk-die.rolling { animation: none; } .snk-tk, .snk-tk.climb, .snk-tk.slide { transition: none; } }
