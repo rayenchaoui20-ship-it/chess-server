@@ -44,9 +44,14 @@
     }
 
     // ───────── واجهة ─────────
+    function renderClubRoomSafe() { try { if (typeof renderClubRoom === 'function') renderClubRoom(); } catch (e) { /* */ } }
     function buttons() {
         var st = Mono.state && Mono.state();
         $('#mp-voice').toggleClass('hidden', !st).text(joined ? '📴 ' + T('اترك الصوت') : '🎙 ' + T('انضم للصوت')).attr('aria-pressed', String(joined));
+        $('#mp-reactbar').toggleClass('hidden', !st);
+        $('#mp-invite, #mp-share').toggleClass('hidden', !st);
+        if (!st) $('#mp-invite-box').addClass('hidden');
+        renderClubRoomSafe();
         $('#mp-mic').toggleClass('hidden', !joined).text(muted ? '🔇 ' + T('مكتوم') : '🎤 ' + T('يعمل')).attr('aria-pressed', String(!muted));
     }
     function decorate() {
@@ -184,6 +189,59 @@
         else if (b.getAttribute('data-voice') === 'mute') toggleMute();
     });
     window.addEventListener('pagehide', function () { leave(); });
+
+    // ───────── دعوات الأصدقاء والنادي ─────────
+    var known = {};                       // أسماء الأصدقاء وأعضاء النادي (للاقتراح)
+    function fillNames() {
+        var dl = $('#mp-inv-list').empty();
+        Object.keys(known).forEach(function (n) { dl.append($('<option>').attr('value', n)); });
+    }
+    socket.on('friends', function (d) { (d && d.friends || []).forEach(function (f) { known[f.username] = 1; }); fillNames(); });
+    socket.on('club', function (d) { if (d && d.club) d.club.members.forEach(function (m) { known[m.username] = 1; }); fillNames(); });
+
+    function inRoom() { return !!(Mono.state && Mono.state()); }
+    function joinCode(code) {
+        function go() { APP.show('mono-screen'); if (Mono.open) Mono.open(); socket.emit('mp_join', { code: code }); }
+        if (inRoom()) { socket.emit('mp_leave'); setTimeout(go, 250); } else go();
+    }
+    $(document).on('click', '#mp-invite', function () { $('#mp-invite-box').toggleClass('hidden'); $('#mp-inv-msg').text(''); $('#mp-inv-user').trigger('focus'); });
+    function sendInvite() {
+        var u = $('#mp-inv-user').val().trim();
+        if (!u) return;
+        socket.emit('mp_invite', { username: u });
+    }
+    $(document).on('click', '#mp-inv-send', sendInvite);
+    $(document).on('keydown', '#mp-inv-user', function (e) { if (e.key === 'Enter') { e.preventDefault(); sendInvite(); } });
+    $(document).on('click', '#mp-share', function () { socket.emit('mp_share_club'); });
+    socket.on('mp_room_ok', function (m) { $('#mp-inv-msg').text(m).css('color', 'var(--win)'); say(''); });
+    socket.on('mp_room_error', function (m) { $('#mp-inv-msg').text(m).css('color', 'var(--loss)'); say(m); });
+
+    socket.on('mp_invite', function (d) {
+        if (!d || typeof d.code !== 'string' || !/^[A-Z0-9]{3,8}$/i.test(d.code)) return;
+        var el = $('#mp-invite-toast').removeClass('hidden').empty().append(
+            $('<span>').text('🎲 ' + T('{u} يدعوك إلى ملك المدينة', { u: String(d.from || '') })),
+            $('<button class="btn primary" type="button">').text(T('انضم')).on('click', function () { el.addClass('hidden'); joinCode(d.code); }),
+            $('<button class="btn ghost" type="button">').text('✕').on('click', function () { el.addClass('hidden'); })
+        );
+        try { if (window.SFX && localStorage.getItem('chess-sound') !== 'off') window.SFX.play('notify'); } catch (e) { /* */ }
+        setTimeout(function () { el.addClass('hidden'); }, 45000);
+    });
+
+    var clubRoom = null;
+    function renderClubRoom() {
+        var box = $('#mp-clubroom');
+        if (!clubRoom || inRoom()) return box.addClass('hidden').empty();
+        box.removeClass('hidden').empty().append(
+            $('<span>').text('🛡 ' + T('{u} فتح غرفة لناديك', { u: clubRoom.by })),
+            $('<button class="btn primary" type="button">').text(T('انضم')).on('click', function () { joinCode(clubRoom.code); })
+        );
+    }
+    socket.on('mp_club_room', function (d) { clubRoom = d && d.code ? d : null; renderClubRoom(); });
+    setInterval(function () {
+        if (!socket.connected || $('#mono-screen').hasClass('hidden')) return;
+        if (!inRoom()) socket.emit('mp_club_room_get'); else renderClubRoom();
+    }, 8000);
+    socket.on('connect', function () { socket.emit('mp_club_room_get'); });
 
     // ───────── تفاعلات إيموجي ─────────
     $(document).on('click', '#mp-reactbar [data-react]', function () { socket.emit('mp_react', { e: $(this).attr('data-react') }); });
