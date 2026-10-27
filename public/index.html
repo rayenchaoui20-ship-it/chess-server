@@ -57,6 +57,11 @@
                 <span class="w-name">ملك المدينة</span>
                 <span class="w-desc">اشترِ المدن وابنِ الفنادق وأفلس خصومك مع أصدقائك أو ضد الحاسوب</span>
             </button>
+            <button class="world-card snake" data-action="pickSnake">
+                <span class="w-icon" aria-hidden="true">🐍</span>
+                <span class="w-name">سلم وثعبان</span>
+                <span class="w-desc">ارمِ النرد وتسلّق السلالم وتجنّب الثعابين. أول من يصل إلى 100 يفوز</span>
+            </button>
         </div>
     </section>
 
@@ -366,11 +371,23 @@
             <h2 class="section-title">ملك المدينة</h2>
             <button class="btn ghost hidden" id="mp-voice" data-voice="toggle" aria-pressed="false">🎙 انضم للصوت</button>
             <button class="btn ghost hidden" id="mp-mic" data-voice="mute" aria-pressed="true">🎤 يعمل</button>
+            <button class="btn ghost hidden" id="mp-invite" type="button">📨 ادعُ</button>
+            <button class="btn ghost hidden" id="mp-share" type="button">🛡 شارك مع ناديك</button>
             <button class="btn ghost" id="mp-snd" data-action="monoSound" aria-label="الصوت">🔊</button>
             <button class="btn ghost" id="mp-leave" data-action="monoLeave">رجوع</button>
         </div>
         <div id="mp-error" class="error" role="alert"></div>
-        <div class="mp-reactbar" id="mp-reactbar" role="group" aria-label="تفاعلات سريعة">
+        <div id="mp-invite-box" class="panel mp-invbox hidden">
+            <label class="label" for="mp-inv-user">ادعُ صديقًا أو عضوًا من ناديك</label>
+            <div class="join-row">
+                <input type="text" id="mp-inv-user" class="field" maxlength="20" list="mp-inv-list" placeholder="اسم المستخدم" autocomplete="off" autocapitalize="none" spellcheck="false">
+                <datalist id="mp-inv-list"></datalist>
+                <button class="btn primary" id="mp-inv-send" type="button">أرسل</button>
+            </div>
+            <div class="muted small" id="mp-inv-msg" role="status"></div>
+        </div>
+        <div id="mp-clubroom" class="mp-clubroom hidden" role="status"></div>
+        <div class="mp-reactbar hidden" id="mp-reactbar" role="group" aria-label="تفاعلات سريعة">
             <button type="button" data-react="👍">👍</button><button type="button" data-react="😂">😂</button><button type="button" data-react="😮">😮</button><button type="button" data-react="😡">😡</button><button type="button" data-react="🎉">🎉</button><button type="button" data-react="💸">💸</button><button type="button" data-react="🤝">🤝</button><button type="button" data-react="😭">😭</button>
         </div>
         <div id="mp-reacts" class="mp-reacts" aria-live="polite"></div>
@@ -421,6 +438,65 @@
             <ul id="mp-plist" class="mp-plist"></ul>
             <h3 class="section-title">السجل</h3>
             <ul id="mp-log" class="mp-log"></ul>
+        </div>
+    </section>
+
+    <!-- سلم وثعبان -->
+    <section id="snk-screen" class="hidden">
+        <div class="mp-top">
+            <h2 class="section-title">سلم وثعبان</h2>
+            <button class="btn ghost" id="snk-snd" data-snk="sound" aria-label="الصوت">🔊</button>
+            <button class="btn ghost" id="snk-leave" data-snk="leave">رجوع</button>
+        </div>
+        <div id="snk-error" class="error" role="alert"></div>
+
+        <div id="snk-home" class="narrow stack">
+            <div class="panel stack">
+                <h3 class="sub-title">العب ضد الحاسوب</h3>
+                <div class="join-row">
+                    <select id="snk-bots" class="field" aria-label="عدد اللاعبين الآليين">
+                        <option value="1">ضد لاعب آلي</option>
+                        <option value="2">ضد لاعبين آليين</option>
+                        <option value="3">ضد ثلاثة لاعبين آليين</option>
+                    </select>
+                    <button class="btn primary" data-snk="ai">ابدأ</button>
+                </div>
+            </div>
+            <div class="panel stack">
+                <h3 class="sub-title">العب مع أصدقائك (حتى 4 لاعبين)</h3>
+                <button class="btn secondary block" data-snk="create">أنشئ غرفة</button>
+                <label class="label" for="snk-join">لديك كود غرفة؟</label>
+                <div class="join-row">
+                    <input type="text" id="snk-join" class="field code-input" maxlength="8" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false">
+                    <button class="btn secondary" data-snk="join">انضم</button>
+                </div>
+            </div>
+            <p class="muted small">القواعد: ارمِ النرد وتحرّك. السلم يرفعك، والثعبان يُنزلك. الرقم 6 يمنحك رمية إضافية. للوصول إلى 100 تحتاج رقمًا مطابقًا تمامًا.</p>
+        </div>
+
+        <div id="snk-lobby" class="narrow stack hidden">
+            <div class="panel stack">
+                <h3 class="sub-title">كود الغرفة</h3>
+                <div class="mp-codebox"><span id="snk-code" dir="ltr"></span> <button class="btn ghost" id="snk-copy" data-snk="copy">انسخ الكود</button></div>
+                <ul class="fr-list" id="snk-lplayers"></ul>
+                <p class="muted small" id="snk-wait"></p>
+                <button class="btn primary block hidden" id="snk-start" data-snk="start">ابدأ اللعبة</button>
+            </div>
+        </div>
+
+        <div id="snk-game" class="snk-game hidden">
+            <div class="snk-main">
+                <div class="snk-boardwrap"><div id="snk-board" class="snk-board"></div></div>
+            </div>
+            <aside class="snk-side">
+                <div class="status-card"><p id="snk-status" aria-live="polite"></p><p id="snk-msg" class="muted small" aria-live="polite"></p></div>
+                <div class="snk-dice">
+                    <div id="snk-die" class="snk-die" aria-hidden="true">⚄</div>
+                    <button class="btn" id="snk-roll" data-snk="roll" disabled>🎲 ارمِ النرد</button>
+                </div>
+                <ul class="mp-plist snk-plist" id="snk-plist"></ul>
+                <div id="snk-over" class="hidden"><button class="btn primary block" data-snk="again">لعبة جديدة</button></div>
+            </aside>
         </div>
     </section>
 
@@ -651,6 +727,7 @@
     </div>
 </div>
 
+<div id="mp-invite-toast" class="t-banner hidden" role="alert"></div>
 <div id="t-banner" class="t-banner hidden" role="alert"></div>
 <div id="global-toast" class="global-toast hidden" role="status"></div>
 
