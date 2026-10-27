@@ -1109,7 +1109,13 @@ const tourneys = require('./tournaments').init({
 
 // الدردشة الصوتية في ملك المدينة (WebRTC). voice يغلّف io ليتتبّع عضوية الغرف من رسائل الخادم نفسه
 const voice = require('./voice').init({ io, nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
+const monoRoom = require('./monoroom').init({
+    getDb: () => db, codeOf: voice._state.codeOf, emitTo, uname, statusOf,
+    clubOf: (t) => require('./clubs').clubOf(db, t),
+    socketIdOf: (t) => (live.get(t) && live.get(t).socketId) || null
+});
 require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
+require('./snakes').attach(io, { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
 
 io.on('connection', (socket) => {
     socket.data.token = null;
@@ -1663,6 +1669,7 @@ io.on('connection', (socket) => {
     });
 
     clubs.register(socket);
+    monoRoom.register(socket);
     tourneys.register(socket);
     voice.register(socket);
 
