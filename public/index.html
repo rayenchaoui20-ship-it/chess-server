@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" class="booting">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -43,6 +43,43 @@
     <noscript><div class="lib-banner">هذه المنصة تحتاج JavaScript لتعمل. العب الشطرنج أونلاين مع لاعبين حقيقيين أو ضد الحاسوب، وحل ألغاز الشطرنج مجانًا.</div></noscript>
     <div id="conn-banner" class="conn-banner hidden" role="status">انقطع الاتصال بالسيرفر، جارٍ إعادة المحاولة...</div>
 
+    <!-- الصفحة الافتتاحية للزوار -->
+    <section id="landing-screen" class="land hidden">
+        <div class="land-hero">
+            <h1 class="land-title">الشطرنج وملك المدينة وسلم وثعبان، مع أصدقائك</h1>
+            <p class="land-sub">ألعاب لوحية أونلاين بلا تحميل وبلا اشتراك. أنشئ حسابًا في نصف دقيقة وابدأ أول مباراة.</p>
+            <div class="land-cta">
+                <button class="btn primary" data-action="landingStart">أنشئ حسابًا مجانيًا</button>
+                <button class="btn ghost" data-action="landingLogin">لدي حساب</button>
+            </div>
+            <p class="land-online muted small" id="landing-online"></p>
+        </div>
+
+        <div class="world-grid land-grid">
+            <article class="world-card chess land-card">
+                <span class="w-icon" aria-hidden="true">♞</span>
+                <h2 class="w-name">شطرنج</h2>
+                <p class="w-desc">مباريات مصنَّفة مع لاعبين حقيقيين، أو ضد الحاسوب. ألغاز وتحليل لمبارياتك وشطرنج فيشر 960.</p>
+            </article>
+            <article class="world-card mono land-card">
+                <h2 class="w-name">ملك المدينة</h2>
+                <p class="w-desc">اشترِ المدن وابنِ الفنادق وأفلس خصومك. غرف مع الأصدقاء ودردشة صوتية وتفاعلات سريعة.</p>
+            </article>
+            <article class="world-card snake land-card">
+                <span class="w-icon" aria-hidden="true">🐍</span>
+                <h2 class="w-name">سلم وثعبان</h2>
+                <p class="w-desc">ارمِ النرد وتسلّق السلالم وتجنّب الثعابين. حتى 4 لاعبين أو ضد الحاسوب.</p>
+            </article>
+        </div>
+
+        <dl class="land-facts">
+            <div><dt>تصنيف وألغاز</dt><dd>تصنيف Elo لكل نظام وقت، وألغاز يومية وتدريب تكتيكي.</dd></div>
+            <div><dt>أصدقاء وأندية</dt><dd>ادعُ صديقك بكود غرفة، وأنشئ نادٍ وتنافسوا في بطولات صغيرة.</dd></div>
+            <div><dt>دروس تفاعلية</dt><dd>افتتاحيات ونهايات وتكتيك، تتعلمها بتحريك القطع بنفسك.</dd></div>
+            <div><dt>يعمل على هاتفك</dt><dd>يمكن تثبيته كتطبيق، ولا يحتاج إلى تحميل.</dd></div>
+        </dl>
+    </section>
+
     <!-- اختيار اللعبة -->
     <section id="world-screen" class="hidden">
         <h1 class="world-title">اختر لعبتك</h1>
@@ -73,6 +110,7 @@
             <span id="acc-info" class="muted small">أنت تلعب كضيف</span>
             <span class="acc-actions">
                 <button class="btn secondary hidden" id="acc-friends" data-action="showFriends">الأصدقاء<span id="friends-badge" class="badge hidden">0</span></button>
+                <button class="btn secondary hidden" id="acc-profile" data-action="showProfile">ملفي</button>
                 <button class="btn secondary hidden" id="acc-games" data-action="showGames">مبارياتي</button>
                 <button class="btn ghost" id="acc-login" data-action="showAuth">دخول / حساب جديد</button>
                 <button class="btn ghost hidden" id="acc-key" data-action="showKey" title="مفتاح استعادة الحساب">🔑</button>
@@ -240,6 +278,7 @@
             <div class="btn-row">
                 <button class="btn primary" id="auth-submit" data-action="authSubmit">دخول</button>
             </div>
+            <button type="button" class="btn ghost block" data-action="showLanding">رجوع</button>
             <button type="button" class="btn ghost block" id="auth-forgot" data-action="authTab" data-mode="reset">نسيت كلمة المرور؟</button>
             <p class="muted small" id="auth-note">الحساب مجاني ويحفظ تصنيفك ويتيح لك إضافة الأصدقاء واللعب من أي جهاز.</p>
         </div>
@@ -279,6 +318,24 @@
             <h2 class="section-title" style="margin-bottom:0">مبارياتي</h2>
             <p class="muted small" id="games-empty"></p>
             <ul class="fr-list" id="games-list"></ul>
+            <button class="btn ghost block" data-action="goMenu">رجوع</button>
+        </div>
+    </section>
+
+    <!-- ملف اللاعب والإنجازات -->
+    <section id="profile-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0" id="pf-title">الملف الشخصي</h2>
+            <p class="muted small" id="pf-sub"></p>
+            <div class="pf-ratings" id="pf-ratings"></div>
+            <svg id="pf-spark" class="pf-spark hidden" viewBox="0 0 300 60" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div class="pf-stats" id="pf-stats"></div>
+            <h3 class="pf-h">الإنجازات <span id="pf-ach-n" class="muted small"></span></h3>
+            <div class="pf-ach" id="pf-ach"></div>
+            <div id="pf-recent-box" class="hidden">
+                <h3 class="pf-h">آخر المباريات</h3>
+                <ul class="fr-list" id="pf-recent"></ul>
+            </div>
             <button class="btn ghost block" data-action="goMenu">رجوع</button>
         </div>
     </section>
