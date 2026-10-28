@@ -14,7 +14,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate'];
-    const SCREENS = ['world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'game-screen'];
+    const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -105,16 +105,17 @@
     function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
     function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
 
+    setTimeout(() => document.documentElement.classList.remove('booting'), 4000);   // إن تأخّر الخادم لا تبقى الصفحة فارغة
     let authGate = false;          // يصير true بعد أول رد من الخادم: عندها لا شاشة قبل تسجيل الدخول
     function show(id) {
-        if (authGate && !account && id !== 'auth-screen') id = 'auth-screen';
+        if (authGate && !account && id !== 'auth-screen' && id !== 'landing-screen') id = 'landing-screen';
         currentScreen = id;
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
         if (id !== 'club-screen' && clubTimer) { clearInterval(clubTimer); clubTimer = null; }
         if (id !== 'live-screen' && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
         $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen' && id !== 'snk-screen');
-        $('#wordmark').text(id === 'world-screen' ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : 'شطرنج');
+        $('#wordmark').text((id === 'world-screen' || id === 'landing-screen') ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
@@ -357,6 +358,14 @@
             socket.emit('create_ai_room', { color, level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
         },
         goMenu() { show('menu-screen'); },
+        showProfile(el) {
+            const u = el && el.dataset && el.dataset.user;
+            $('#pf-title').text(u || account || tr('الملف الشخصي'));
+            $('#pf-sub, #pf-ratings, #pf-stats, #pf-ach, #pf-recent').empty();
+            $('#pf-spark, #pf-recent-box').addClass('hidden');
+            show('profile-screen');
+            socket.emit('profile_get', u ? { username: u } : {});
+        },
         showGames() {
             $('#games-list').empty();
             $('#games-empty').text(tr('جارٍ التحميل...')).removeClass('hidden');
@@ -461,6 +470,9 @@
         pzRetry() { if (pzCur) pzStart(pzCur); },
         pzHint() { pzHint(); },
         pzSolution() { pzSolution(); },
+        showLanding() { show('landing-screen'); },
+        landingStart() { setAuthMode('register'); A.showAuth(); },
+        landingLogin() { setAuthMode('login'); A.showAuth(); },
         showAuth() { $('#auth-error').text(''); show('auth-screen'); $('#auth-user').trigger('focus'); },
         authTab(el) { setAuthMode(el.dataset.mode); },
         showKey() { askConfirm(tr('سيُبطل المفتاح السابق. أنشئ مفتاحًا جديدًا؟'), () => socket.emit('recovery_new')); },
@@ -609,6 +621,7 @@
         renderRatings();
         account = w.user || null;
         authGate = true;
+        document.documentElement.classList.remove('booting');
         renderAccount();
         if (!account) forceAuth();
         if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
@@ -642,7 +655,7 @@
     socket.on('login_required', () => { if (!account) forceAuth(); });
 
     function setOnline(n) {
-        $('#online-count').text(n ? tr('{n} لاعب متصل الآن', { n }) : '');
+        $('#online-count, #landing-online').text(n ? tr('{n} لاعب متصل الآن', { n }) : '');
     }
     socket.on('online', (d) => setOnline(d.online));
     setInterval(() => { if (socket.connected && currentScreen === 'menu-screen') socket.emit('get_online'); }, 20000);
@@ -892,6 +905,72 @@
         });
     });
     socket.on('games_error', (m) => gtoast(m));
+
+    // ───────────────────────── ملف اللاعب والإنجازات ─────────────────────────
+    const CAT_NAME = { bullet: 'رصاصة', blitz: 'خاطف', rapid: 'سريع' };
+    function drawSpark(hist) {
+        const pts = [].concat(...Object.values(hist || {}).map((a) => a)).length ? (hist.blitz && hist.blitz.length > 1 ? hist.blitz : Object.values(hist).sort((a, b) => b.length - a.length)[0]) : null;
+        const svg = $('#pf-spark');
+        if (!pts || pts.length < 2) return svg.addClass('hidden');
+        const lo = Math.min(...pts), hi = Math.max(...pts), span = Math.max(20, hi - lo);
+        const xy = pts.map((v, i) => [(i / (pts.length - 1)) * 296 + 2, 56 - ((v - lo) / span) * 52]);
+        const ns = 'http://www.w3.org/2000/svg';
+        const path = document.createElementNS(ns, 'polyline');
+        path.setAttribute('points', xy.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' '));
+        svg.empty().append(path).removeClass('hidden');
+    }
+    socket.on('profile', (p) => {
+        if (!$('#profile-screen').is(':visible')) return;
+        $('#pf-title').text((p.me ? '👤 ' : '') + p.user);
+        const bits = [];
+        if (p.since) bits.push(tr('عضو منذ {d}', { d: new Date(p.since).toLocaleDateString(I18N.tag) }));
+        if (p.club) bits.push('🛡 ' + p.club);
+        if (p.champ) bits.push('🏆 ×' + p.champ);
+        $('#pf-sub').text(bits.join(' · '));
+        const rt = $('#pf-ratings').empty();
+        Object.keys(CAT_NAME).forEach((k) => {
+            const r = p.ratings[k];
+            if (r) rt.append($('<div class="pf-box">').append($('<b>').text(r.r), $('<span>').text(tr(CAT_NAME[k]))));
+        });
+        if (p.pz && p.pz.rating) rt.append($('<div class="pf-box">').append($('<b>').text(p.pz.rating), $('<span>').text(tr('ألغاز'))));
+        drawSpark(p.history);
+        const st = $('#pf-stats').empty();
+        [[p.games, 'مباريات'], [p.w, 'فوز'], [p.l, 'خسارة'], [p.d, 'تعادل'], [p.rate == null ? '—' : p.rate + '%', 'نسبة الفوز'], [p.pz ? p.pz.solved : 0, 'ألغاز محلولة']].forEach((x) => {
+            st.append($('<div class="pf-box small">').append($('<b>').text(x[0]), $('<span>').text(tr(x[1]))));
+        });
+        const have = {};
+        p.ach.forEach((a) => { have[a.id] = a; });
+        $('#pf-ach-n').text(p.ach.length + ' / ' + p.all.length);
+        const ag = $('#pf-ach').empty();
+        p.all.slice().sort((a, b) => (have[b.id] ? 1 : 0) - (have[a.id] ? 1 : 0)).forEach((a) => {
+            ag.append($('<div class="pf-a">').toggleClass('locked', !have[a.id]).attr('title', tr(a.desc)).append(
+                $('<span class="ic">').text(have[a.id] ? a.icon : '🔒'),
+                $('<b>').text(tr(a.title)),
+                $('<small>').text(tr(a.desc))
+            ));
+        });
+        const rec = $('#pf-recent').empty();
+        $('#pf-recent-box').toggleClass('hidden', !p.recent.length);
+        p.recent.forEach((g) => {
+            const res = g.res === 'w' ? tr('فوز') : g.res === 'l' ? tr('خسارة') : tr('تعادل');
+            rec.append($('<li>').append(
+                $('<span class="gr-res">').addClass(g.res === 'w' ? 'win' : g.res === 'l' ? 'loss' : '').text(res),
+                $('<span class="nm">').text(g.ai ? tr('الحاسوب') : g.opp),
+                $('<span class="st">').text(tcText(g.tc))
+            ));
+        });
+    });
+    socket.on('profile_error', (m) => { gtoast(m); });
+    socket.on('banned', () => { try { alert(tr('تم إيقاف هذا الحساب.')); } catch (e) { /* */ } });
+    socket.on('ach_new', (d) => {
+        (d.list || []).forEach((a, i) => setTimeout(() => gtoast('🏅 ' + tr('إنجاز جديد') + ': ' + tr(a.title)), i * 4600));
+    });
+    // الضغط على اسم لاعب في قوائم الأصدقاء والنادي يفتح ملفه
+    $(document).on('click', '#fr-list .nm, #club-members .nm', function () {
+        const n = $(this).text().replace(/^👑\s*/, '').replace(/\s*\(.*\)$/, '').trim();
+        if (n) A.showProfile({ dataset: { user: n } });
+    });
+    $('#fr-list, #club-members').on('mouseenter', '.nm', function () { this.style.cursor = 'pointer'; });
     socket.on('game_data', (g) => openArchive(g));
 
     // فتح مباراة محفوظة في شاشة اللعب بوضع المراجعة (للقراءة فقط)
@@ -1599,7 +1678,7 @@
         const logged = !!account;
         $('#acc-info').text(logged ? tr('مرحبًا، {name}', { name: account }) : tr('أنت تلعب كضيف'));
         $('#acc-login').toggleClass('hidden', logged);
-        $('#acc-friends, #acc-games, #acc-logout, #acc-key').toggleClass('hidden', !logged);
+        $('#acc-friends, #acc-games, #acc-profile, #acc-logout, #acc-key').toggleClass('hidden', !logged);
         const nameInput = $('#player-name');
         if (logged) nameInput.val(account).prop('disabled', true);
         else {
@@ -1611,9 +1690,8 @@
     }
 
     function forceAuth() {
-        $('#auth-error').text('');
-        if (authMode === 'reset') $('#auth-key-row').removeClass('hidden');
-        show('auth-screen');
+        if (currentScreen === 'auth-screen') return;
+        show('landing-screen');
     }
     function setAuthMode(mode) {
         authMode = mode;
