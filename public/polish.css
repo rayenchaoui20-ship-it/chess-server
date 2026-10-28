@@ -279,3 +279,46 @@ html[dir="rtl"] .mode-row.primary::after { -webkit-mask-image: linear-gradient(t
 #auth-screen .btn-row { display: block; }
 #auth-screen #auth-submit { width: 100%; min-height: 48px; }
 #auth-screen .panel > .lead { margin-top: 6px; text-align: start; max-width: none; font-size: .95rem; }
+
+/* ───── الصفحة الافتتاحية ───── */
+.booting section[id$="-screen"] { visibility: hidden; }
+.land { max-width: 980px; margin-inline: auto; }
+.land-hero { position: relative; text-align: center; padding: 38px 12px 30px; isolation: isolate; }
+.land-hero::before { content: ""; position: absolute; inset: 0 -16px; z-index: -1; background: conic-gradient(var(--slate) 25%, var(--ivory) 0 50%, var(--slate) 0 75%, var(--ivory) 0) 0 0 / 64px 64px; opacity: .16; -webkit-mask-image: linear-gradient(to bottom, #000, transparent 90%); mask-image: linear-gradient(to bottom, #000, transparent 90%); }
+.land-title { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.8rem, 5.4vw, 2.7rem); line-height: 1.3; max-width: 26ch; margin: 0 auto; }
+.land-sub { color: var(--muted); font-size: 1.05rem; max-width: 44ch; margin: 14px auto 0; }
+.land-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
+.land-cta .btn { min-height: 52px; padding-inline: 26px; font-size: 1.05rem; }
+.land-online { margin-top: 14px; }
+.land-card { cursor: default; min-height: 250px; }
+.land-card:hover { transform: none; border-color: rgba(255,255,255,.16); box-shadow: 0 14px 34px rgba(0,0,0,.35); }
+.land-grid { margin-top: 8px; }
+.land-facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 30px 0 10px; border-block: 1px solid var(--line); }
+.land-facts > div { padding: 18px 16px; }
+.land-facts > div + div { border-inline-start: 1px solid var(--line); }
+.land-facts dt { font-family: var(--font-display); font-weight: 700; margin-bottom: 4px; }
+.land-facts dd { margin: 0; color: var(--muted); font-size: .9rem; line-height: 1.55; }
+@media (max-width: 820px) {
+    .land-facts { grid-template-columns: 1fr 1fr; }
+    .land-facts > div:nth-child(3) { border-inline-start: 0; }
+    .land-facts > div:nth-child(n+3) { border-top: 1px solid var(--line); }
+    .land-card { min-height: 170px; }
+}
+@media (max-width: 480px) { .land-facts { grid-template-columns: 1fr; } .land-facts > div + div { border-inline-start: 0; border-top: 1px solid var(--line); } }
+
+/* ───── ملف اللاعب والإنجازات ───── */
+.pf-h{margin:6px 0 0;font-size:15px;color:var(--gold,#E2B14B)}
+.pf-ratings,.pf-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:8px}
+.pf-box{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:8px;text-align:center}
+.pf-box b{display:block;font-size:22px;color:var(--gold,#E2B14B);line-height:1.2}
+.pf-box.small b{font-size:17px;color:var(--ivory,#E4E9F2)}
+.pf-box span{font-size:12px;opacity:.75}
+.pf-spark{width:100%;height:60px;background:rgba(255,255,255,.03);border-radius:8px}
+.pf-spark polyline{fill:none;stroke:var(--gold,#E2B14B);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.pf-ach{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.pf-a{display:flex;flex-direction:column;gap:2px;align-items:center;text-align:center;padding:10px 6px;border-radius:8px;border:1px solid var(--gold,#E2B14B);background:rgba(226,177,75,.08)}
+.pf-a .ic{font-size:26px;line-height:1.2}
+.pf-a b{font-size:13px}
+.pf-a small{font-size:11px;opacity:.75;line-height:1.35}
+.pf-a.locked{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.03);filter:grayscale(1);opacity:.55}
+#fr-list .nm,#club-members .nm{text-decoration:underline dotted rgba(255,255,255,.3);text-underline-offset:3px}
