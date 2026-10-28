@@ -119,11 +119,11 @@
                     </div>
                 </div>
                 <button class="mode-row" data-action="showDaily">
-                    <span class="t">🗓 لغز اليوم</span>
+                    <span class="t">لغز اليوم</span>
                     <span class="d" id="daily-d">لغز جديد كل يوم</span>
                 </button>
                 <button class="mode-row" data-action="showLessons">
-                    <span class="t">📚 دروس مصغرة</span>
+                    <span class="t">دروس مصغرة</span>
                     <span class="d">افتتاحيات ونهايات وتكتيك، تتعلمها بتحريك القطع بنفسك</span>
                 </button>
                 <button class="mode-row" data-action="showPuzzles">
@@ -131,11 +131,11 @@
                     <span class="d">كش مات وتكتيكات مع تصنيف خاص بالألغاز</span>
                 </button>
                 <button class="mode-row" data-action="showLive">
-                    <span class="t">🔴 مباريات مباشرة</span>
+                    <span class="t">مباريات مباشرة</span>
                     <span class="d">شاهد مباريات أصدقائك وأفضل اللاعبين الآن</span>
                 </button>
                 <button class="mode-row" data-action="showClubs">
-                    <span class="t">🛡 الأندية</span>
+                    <span class="t">الأندية</span>
                     <span class="d">أنشئ نادٍ أو انضم إلى نادٍ، وتحدَّ أعضاءه وتحدّث معهم</span>
                 </button>
                 <button class="mode-row" data-action="showLeaderboard">
@@ -218,6 +218,7 @@
     <section id="auth-screen" class="narrow hidden">
         <div class="panel stack">
             <h2 class="section-title" style="margin-bottom:0">حسابك</h2>
+            <p class="lead" style="margin:0">سجّل الدخول أو أنشئ حسابًا مجانيًا لتبدأ اللعب. حسابك يحفظ تصنيفك وأصدقاءك وتقدّمك من أي جهاز.</p>
             <div class="seg seg2" role="group" aria-label="نوع العملية" id="auth-tabs">
                 <button type="button" data-action="authTab" data-mode="login" aria-pressed="true">تسجيل الدخول</button>
                 <button type="button" data-action="authTab" data-mode="register" aria-pressed="false">حساب جديد</button>
@@ -238,10 +239,9 @@
             <div class="error" id="auth-error" role="alert"></div>
             <div class="btn-row">
                 <button class="btn primary" id="auth-submit" data-action="authSubmit">دخول</button>
-                <button class="btn ghost" data-action="goMenu">رجوع</button>
             </div>
             <button type="button" class="btn ghost block" id="auth-forgot" data-action="authTab" data-mode="reset">نسيت كلمة المرور؟</button>
-            <p class="muted small" id="auth-note">عند إنشاء حساب يُحفظ تصنيفك الحالي ويمكنك إضافة الأصدقاء واللعب من أي جهاز.</p>
+            <p class="muted small" id="auth-note">الحساب مجاني ويحفظ تصنيفك ويتيح لك إضافة الأصدقاء واللعب من أي جهاز.</p>
         </div>
     </section>
 
