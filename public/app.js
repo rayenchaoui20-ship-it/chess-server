@@ -105,7 +105,9 @@
     function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
     function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
 
+    let authGate = false;          // يصير true بعد أول رد من الخادم: عندها لا شاشة قبل تسجيل الدخول
     function show(id) {
+        if (authGate && !account && id !== 'auth-screen') id = 'auth-screen';
         currentScreen = id;
         if (id !== 'friends-screen' && friendsTimer) { clearInterval(friendsTimer); friendsTimer = null; }
         if (id !== 'club-screen' && clubTimer) { clearInterval(clubTimer); clubTimer = null; }
@@ -606,7 +608,9 @@
         ratings = w.ratings || ratings;
         renderRatings();
         account = w.user || null;
+        authGate = true;
         renderAccount();
+        if (!account) forceAuth();
         if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
         if (account) socket.emit('t_get');
         renderDaily();
@@ -630,11 +634,12 @@
                 resetToMenu();
             }, 2500);
         }
-        if (pendingJoin) {
+        if (pendingJoin && account) {
             socket.emit('join_room', { roomId: pendingJoin });
             pendingJoin = null;
         }
     });
+    socket.on('login_required', () => { if (!account) forceAuth(); });
 
     function setOnline(n) {
         $('#online-count').text(n ? tr('{n} لاعب متصل الآن', { n }) : '');
@@ -1605,6 +1610,11 @@
         if (!logged) { friendsData = { friends: [], incoming: [], outgoing: [] }; renderFriends(); }
     }
 
+    function forceAuth() {
+        $('#auth-error').text('');
+        if (authMode === 'reset') $('#auth-key-row').removeClass('hidden');
+        show('auth-screen');
+    }
     function setAuthMode(mode) {
         authMode = mode;
         $('#auth-tabs button').each(function () { $(this).attr('aria-pressed', String($(this).data('mode') === mode)); });
@@ -1651,9 +1661,10 @@
         $('#auth-pass').val('');
         $('#auth-error').text('');
         show('menu-screen');
+        if (pendingJoin) { socket.emit('join_room', { roomId: pendingJoin }); pendingJoin = null; }
         gtoast(authMode === 'register' ? tr('تم إنشاء حسابك. أهلًا بك!') : tr('تم تسجيل الدخول.'));
     });
-    socket.on('logged_out', () => { show('menu-screen'); gtoast(tr('تم تسجيل الخروج.')); });
+    socket.on('logged_out', () => { account = null; renderAccount(); forceAuth(); gtoast(tr('تم تسجيل الخروج.')); });
 
     const STATUS_TEXT = { online: tr('متصل'), playing: tr('يلعب الآن'), searching: tr('يبحث عن خصم'), offline: tr('غير متصل') };
 
