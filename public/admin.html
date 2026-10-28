@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>لوحة الإدارة</title>
+<style>
+:root{--bg:#0B1324;--card:#131d35;--line:#24324f;--ink:#E4E9F2;--dim:#93a1bd;--gold:#E2B14B;--red:#e5604d;--green:#4fbf8f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "IBM Plex Sans Arabic",system-ui,sans-serif;padding:16px}
+.wrap{max-width:900px;margin:0 auto}
+h1{font-size:22px;color:var(--gold);margin:0 0 14px}
+h2{font-size:16px;margin:0 0 10px;color:var(--gold)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.hidden{display:none!important}
+input,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:#0e1730;color:var(--ink);padding:8px 12px}
+button{cursor:pointer;background:#1b2a4d}
+button:hover{border-color:var(--gold)}
+button.danger{border-color:var(--red);color:var(--red)}
+button.good{border-color:var(--green);color:var(--green)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.stat{background:#0e1730;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.stat b{display:block;font-size:20px;color:var(--gold)}
+.stat span{color:var(--dim);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}
+th{color:var(--dim);font-weight:500}
+.tag{display:inline-block;padding:0 7px;border-radius:99px;font-size:12px;border:1px solid var(--line);margin-inline-start:4px}
+.tag.red{color:var(--red);border-color:var(--red)}.tag.green{color:var(--green);border-color:var(--green)}
+.msg{color:var(--dim);min-height:22px}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛠 لوحة الإدارة</h1>
+  <div id="login" class="card">
+    <h2>الدخول</h2>
+    <div class="row"><input id="key" type="password" placeholder="مفتاح الإدارة (ADMIN_KEY)" autocomplete="off"><button id="go">دخول</button></div>
+    <div id="lmsg" class="msg"></div>
+  </div>
+  <div id="main" class="hidden">
+    <div class="card"><h2>الإحصاءات <button id="refresh" style="float:left">تحديث</button></h2><div id="stats" class="stats"></div></div>
+    <div class="card"><h2>البلاغات</h2><div id="reports" class="scroll"></div></div>
+    <div class="card"><h2>اللاعبون</h2>
+      <div class="row"><input id="q" placeholder="ابحث باسم المستخدم"><button id="search">بحث</button></div>
+      <div id="users" class="scroll"></div>
+    </div>
+    <div class="card"><h2>الأندية</h2><div id="clubs" class="scroll"></div></div>
+    <div class="card"><h2>النسخ الاحتياطية</h2>
+      <div class="row"><button id="bknow">نسخ الآن</button><button id="bkcur">تنزيل البيانات الحالية</button><a href="/api/engine-status" target="_blank" style="color:var(--gold)">حالة محرك التحليل</a></div>
+      <div id="backups"></div>
+    </div>
+    <div id="msg" class="msg"></div>
+    <button id="out">تسجيل الخروج</button>
+  </div>
+</div>
+<script src="/admin.js"></script>
+</body>
+</html>
