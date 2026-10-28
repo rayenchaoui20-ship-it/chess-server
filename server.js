@@ -159,6 +159,7 @@ function eloUpdate(room, result) {
     const db_ = Math.round(kb * ((1 - sw) - (1 - ew)));
     rw.r = Math.max(100, rw.r + dw); rw.n++;
     rb.r = Math.max(100, rb.r + db_); rb.n++;
+    ach.pushRating(pw, cat); ach.pushRating(pb, cat);
     pw.games++; pb.games++;
     if (sw === 1) { pw.w++; pb.l++; } else if (sw === 0) { pw.l++; pb.w++; } else { pw.d++; pb.d++; }
     saveSoon();
@@ -188,6 +189,18 @@ function resolveTc(data) {
     return TIME_CONTROLS[id] ? id : null;
 }
 
+const ach = require('./achievements');
+function awardFor(token) {
+    const rec = db.players[token];
+    if (!rec || !rec.user) return;
+    let club = null;
+    try { club = require('./clubs').clubOf(db, token); } catch (e) { /* بلا نادٍ */ }
+    const ids = ach.evaluate(rec, { club });
+    if (ids.length) {
+        saveSoon();
+        emitTo(token, 'ach_new', { list: ids.map(ach.info).filter(Boolean) });
+    }
+}
 function emitTo(token, ev, payload) {
     const l = live.get(token);
     if (l && l.socketId) io.to(l.socketId).emit(ev, payload);
@@ -451,6 +464,7 @@ function endGame(room, result) {
         if (ch) {
             room.result.delta = { w: ch.w, b: ch.b };
             room.result.newRatings = ch.ratings;
+            ['w', 'b'].forEach((c) => { try { awardFor(room.players[c]); } catch (e) { /* لا يُعطّل الإنهاء */ } });
         }
     }
     try { fairPlayCheck(room); } catch (e) { /* لا يُعطّل إنهاء المباراة */ }
@@ -809,7 +823,7 @@ app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 // ───── لوحة المشرف (تتطلب المتغير ADMIN_KEY في Render) ─────
 function adminOk(req) {
     const key = process.env.ADMIN_KEY;
-    const got = String(req.query.key || '');
+    const got = String(req.get('x-admin-key') || req.query.key || '');
     if (!key || key.length < 12 || got.length !== key.length) return false;
     return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key));
 }
@@ -853,6 +867,22 @@ function startBackups() {
     setTimeout(() => backupDb(), 90 * 1000).unref();
     setInterval(() => backupDb(), 24 * 3600 * 1000).unref();
 }
+async function listBackups() {
+    try {
+        let days;
+        if (mongoColl) days = (await mongoDbRef.collection('backups').find({}, { projection: { _id: 1 } }).sort({ _id: -1 }).toArray()).map((x) => x._id);
+        else { try { days = fs.readdirSync(path.join(DATA_DIR, 'backups')).filter((f) => /\.json$/.test(f)).map((f) => f.slice(0, -5)).sort().reverse(); } catch (e) { days = []; } }
+        return { ok: true, storage: mongoColl ? 'mongodb' : 'file', days };
+    } catch (e) { return { ok: false, error: e.message }; }
+}
+async function getBackup(day) {
+    try {
+        if (!day) return JSON.stringify(db);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+        if (mongoColl) { const x = await mongoDbRef.collection('backups').findOne({ _id: day }); return x && x.json; }
+        return fs.readFileSync(path.join(DATA_DIR, 'backups', day + '.json'), 'utf8');
+    } catch (e) { return null; }
+}
 app.get('/admin/backup', async (req, res) => {
     if (!adminOk(req)) return res.status(404).end();
     res.set('Cache-Control', 'no-store');
@@ -894,6 +924,18 @@ app.post('/admin/resetpw', express.json({ limit: '2kb' }), async (req, res) => {
     db.players[tok].pass = await hashPassword(pw);
     saveSoon();
     res.json({ ok: true });
+});
+// طرد لاعب موقوف فورًا
+function kickUser(token) {
+    try { removeFromQueues(token); leaveRoom(token, true); } catch (e) { /* */ }
+    const l = live.get(token);
+    const sock = l && l.socketId && io.sockets.sockets.get(l.socketId);
+    if (sock) { sock.emit('banned'); sock.disconnect(true); }
+}
+require('./admin').attach(app, {
+    adminOk, db: () => db, saveSoon, safety, io, rooms, uname, isConnected,
+    storage: () => (mongoColl ? 'mongodb' : 'file'), kick: kickUser,
+    hashPassword: (pw) => hashPassword(pw), listBackups, getBackup, backupNow: () => backupDb()
 });
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online: io.engine.clientsCount }));
 app.get('/api/leaderboard', (req, res) => res.json({ cat: req.query.cat, rows: leaderboard(String(req.query.cat || 'blitz')) }));
@@ -1002,6 +1044,7 @@ function link(a, b) {
 }
 
 function sendWelcome(socket, token, rec) {
+    try { awardFor(token); } catch (e) { /* اختياري */ }
     socket.emit('welcome', {
         token, name: rec.name, user: rec.user || null,
         ratings: publicRatings(token), online: io.engine.clientsCount,
@@ -1087,6 +1130,7 @@ const clubs = require('./clubs').init({
 // بطولات النوادي (سويسرية / إقصائية)
 const tourneys = require('./tournaments').init({
     getDb: () => db, saveSoon, playerCtx, emitTo, uname, statusOf, safety,
+    onChampion: (t) => { const r = db.players[t]; if (r) { r.champ = (r.champ || 0) + 1; awardFor(t); } },
     ratingOf: (t) => ratingOf(t, 'blitz'),
     clubOf: (t) => require('./clubs').clubOf(db, t),
     tcIds: Object.keys(TIME_CONTROLS),
@@ -1142,6 +1186,7 @@ io.on('connection', (socket) => {
         if (LOGIN_OPEN.has(ev)) return next();
         const t = socket.data.token;
         const rec = t && db.players[t];
+        if (rec && rec.banned) { socket.emit('banned'); socket.disconnect(true); return next(new Error('banned')); }
         if (rec && rec.user) return next();
         socket.emit('login_required');
         next(new Error('login_required'));
@@ -1203,6 +1248,22 @@ io.on('connection', (socket) => {
         }
         socket.emit('game_data', { id: g.id, t: g.t, w: g.w, b: g.b, c: g.c, tc: g.tc, rated: g.rated, v: g.v, sf: g.sf, h: g.h, res: g.res, ai: g.ai, an });
     });
+    // ملف اللاعب (ملفي أو ملف لاعب آخر باسم المستخدم)
+    socket.on('profile_get', (d) => {
+        const a = acct();
+        if (!a) return;
+        const want = d && d.username ? db.users[cleanUser(d.username).toLowerCase()] : a.ctx.token;
+        const rec = want && db.players[want];
+        if (!rec || !rec.user) return socket.emit('profile_error', 'اللاعب غير موجود.');
+        if (want === a.ctx.token) awardFor(want);
+        let club = null;
+        try { club = require('./clubs').clubOf(db, want); } catch (e) { /* بلا نادٍ */ }
+        const p = ach.profile(rec, { clubName: club && club.name });
+        p.me = want === a.ctx.token;
+        p.online = isConnected(want);
+        if (!p.me) { p.recent = []; }           // مباريات الغير خاصة
+        socket.emit('profile', p);
+    });
     socket.on('pz_save', (d) => {
         const a = acct();
         if (!a || !d || typeof d !== 'object') return;
@@ -1214,6 +1275,7 @@ io.on('connection', (socket) => {
         if (!solved || !rated || !Number.isFinite(rating) || rating < 100 || rating > 4000) return;
         a.rec.pz = { r: Math.round(rating), s: solved, d: rated, k: Number.isFinite(streak) && streak >= 0 ? Math.min(9999, Math.floor(streak)) : 0 };
         saveSoon();
+        awardFor(a.ctx.token);
     });
 
     // تحليل مباراة منتهية: يرسل العميل السجل فقط والخادم يعيد تقييم كل حركة
@@ -1523,6 +1585,7 @@ io.on('connection', (socket) => {
         }
         const cur = playerCtx(socket);
         if (!cur) return;
+        if (rec.banned) return socket.emit('auth_error', 'هذا الحساب موقوف.');
         socket.data.fails = 0;
         loginFails.delete(key);
         const old = cur.token;
@@ -1646,6 +1709,7 @@ io.on('connection', (socket) => {
         if (data.accept) {
             link(a.token, target);
             emitTo(target, 'notify', { text: a.rec.user + ' قبل طلب صداقتك.' });
+            awardFor(a.token); awardFor(target);
         } else {
             unlink(a.token, target);
         }
