@@ -181,6 +181,7 @@ function init(deps) {
         t.finishedAt = now();
         const done = Object.values(store(db())).filter((x) => x.club === t.club && (x.status === 'done' || x.status === 'cancelled')).sort((a, b) => (b.finishedAt || 0) - (a.finishedAt || 0));
         done.slice(KEEP_DONE + 2).forEach((x) => { delete store(db())[x.id]; });   // لا نكدّس سجلات قديمة
+        if (winner && deps.onChampion) { try { deps.onChampion(winner); } catch (e) { /* اختياري */ } }
         notify(audience(t), '🏆 انتهت بطولة «' + t.name + '»' + (winner ? '. البطل: ' + (deps.uname(winner) || '؟') : '.'));
     }
 
