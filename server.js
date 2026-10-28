@@ -1117,6 +1117,9 @@ const monoRoom = require('./monoroom').init({
 require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
 require('./snakes').attach(io, { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
 
+// أحداث مسموحة قبل تسجيل الدخول
+const LOGIN_OPEN = new Set(['hello', 'register', 'login', 'reset_password', 'logout', 'get_online', 'leaderboard']);
+
 io.on('connection', (socket) => {
     socket.data.token = null;
     socket.data.bucket = { tokens: 40, t: Date.now() };
@@ -1131,6 +1134,17 @@ io.on('connection', (socket) => {
         if (b.tokens < 1) return next(new Error('rate_limited'));
         b.tokens -= 1;
         next();
+    });
+
+    // تسجيل الدخول إجباري: لا يُقبل أي حدث من ضيف عدا ما يلزم للتسجيل والدخول
+    socket.use((packet, next) => {
+        const ev = packet && packet[0];
+        if (LOGIN_OPEN.has(ev)) return next();
+        const t = socket.data.token;
+        const rec = t && db.players[t];
+        if (rec && rec.user) return next();
+        socket.emit('login_required');
+        next(new Error('login_required'));
     });
 
     // أول حدث يجب أن يرسله العميل: التعريف بنفسه (أو إنشاء هوية جديدة)
