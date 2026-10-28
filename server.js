@@ -932,6 +932,7 @@ function kickUser(token) {
     const sock = l && l.socketId && io.sockets.sockets.get(l.socketId);
     if (sock) { sock.emit('banned'); sock.disconnect(true); }
 }
+const uname = (t) => (db.players[t] && db.players[t].user) || null;
 require('./admin').attach(app, {
     adminOk, db: () => db, saveSoon, safety, io, rooms, uname, isConnected,
     storage: () => (mongoColl ? 'mongodb' : 'file'), kick: kickUser,
@@ -990,7 +991,7 @@ function addFail(key) {
     if (!f || Date.now() > f.until) loginFails.set(key, { n: 1, until: Date.now() + 10 * 60000 });
     else f.n++;
 }
-const uname = (t) => (db.players[t] && db.players[t].user) || null;
+
 function ensureSocial(rec) {
     rec.friends = rec.friends || [];
     rec.reqIn = rec.reqIn || [];
