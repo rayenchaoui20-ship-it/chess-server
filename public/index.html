@@ -552,7 +552,7 @@
                     <button class="btn" id="snk-roll" data-snk="roll" disabled>🎲 ارمِ النرد</button>
                 </div>
                 <ul class="mp-plist snk-plist" id="snk-plist"></ul>
-                <div id="snk-over" class="hidden"><button class="btn primary block" data-snk="again">لعبة جديدة</button></div>
+                <div id="snk-over" class="hidden"><button class="btn secondary block hidden" id="snk-replay" data-snk="replay">🎬 إعادة المشاهدة</button><button class="btn primary block" data-snk="again">لعبة جديدة</button></div>
             </aside>
         </div>
     </section>
@@ -689,6 +689,7 @@
                     <button id="flip-btn" class="btn ghost" data-action="flipBoard">اقلب اللوحة</button>
                     <button id="sound-btn" class="btn ghost" aria-pressed="true" data-action="toggleSound">الصوت مفعّل</button>
                     <button id="theme-btn" class="btn ghost" data-action="cycleTheme">شكل اللوحة</button>
+                    <button id="pieces-btn" class="btn ghost" data-action="cyclePieces">شكل القطع</button>
                     <button id="report-btn" class="btn ghost hidden" data-action="openReport">🚩 إبلاغ عن اللاعب</button>
                     <button class="btn ghost full" data-action="exitGame">العودة إلى القائمة</button>
                 </div>
