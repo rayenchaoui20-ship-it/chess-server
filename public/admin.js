@@ -63,7 +63,7 @@
   }
   function loadBackups() {
     return api('backups').then(function (r) {
-      $('backups').innerHTML = r.days && r.days.length ? r.days.map(function (d) { return '<button data-a="bk" data-d="' + esc(d) + '" style="margin:6px 0 0 6px">' + esc(d) + '</button>'; }).join('') : '<div class="msg">لا نسخ بعد.</div>';
+      $('backups').innerHTML = r.days && r.days.length ? r.days.map(function (d) { return '<div class="row" style="margin-top:6px"><b dir="ltr" style="min-width:230px">' + esc(d) + '</b><button data-a="bk" data-d="' + esc(d) + '">تنزيل</button><button class="danger" data-a="restore" data-d="' + esc(d) + '">استعادة</button></div>'; }).join('') : '<div class="msg">لا نسخ بعد.</div>';
     });
   }
   function download(day) {
@@ -109,6 +109,15 @@
       if (pw) api('resetpw', { user: u, password: pw }).then(done('تم تعيين كلمة المرور')).catch(fail);
     } else if (a === 'delclub') confirmDo('حذف النادي «' + b.dataset.n + '» وبطولاته نهائيًا؟', function () { api('club-delete', { id: b.dataset.id }).then(done('تم حذف النادي')).catch(fail); });
     else if (a === 'bk') download(b.dataset.d);
+    else if (a === 'restore') {
+      var day = b.dataset.d;
+      var typed = window.prompt('تحذير: الاستعادة تستبدل كل البيانات الحالية بنسخة «' + day + '» وتُخرج كل المتصلين.\nتُحفظ نسخة أمان من الحالة الحالية أولًا.\nللتأكيد اكتب التاريخ كما هو:');
+      if (typed === null) return;
+      api('restore', { day: day, confirm: typed.trim() }).then(function (r) {
+        say(r.ok ? 'تمت الاستعادة: ' + r.accounts + ' حسابًا.' : (r.error || 'فشلت الاستعادة'));
+        all();
+      }).catch(fail);
+    }
   });
 
   if (KEY) enter();
