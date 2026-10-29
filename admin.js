@@ -38,7 +38,8 @@ function attach(app, d) {
             online: d.io.engine.clientsCount, rooms: d.rooms.size,
             clubs: Object.keys(db.clubs || {}).length, tourneys: Object.keys(db.tourneys || {}).length,
             banned: accounts.filter((p) => p.banned).length,
-            uptimeMin: Math.round(process.uptime() / 60)
+            uptimeMin: Math.round(process.uptime() / 60),
+            signupPerDay: d.signupInfo ? d.signupInfo().perDay : null
         });
     });
     api.post('/reports', (req, res) => {
@@ -93,6 +94,11 @@ function attach(app, d) {
         res.json({ ok: true });
     });
     api.post('/backups', async (req, res) => res.json(await d.listBackups()));
+    api.post('/restore', async (req, res) => {
+        const day = String((req.body && req.body.day) || '');
+        if (String(req.body && req.body.confirm) !== day) return res.status(400).json({ ok: false, error: 'التأكيد لا يطابق التاريخ.' });
+        res.json(await d.restore(day));
+    });
     api.post('/backup-now', async (req, res) => res.json({ ok: await d.backupNow() }));
     api.post('/backup-get', async (req, res) => {
         const json = await d.getBackup(String((req.body && req.body.day) || ''));
