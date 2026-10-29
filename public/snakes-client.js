@@ -135,6 +135,7 @@
         var can = g.winner === null && g.turn === last.me && !busy;
         $('#snk-roll').prop('disabled', !can).toggleClass('primary', can);
         $('#snk-over').toggleClass('hidden', g.winner === null);
+        $('#snk-replay').toggleClass('hidden', !(g.winner !== null && g.log && g.log.length));
     }
 
     // ───────── الحركة: نرد ثم خطوات ثم سلم أو ثعبان ─────────
@@ -194,17 +195,61 @@
         })();
     }
 
+    // ───────── إعادة المشاهدة بعد نهاية اللعبة ─────────
+    var rpId = 0;
+    function replayStop(msg) {
+        rpId++;
+        if (!last || !last.game) return;
+        shown = last.game.pos.slice(); busy = false;
+        $('#snk-replay').text('🎬 إعادة المشاهدة');
+        paintTokens(); status();
+        if (msg) $('#snk-msg').text(msg);
+    }
+    function replay() {
+        if (!last || !last.game || last.game.winner === null || !last.game.log || !last.game.log.length) return;
+        if (busy) return replayStop('');            // الضغط أثناء الإعادة = إيقاف
+        var log = last.game.log, id = ++rpId, i = 0;
+        busy = true;
+        shown = last.players.map(function () { return 0; });
+        paintTokens();
+        $('#snk-replay').text('⏹ إيقاف');
+        $('#snk-roll').prop('disabled', true);
+        (function next() {
+            if (id !== rpId) return;
+            if (i >= log.length) return replayStop('🏆 ' + last.players[last.game.winner].name);
+            var e = log[i++], p = e[0], d = e[1], from = e[2], to = e[3];
+            var step = from + d > 100 ? from : from + d;
+            var l = { p: p, d: d, from: from, step: step, to: to, via: to === step ? null : (to > step ? 'ladder' : 'snake') };
+            var who = last.players[p].name;
+            $('#snk-die').text(FACES[d - 1]);
+            $('#snk-status').text('↻ ' + i + ' / ' + log.length);
+            $('#snk-msg').text(who + ': ' + d);
+            sfx('dice');
+            shown[p] = from;
+            walk(l, function () {
+                if (id !== rpId) return;
+                if (!l.via) return setTimeout(next, 350);
+                var tk = $('#snk-tokens > [data-i=' + p + ']');
+                tk.addClass(l.via === 'ladder' ? 'climb' : 'slide');
+                shown[p] = to; paintTokens();
+                sfx(l.via === 'ladder' ? 'jump' : 'wrong');
+                $('#snk-msg').text(l.via === 'ladder' ? '🪜 ' + who + ' → ' + to : '🐍 ' + who + ' → ' + to);
+                setTimeout(function () { tk.removeClass('climb slide'); setTimeout(next, 250); }, JUMP_MS);
+            });
+        })();
+    }
+
     // ───────── أحداث الخادم ─────────
     socket.on('sl_update', function (d) {
         var first = !last;
-        if (!last || last.code !== d.code) { shown = null; seenRolls = -1; busy = false; }
+        if (!last || last.code !== d.code) { shown = null; seenRolls = -1; busy = false; rpId++; }
         last = d;
         err('');
         if (lget('chess-world') === 'snake' && !$('#snk-screen').is(':visible')) APP.show('snk-screen');
         if (first && d.started) { $('#snk-die').text('⚄'); $('#snk-msg').text(''); }
         render();
     });
-    socket.on('sl_none', function () { last = null; shown = null; busy = false; seenRolls = -1; view('home'); });
+    socket.on('sl_none', function () { rpId++; last = null; shown = null; busy = false; seenRolls = -1; view('home'); });
     socket.on('sl_error', function (m) { err(m); });
     socket.on('welcome', function () { socket.emit('sl_rejoin'); });
 
@@ -219,6 +264,7 @@
             if (!c) return err('أدخل كود الغرفة أولًا.');
             socket.emit('sl_join', { code: c });
         } else if (a === 'start') socket.emit('sl_start');
+        else if (a === 'replay') replay();
         else if (a === 'roll') { if (last && last.game && last.game.turn === last.me && !busy) socket.emit('sl_roll'); }
         else if (a === 'leave') {
             if (!last) return APP.show('world-screen');
