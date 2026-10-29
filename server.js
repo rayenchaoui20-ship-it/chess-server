@@ -1023,8 +1023,8 @@ function kickUser(token) {
     const sock = l && l.socketId && io.sockets.sockets.get(l.socketId);
     if (sock) { sock.emit('banned'); sock.disconnect(true); }
 }
+const uname = (t) => (db.players[t] && db.players[t].user) || null;
 require('./admin').attach(app, {
-    const uname = (t) => (db.players[t] && db.players[t].user) || null;
     adminOk, db: () => db, saveSoon, safety, io, rooms, uname, isConnected,
     storage: () => (mongoColl ? 'mongodb' : 'file'), kick: kickUser,
     hashPassword: (pw) => hashPassword(pw), listBackups, getBackup, backupNow: () => backupDb(), restore: restoreBackup, signupInfo: () => ({ perDay: SIGNUP_PER_DAY, ips: signupIps.size })
