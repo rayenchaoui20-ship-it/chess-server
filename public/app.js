@@ -6,14 +6,26 @@
     const I18N = { tag: 'ar', lang: 'ar' };
 
     // ───────────────────────── الثوابت ─────────────────────────
-    const PIECE_THEME = 'https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@master/website/img/chesspieces/wikipedia/{piece}.png';
+    // مجموعات القطع: 'wikipedia' هي الأصل، والباقي من مكتبة lichess على jsDelivr
+    const PIECE_SETS = { wikipedia: 'الكلاسيكية', cburnett: 'سي-بيرنت', merida: 'ميريدا', alpha: 'ألفا', cardinal: 'كاردينال', staunty: 'ستاونتي', pixel: 'بكسل', letter: 'حروف' };
+    const PIECE_IDS = Object.keys(PIECE_SETS);
+    let pieceSet = 'wikipedia';
+    try { const sv = localStorage.getItem('chess-pieces'); if (sv && PIECE_SETS[sv]) pieceSet = sv; } catch (e) { /* */ }
+    function pieceUrl(code, set) {
+        set = set || pieceSet;
+        return set === 'wikipedia'
+            ? 'https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@master/website/img/chesspieces/wikipedia/' + code + '.png'
+            : 'https://cdn.jsdelivr.net/gh/lichess-org/lila@master/public/piece/' + set + '/' + code + '.svg';
+    }
+    const PIECE_THEME = (code) => pieceUrl(code);
+    window.pieceTheme = PIECE_THEME;
     const TCS = {
         '1+0': { base: 60, inc: 0 }, '2+1': { base: 120, inc: 1 },
         '3+0': { base: 180, inc: 0 }, '3+2': { base: 180, inc: 2 }, '5+0': { base: 300, inc: 0 },
         '10+0': { base: 600, inc: 0 }, '15+10': { base: 900, inc: 10 }
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
-    const THEMES = ['classic', 'green', 'brown', 'slate'];
+    const THEMES = ['classic', 'green', 'brown', 'slate', 'coral', 'purple', 'night'];
     const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
@@ -358,6 +370,11 @@
             socket.emit('create_ai_room', { color, level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
         },
         goMenu() { show('menu-screen'); },
+        startDrill(el) {
+            const id = el.dataset.drill;
+            lastAI = { level: 10, tc: '15+10', variant: 'std', drill: id };
+            socket.emit('create_ai_room', { color: 'w', level: 10, tc: '15+10', drill: id });
+        },
         showProfile(el) {
             const u = el && el.dataset && el.dataset.user;
             $('#pf-title').text(u || account || tr('الملف الشخصي'));
@@ -411,7 +428,7 @@
             if (!state || !state.over || spectating) return;
             if (gameMode === 'ai') {
                 if (!lastAI) return;
-                socket.emit('create_ai_room', { color: myColor === 'w' ? 'b' : 'w', level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant });
+                socket.emit('create_ai_room', { color: myColor === 'w' ? 'b' : 'w', level: lastAI.level, tc: lastAI.tc, variant: lastAI.variant, drill: lastAI.drill });
                 return;
             }
             if (rematchSent) return;
@@ -432,6 +449,23 @@
             const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
             document.body.setAttribute('data-theme', next);
             lsSet('chess-theme', next);
+        },
+        cyclePieces() {
+            const next = PIECE_IDS[(PIECE_IDS.indexOf(pieceSet) + 1) % PIECE_IDS.length];
+            // نتأكد أن المجموعة تُحمَّل فعلًا قبل اعتمادها، وإلا نبقى على الحالية
+            const probe = new Image();
+            probe.onload = () => {
+                pieceSet = next;
+                try { localStorage.setItem('chess-pieces', next); } catch (e) { /* */ }
+                $('#board img[data-piece], #pboard img[data-piece], #ls-board img[data-piece]').each(function () {
+                    const el = $(this);
+                    const m = /\/([wb][KQRBNP])\.(png|svg)/.exec(el.attr('src') || '');
+                    if (m) el.attr('src', pieceUrl(m[1]));
+                });
+                gtoast(tr('القطع') + ': ' + tr(PIECE_SETS[next]));
+            };
+            probe.onerror = () => gtoast(tr('تعذّر تحميل هذه القطع، جرّب غيرها.'));
+            probe.src = pieceUrl('wK', next);
         },
         exitGame() {
             const leave = () => { socket.emit('leave_room'); resetToMenu(); };
@@ -751,7 +785,7 @@
         if (legal[0].flags.indexOf('p') !== -1) {
             pendingMove = { from: source, to: target };
             $('#promotion-dialog img').each(function () {
-                $(this).attr('src', PIECE_THEME.replace('{piece}', myColor + $(this).data('piece')));
+                $(this).attr('src', pieceUrl(myColor + $(this).data('piece')));
             });
             $('#promotion-dialog').removeClass('hidden');
             return 'promo';
@@ -1327,7 +1361,7 @@
     function fillCaptured(sel, list, victimColor, ahead) {
         const box = $(sel).empty();
         list.slice().sort((a, b) => PIECE_VALUE[b] - PIECE_VALUE[a]).forEach((t) => {
-            box.append($('<img>').attr({ src: PIECE_THEME.replace('{piece}', victimColor + t.toUpperCase()), alt: '' }));
+            box.append($('<img>').attr({ src: pieceUrl(victimColor + t.toUpperCase()), alt: '' }));
         });
         if (ahead > 0) box.append($('<span class="adv">').text('+' + ahead));
     }
@@ -1482,7 +1516,8 @@
         initBoard();
     });
 
-    socket.on('spectate_start', () => {
+    socket.on('spectate_start', (d) => {
+        if (d && d.delay) setTimeout(() => gtoast(tr('البث متأخر {n} ثانية لمنع الغش.', { n: d.delay })), 600);
         spectating = true;
         gameMode = 'multi';
         myColor = 'w';
@@ -1624,7 +1659,7 @@
         const pad = (n) => String(n).padStart(2, '0');
         const t = TCS[state.tc];
         const g = new Chess();
-        if (state.startFen) g.header('Variant', 'Chess960', 'SetUp', '1', 'FEN', state.startFen);
+        if (state.startFen) g.header(...(state.variant === '960' ? ['Variant', 'Chess960'] : []), 'SetUp', '1', 'FEN', state.startFen);
         g.header('Event', 'Online game', 'Site', location.host, 'Date',
             d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()),
             'White', nm.w || 'Player', 'Black', nm.b || 'Player', 'Result', res,
@@ -1632,7 +1667,7 @@
         let pgnText;
         if (state.startFen) {
             const tags = [['Event', 'Online game'], ['Site', location.host], ['Date', d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate())],
-                ['White', nm.w || 'Player'], ['Black', nm.b || 'Player'], ['Result', res], ['Variant', 'Chess960'], ['SetUp', '1'], ['FEN', state.startFen]];
+                ['White', nm.w || 'Player'], ['Black', nm.b || 'Player'], ['Result', res]].concat(state.variant === '960' ? [['Variant', 'Chess960']] : [], [['SetUp', '1'], ['FEN', state.startFen]]);
             const moves = (state.history || []).map((san, i) => (i % 2 === 0 ? (i / 2 + 1) + '. ' : '') + san).join(' ');
             pgnText = tags.map((t) => '[' + t[0] + ' "' + String(t[1]).replace(/"/g, "'") + '"]').join('\n') + '\n\n' + moves + ' ' + res;
         } else {
