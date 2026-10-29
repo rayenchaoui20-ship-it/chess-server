@@ -26,6 +26,7 @@ function roll(g, i, rnd) {
     else if (SNAKES[to]) { via = 'snake'; g.last = { p: i, d, from, step: to, to: SNAKES[to], via }; to = SNAKES[to]; }
     if (!via) g.last = { p: i, d, from, step: to, to, via: null };
     g.pos[i] = to;
+    (g.log || (g.log = [])).push([i, d, from, to]);   // لإعادة المشاهدة بعد النهاية
     g.rolls++;
     g.last.extra = false;
     if (to === 100) { g.winner = i; return null; }
@@ -35,7 +36,9 @@ function roll(g, i, rnd) {
 }
 
 function publicState(g) {
-    return { pos: g.pos.slice(), turn: g.turn, winner: g.winner, last: g.last, rolls: g.rolls };
+    const st = { pos: g.pos.slice(), turn: g.turn, winner: g.winner, last: g.last, rolls: g.rolls };
+    if (g.winner !== null && g.log) st.log = g.log.slice(0, 600);
+    return st;
 }
 
 function attach(io, { nameOf }) {
