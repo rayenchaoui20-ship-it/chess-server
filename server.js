@@ -235,6 +235,10 @@ function chess960Fen() {
 }
 function resolveVariant(data) { return data && data.variant === '960' ? '960' : 'std'; }
 function freshGame(room) {
+    if (room.drillFen) {                                   // تدريب نهاية: مركز ثابت من القائمة
+        room.startFen = room.drillFen;
+        return Castle960.createGame(Chess, room.drillFen);
+    }
     room.startFen = room.variant === '960' ? chess960Fen() : null;
     return room.startFen ? Castle960.createGame(Chess, room.startFen) : new Chess();
 }
@@ -366,8 +370,31 @@ function publicState(room) {
         rematch: room.rematch
     };
 }
+// المشاهدون يستلمون الحالة متأخرة (افتراضيًا 30 ثانية) حتى لا يمرّروا النقلات إلى اللاعبين
+const SPECTATE_DELAY_MS = Math.max(0, Math.min(120000, parseInt(process.env.SPECTATE_DELAY_MS, 10) >= 0 ? parseInt(process.env.SPECTATE_DELAY_MS, 10) : 30000));
+const specRoom = (room) => room.id + ':s';
 function broadcast(room) {
-    io.to(room.id).emit('state', publicState(room));
+    const st = publicState(room);
+    io.to(room.id).emit('state', st);
+    if (room.type !== 'multi') return;
+    if (!SPECTATE_DELAY_MS) return io.to(specRoom(room)).emit('state', st);
+    const now = Date.now();
+    const log = room.specLog || (room.specLog = []);
+    log.push({ t: now, s: st });
+    // نُبقي اللقطات الأحدث من نافذة التأخير + أقدم لقطة تغطّيها
+    const cut = now - SPECTATE_DELAY_MS;
+    while (log.length > 2 && log[1].t <= cut) log.shift();
+    if (log.length > 400) log.splice(1, log.length - 400);
+    setTimeout(() => { if (!room.closedSpec) io.to(specRoom(room)).emit('state', st); }, SPECTATE_DELAY_MS).unref();
+}
+// أحدث لقطة عمرها بلغ مدة التأخير (أو أقدم لقطة إن كانت المباراة أحدث من ذلك)
+function delayedSnapshot(room) {
+    if (!SPECTATE_DELAY_MS) return publicState(room);
+    const log = room.specLog || [];
+    const cut = Date.now() - SPECTATE_DELAY_MS;
+    let pick = log[0];
+    for (const e of log) if (e.t <= cut) pick = e;
+    return pick ? pick.s : publicState(room);
 }
 
 function closeRoom(room) {
@@ -375,6 +402,8 @@ function closeRoom(room) {
     clearTimeout(room.timer);
     room.closed = true;
     io.to(room.id).emit('room_closed');
+    const sr = specRoom(room);
+    setTimeout(() => { room.closedSpec = true; io.to(sr).emit('room_closed'); io.in(sr).socketsLeave(sr); }, SPECTATE_DELAY_MS).unref();
     for (const t of room.spectators) {
         const l = live.get(t);
         if (l) l.specId = null;
@@ -626,7 +655,7 @@ function leaveRoom(token, forfeit) {
     const s = socketOf(token);
     if (s) {
         if (room) s.leave(room.id);
-        if (spec) s.leave(spec.id);
+        if (spec) s.leave(specRoom(spec));
     }
     if (!room) return;
 
@@ -844,20 +873,27 @@ app.get('/admin/mute', (req, res) => {
 // ───── نسخ احتياطي يومي (آخر 7 نسخ) + تنزيل يدوي للمشرف ─────
 const BACKUP_KEEP = 7;
 const dayKey = () => new Date().toISOString().slice(0, 10);
-async function backupDb() {
-    const day = dayKey();
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PRE_RE = /^pre-restore-\d{8}-\d{6}$/;             // نسخة أمان تُحفظ قبل أي استعادة
+const validBackupKey = (k) => DAY_RE.test(k) || PRE_RE.test(k);
+const PRE_KEEP = 3;
+async function backupDb(key) {
+    const day = key || dayKey();
     const json = JSON.stringify(db);
     try {
         if (mongoColl) {
             const bk = mongoDbRef.collection('backups');
             await bk.updateOne({ _id: day }, { $set: { json, at: Date.now() } }, { upsert: true });
-            const old = await bk.find({}, { projection: { _id: 1 } }).sort({ _id: -1 }).skip(BACKUP_KEEP).toArray();
-            if (old.length) await bk.deleteMany({ _id: { $in: old.map((d) => d._id) } });
+            const ids = (await bk.find({}, { projection: { _id: 1 } }).toArray()).map((d) => d._id);
+            const drop = [...ids.filter((i) => DAY_RE.test(i)).sort().reverse().slice(BACKUP_KEEP), ...ids.filter((i) => PRE_RE.test(i)).sort().reverse().slice(PRE_KEEP)];
+            if (drop.length) await bk.deleteMany({ _id: { $in: drop } });
         } else {
             const dir = path.join(DATA_DIR, 'backups');
             fs.mkdirSync(dir, { recursive: true });
             fs.writeFileSync(path.join(dir, day + '.json'), json);
-            fs.readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort().reverse().slice(BACKUP_KEEP).forEach((f) => { try { fs.unlinkSync(path.join(dir, f)); } catch (e) { /* */ } });
+            const fs_ = fs.readdirSync(dir).filter((f) => /\.json$/.test(f)).map((f) => f.slice(0, -5));
+            [...fs_.filter((i) => DAY_RE.test(i)).sort().reverse().slice(BACKUP_KEEP), ...fs_.filter((i) => PRE_RE.test(i)).sort().reverse().slice(PRE_KEEP)]
+                .forEach((i) => { try { fs.unlinkSync(path.join(dir, i + '.json')); } catch (e) { /* */ } });
         }
         console.log('Backup saved: ' + day + ' (' + Math.round(json.length / 1024) + ' KB)');
         return true;
@@ -870,15 +906,16 @@ function startBackups() {
 async function listBackups() {
     try {
         let days;
-        if (mongoColl) days = (await mongoDbRef.collection('backups').find({}, { projection: { _id: 1 } }).sort({ _id: -1 }).toArray()).map((x) => x._id);
-        else { try { days = fs.readdirSync(path.join(DATA_DIR, 'backups')).filter((f) => /\.json$/.test(f)).map((f) => f.slice(0, -5)).sort().reverse(); } catch (e) { days = []; } }
+        if (mongoColl) days = (await mongoDbRef.collection('backups').find({}, { projection: { _id: 1 } }).toArray()).map((x) => x._id);
+        else { try { days = fs.readdirSync(path.join(DATA_DIR, 'backups')).filter((f) => /\.json$/.test(f)).map((f) => f.slice(0, -5)); } catch (e) { days = []; } }
+        days = days.filter(validBackupKey).sort().reverse();
         return { ok: true, storage: mongoColl ? 'mongodb' : 'file', days };
     } catch (e) { return { ok: false, error: e.message }; }
 }
 async function getBackup(day) {
     try {
         if (!day) return JSON.stringify(db);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+        if (!validBackupKey(day)) return null;
         if (mongoColl) { const x = await mongoDbRef.collection('backups').findOne({ _id: day }); return x && x.json; }
         return fs.readFileSync(path.join(DATA_DIR, 'backups', day + '.json'), 'utf8');
     } catch (e) { return null; }
@@ -890,7 +927,7 @@ app.get('/admin/backup', async (req, res) => {
     try {
         let json = null;
         if (!day) json = JSON.stringify(db);
-        else if (/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        else if (validBackupKey(day)) {
             if (mongoColl) { const d = await mongoDbRef.collection('backups').findOne({ _id: day }); json = d && d.json; }
             else { try { json = fs.readFileSync(path.join(DATA_DIR, 'backups', day + '.json'), 'utf8'); } catch (e) { json = null; } }
         }
@@ -925,6 +962,60 @@ app.post('/admin/resetpw', express.json({ limit: '2kb' }), async (req, res) => {
     saveSoon();
     res.json({ ok: true });
 });
+// ───── استعادة نسخة احتياطية ─────
+const countAccounts = (o) => Object.values((o && o.players) || {}).filter((p) => p && p.user).length;
+function normalizeDb(o) {
+    if (!o.users || typeof o.users !== 'object') o.users = {};
+    if (!o.clubs || typeof o.clubs !== 'object') o.clubs = {};
+    if (!o.tourneys || typeof o.tourneys !== 'object') o.tourneys = {};
+    return o;
+}
+// opts.safety: احفظ الحالة الحالية أولًا · opts.kick: اطرد المتصلين ليعيدوا الاتصال بالبيانات الجديدة
+async function restoreFromJson(json, opts) {
+    let o;
+    try { o = JSON.parse(json); } catch (e) { return { ok: false, error: 'ملف النسخة تالف.' }; }
+    if (!o || typeof o !== 'object' || !o.players || typeof o.players !== 'object' || Array.isArray(o.players)) return { ok: false, error: 'ملف النسخة غير صالح.' };
+    if (opts && opts.safety) {
+        const d = new Date();
+        const p2 = (n) => String(n).padStart(2, '0');
+        const stamp = d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()) + '-' + p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + p2(d.getUTCSeconds());
+        if (!(await backupDb('pre-restore-' + stamp))) return { ok: false, error: 'تعذّر حفظ نسخة أمان قبل الاستعادة، أُلغيت العملية.' };
+    }
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+    if (opts && opts.kick) {
+        for (const r of [...rooms.values()]) { try { closeRoom(r); } catch (e) { /* */ } }
+        live.clear();
+    }
+    db = normalizeDb(o);
+    dirty = true;
+    await flushDb();
+    if (opts && opts.kick) { try { io.disconnectSockets(true); } catch (e) { /* */ } try { tourneys.resume(); } catch (e) { /* */ } }
+    console.log('Restored backup: ' + countAccounts(db) + ' accounts');
+    return { ok: true, accounts: countAccounts(db), players: Object.keys(db.players).length };
+}
+async function restoreBackup(key) {
+    if (!validBackupKey(String(key || ''))) return { ok: false, error: 'تاريخ غير صالح.' };
+    const json = await getBackup(key);
+    if (!json) return { ok: false, error: 'لا توجد نسخة بهذا التاريخ.' };
+    return restoreFromJson(json, { safety: true, kick: true });
+}
+// عند التشغيل: إن كانت القاعدة فارغة بلا حسابات وتوجد نسخة تحوي حسابات، نستعيد أحدثها تلقائيًا
+async function autoRestoreIfEmpty() {
+    if (process.env.AUTO_RESTORE === '0' || countAccounts(db) > 0) return;
+    try {
+        const l = await listBackups();
+        for (const day of (l.days || []).filter((x) => DAY_RE.test(x))) {
+            const json = await getBackup(day);
+            let n = 0;
+            try { n = countAccounts(JSON.parse(json)); } catch (e) { n = 0; }
+            if (n > 0) {
+                const r = await restoreFromJson(json, {});
+                console.warn('AUTO-RESTORE: القاعدة كانت بلا حسابات، استُعيدت نسخة ' + day + ' (' + (r.accounts || 0) + ' حسابًا)');
+                return;
+            }
+        }
+    } catch (e) { console.error('Auto-restore failed:', e.message); }
+}
 // طرد لاعب موقوف فورًا
 function kickUser(token) {
     try { removeFromQueues(token); leaveRoom(token, true); } catch (e) { /* */ }
@@ -932,11 +1023,10 @@ function kickUser(token) {
     const sock = l && l.socketId && io.sockets.sockets.get(l.socketId);
     if (sock) { sock.emit('banned'); sock.disconnect(true); }
 }
-const uname = (t) => (db.players[t] && db.players[t].user) || null;
 require('./admin').attach(app, {
     adminOk, db: () => db, saveSoon, safety, io, rooms, uname, isConnected,
     storage: () => (mongoColl ? 'mongodb' : 'file'), kick: kickUser,
-    hashPassword: (pw) => hashPassword(pw), listBackups, getBackup, backupNow: () => backupDb()
+    hashPassword: (pw) => hashPassword(pw), listBackups, getBackup, backupNow: () => backupDb(), restore: restoreBackup, signupInfo: () => ({ perDay: SIGNUP_PER_DAY, ips: signupIps.size })
 });
 app.get('/healthz', (req, res) => res.json({ ok: true, rooms: rooms.size, online: io.engine.clientsCount }));
 app.get('/api/leaderboard', (req, res) => res.json({ cat: req.query.cat, rows: leaderboard(String(req.query.cat || 'blitz')) }));
@@ -979,6 +1069,29 @@ function validateCreds(u, pw) {
     if (pw.length > 100) return 'كلمة المرور طويلة جدًا.';
     return null;
 }
+// حدّ إنشاء الحسابات من العنوان الواحد (يمنع الحسابات الوهمية الجماعية)
+const SIGNUP_PER_DAY = Math.max(1, parseInt(process.env.SIGNUP_PER_DAY, 10) || 5);
+const SIGNUP_GLOBAL_PER_HOUR = 120;
+const signupIps = new Map();              // عنوان -> أوقات الإنشاء خلال 24 ساعة
+let signupAll = [];
+function clientIp(socket) {
+    const x = String(socket.handshake.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return x || socket.handshake.address || '?';
+}
+function signupBlocked(ip) {
+    const now = Date.now();
+    signupAll = signupAll.filter((t) => now - t < 3600e3);
+    if (signupAll.length >= SIGNUP_GLOBAL_PER_HOUR) return true;
+    const a = (signupIps.get(ip) || []).filter((t) => now - t < 86400e3);
+    if (a.length) signupIps.set(ip, a); else signupIps.delete(ip);
+    return a.length >= SIGNUP_PER_DAY;
+}
+function signupNote(ip) {
+    const now = Date.now();
+    signupAll.push(now);
+    signupIps.set(ip, [...(signupIps.get(ip) || []), now]);
+    if (signupIps.size > 5000) { for (const [k, v] of signupIps) if (!v.some((t) => now - t < 86400e3)) signupIps.delete(k); }
+}
 const loginFails = new Map();           // مفتاح -> { n, until }
 function tooManyFails(key) {
     const f = loginFails.get(key);
@@ -991,7 +1104,7 @@ function addFail(key) {
     if (!f || Date.now() > f.until) loginFails.set(key, { n: 1, until: Date.now() + 10 * 60000 });
     else f.n++;
 }
-
+const uname = (t) => (db.players[t] && db.players[t].user) || null;
 function ensureSocial(rec) {
     rec.friends = rec.friends || [];
     rec.reqIn = rec.reqIn || [];
@@ -1376,12 +1489,15 @@ io.on('connection', (socket) => {
         data = data || {};
         const tcId = resolveTc(data);
         if (!tcId) return socket.emit('room_error', 'نظام الوقت غير صالح.');
-        const color = data.color === 'b' ? 'b' : 'w';
+        const color = data.drill ? 'w' : (data.color === 'b' ? 'b' : 'w');
         const level = Math.min(15, Math.max(1, parseInt(data.level, 10) || 8));
 
         removeFromQueues(ctx.token);
         leaveRoom(ctx.token, true);
-        const room = newRoom('ai', tcId, resolveVariant(data));
+        const drill = data.drill ? require('./drills').byId(data.drill) : null;
+        if (data.drill && !drill) return socket.emit('room_error', 'التدريب غير موجود.');
+        const room = newRoom('ai', tcId, drill ? 'std' : resolveVariant(data));
+        if (drill) { room.drillFen = drill.fen; room.drill = drill.id; room.game = freshGame(room); }
         room.matched = true;
         room.aiLevel = level;
         room.aiColor = other(color);
@@ -1402,9 +1518,9 @@ io.on('connection', (socket) => {
         leaveRoom(ctx.token, true);
         ctx.l.specId = room.id;
         room.spectators.add(ctx.token);
-        socket.join(room.id);
-        socket.emit('spectate_start', { roomId: room.id, tc: room.tcId, rated: room.rated });
-        socket.emit('state', publicState(room));
+        socket.join(specRoom(room));
+        socket.emit('spectate_start', { roomId: room.id, tc: room.tcId, rated: room.rated, delay: Math.round(SPECTATE_DELAY_MS / 1000) });
+        socket.emit('state', delayedSnapshot(room));
         broadcast(room);
     });
 
@@ -1544,6 +1660,8 @@ io.on('connection', (socket) => {
         const token = ctx.token;
         const rec = db.players[token];
         if (rec.user) return socket.emit('auth_error', 'لديك حساب بالفعل.');
+        const ip = clientIp(socket);
+        if (signupBlocked(ip)) return socket.emit('auth_error', 'أُنشئت حسابات كثيرة من هذا الجهاز اليوم. حاول غدًا أو سجّل الدخول بحسابك.');
         const u = cleanUser(data.username);
         const pw = typeof data.password === 'string' ? data.password : '';
         const err = validateCreds(u, pw);
@@ -1554,6 +1672,7 @@ io.on('connection', (socket) => {
         try { h = await hashPassword(pw); } catch (e) { return socket.emit('auth_error', 'تعذّر إنشاء الحساب، حاول مرة أخرى.'); }
         if (db.users[u.toLowerCase()]) return socket.emit('auth_error', 'اسم المستخدم مستخدم، اختر اسمًا آخر.');
         if (!playerCtx(socket) || playerCtx(socket).token !== token) return;
+        signupNote(ip);
         rec.user = u;
         rec.pass = h;
         rec.name = u;
@@ -1758,6 +1877,7 @@ io.on('connection', (socket) => {
 // ───────────────────────── التشغيل والإيقاف ─────────────────────────
 async function start(port) {
     await loadDb();
+    await autoRestoreIfEmpty();
     tourneys.resume();
     startBackups();
     return new Promise((resolve) => {
