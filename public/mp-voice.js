@@ -47,12 +47,14 @@
     function renderClubRoomSafe() { try { if (typeof renderClubRoom === 'function') renderClubRoom(); } catch (e) { /* */ } }
     function buttons() {
         var st = Mono.state && Mono.state();
-        $('#mp-voice').toggleClass('hidden', !st).text(joined ? '📴 ' + T('اترك الصوت') : '🎙 ' + T('انضم للصوت')).attr('aria-pressed', String(joined));
-        $('#mp-reactbar').toggleClass('hidden', !st);
-        $('#mp-invite, #mp-share').toggleClass('hidden', !st);
+        // ضد الحاسوب وحدك: لا معنى للصوت ولا للتفاعلات ولا للدعوات
+        var solo = !!st && !!st.started && (st.players || []).filter(function (p) { return !p.bot; }).length < 2;
+        $('#mp-voice').toggleClass('hidden', !st || solo).text(joined ? '📴 ' + T('اترك الصوت') : '🎙 ' + T('انضم للصوت')).attr('aria-pressed', String(joined));
+        $('#mp-reactbar').toggleClass('hidden', !st || solo);
+        $('#mp-invite, #mp-share').toggleClass('hidden', !st || solo);
         if (!st) $('#mp-invite-box').addClass('hidden');
         renderClubRoomSafe();
-        $('#mp-mic').toggleClass('hidden', !joined).text(muted ? '🔇 ' + T('مكتوم') : '🎤 ' + T('يعمل')).attr('aria-pressed', String(!muted));
+        $('#mp-mic').toggleClass('hidden', !joined || solo).text(muted ? '🔇 ' + T('مكتوم') : '🎤 ' + T('يعمل')).attr('aria-pressed', String(!muted));
     }
     function decorate() {
         buttons();
