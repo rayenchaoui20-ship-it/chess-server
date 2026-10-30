@@ -139,7 +139,12 @@ function init(deps) {
         deps.emitTo(token, 'tourneys', { now: now(), list: visibleTo(token).map((t) => summary(t, token)) });
     }
     function push(t) { audience(t).forEach(pushTo); }
-    function notify(tokens, text) { tokens.forEach((x) => deps.emitTo(x, 'notify', { text })); }
+    function notify(tokens, text) {
+        tokens.forEach((x) => {
+            deps.emitTo(x, 'notify', { text });
+            if (deps.pushOffline) { try { deps.pushOffline(x, { title: '🏆 بطولة النادي', body: text, url: '/' }); } catch (e) { /* اختياري */ } }
+        });
+    }
 
     // ───── دورة الحياة ─────
     function schedule(t, bi) {
