@@ -160,6 +160,7 @@ function eloUpdate(room, result) {
     rw.r = Math.max(100, rw.r + dw); rw.n++;
     rb.r = Math.max(100, rb.r + db_); rb.n++;
     ach.pushRating(pw, cat); ach.pushRating(pb, cat);
+    season.countGame(pw, Date.now()); season.countGame(pb, Date.now());
     pw.games++; pb.games++;
     if (sw === 1) { pw.w++; pb.l++; } else if (sw === 0) { pw.l++; pb.w++; } else { pw.d++; pb.d++; }
     saveSoon();
@@ -190,6 +191,25 @@ function resolveTc(data) {
 }
 
 const ach = require('./achievements');
+const daily = require('./daily');
+const season = require('./season');
+const pushSvc = require('./push').init({ log: (m) => console.log(m) });
+// إشعار للهاتف. pushTo: دائمًا · pushOffline: فقط إن كان صاحبه غير متصل الآن
+async function pushTo(token, payload) {
+    const rec = db.players[token];
+    if (!pushSvc.enabled || !rec || !Array.isArray(rec.push) || !rec.push.length) return;
+    const dead = [];
+    for (const sub of rec.push.slice()) {
+        const r = await pushSvc.send(sub, payload);
+        if (r === 'gone') dead.push(sub.endpoint);
+    }
+    if (dead.length) { rec.push = rec.push.filter((x) => !dead.includes(x.endpoint)); saveSoon(); }
+}
+function pushOffline(token, payload) {
+    const l = live.get(token);
+    if (l && l.socketId) return;
+    pushTo(token, payload).catch(() => {});
+}
 function awardFor(token) {
     const rec = db.players[token];
     if (!rec || !rec.user) return;
@@ -1023,9 +1043,8 @@ function kickUser(token) {
     const sock = l && l.socketId && io.sockets.sockets.get(l.socketId);
     if (sock) { sock.emit('banned'); sock.disconnect(true); }
 }
-const uname = (t) => (db.players[t] && db.players[t].user) || null;
 require('./admin').attach(app, {
-    adminOk, db: () => db, saveSoon, safety, io, rooms, uname, isConnected,
+    adminOk, db: () => db, saveSoon, safety, io, rooms, uname: (t) => uname(t), isConnected: (t) => isConnected(t),
     storage: () => (mongoColl ? 'mongodb' : 'file'), kick: kickUser,
     hashPassword: (pw) => hashPassword(pw), listBackups, getBackup, backupNow: () => backupDb(), restore: restoreBackup, signupInfo: () => ({ perDay: SIGNUP_PER_DAY, ips: signupIps.size })
 });
@@ -1105,6 +1124,7 @@ function addFail(key) {
     if (!f || Date.now() > f.until) loginFails.set(key, { n: 1, until: Date.now() + 10 * 60000 });
     else f.n++;
 }
+const uname = (t) => (db.players[t] && db.players[t].user) || null;
 function ensureSocial(rec) {
     rec.friends = rec.friends || [];
     rec.reqIn = rec.reqIn || [];
@@ -1162,7 +1182,10 @@ function sendWelcome(socket, token, rec) {
     socket.emit('welcome', {
         token, name: rec.name, user: rec.user || null,
         ratings: publicRatings(token), online: io.engine.clientsCount,
-        pz: rec.user && rec.pz ? rec.pz : null
+        pz: rec.user && rec.pz ? rec.pz : null,
+        dc: rec.user ? { streak: daily.liveStreak(rec, Date.now()), best: (rec.dc && rec.dc.best) || 0, solved: daily.solvedToday(rec, Date.now()), last: (rec.dc && rec.dc.last) || '' } : null,
+        season: { id: season.seasonId(Date.now()), daysLeft: season.daysLeft(Date.now()) },
+        vapid: pushSvc.publicKey, push: !!(rec.push && rec.push.length)
     });
 }
 
@@ -1244,6 +1267,7 @@ const clubs = require('./clubs').init({
 // بطولات النوادي (سويسرية / إقصائية)
 const tourneys = require('./tournaments').init({
     getDb: () => db, saveSoon, playerCtx, emitTo, uname, statusOf, safety,
+    pushOffline,
     onChampion: (t) => { const r = db.players[t]; if (r) { r.champ = (r.champ || 0) + 1; awardFor(t); } },
     ratingOf: (t) => ratingOf(t, 'blitz'),
     clubOf: (t) => require('./clubs').clubOf(db, t),
@@ -1273,7 +1297,40 @@ const monoRoom = require('./monoroom').init({
     socketIdOf: (t) => (live.get(t) && live.get(t).socketId) || null
 });
 require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
-require('./snakes').attach(io, { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
+// إحصاءات سلم وثعبان: rec.sl = { g ألعاب, w فوز, wh فوز على بشر, lad سلالم, snk لدغات, maxLad أكثر سلالم في لعبة, big لدغات كبيرة مع فوز }
+function slRecord(results) {
+    for (const r of results) {
+        const rec = db.players[r.token];
+        if (!rec || !rec.user) continue;
+        const sl = rec.sl = rec.sl || { g: 0, w: 0, wh: 0, lad: 0, snk: 0, maxLad: 0, big: 0 };
+        sl.g++;
+        sl.lad += r.lad; sl.snk += r.snk;
+        sl.maxLad = Math.max(sl.maxLad || 0, r.lad);
+        if (r.win) { sl.w++; if (r.humans >= 2) sl.wh = (sl.wh || 0) + 1; if (r.big) sl.big = (sl.big || 0) + 1; }
+        awardFor(r.token);
+    }
+    saveSoon();
+}
+let slTopCache = { at: 0, rows: [] };
+function slTop() {
+    if (Date.now() - slTopCache.at < 20000) return slTopCache.rows;
+    const rows = Object.values(db.players).filter((p) => p.user && p.sl && p.sl.wh > 0)
+        .map((p) => ({ user: p.user, w: p.sl.wh, g: p.sl.g }))
+        .sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 20);
+    slTopCache = { at: Date.now(), rows };
+    return rows;
+}
+require('./snakes').attach(io, {
+    nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب',
+    onEnd: slRecord, top: slTop, uname, statusOf, emitTo,
+    userToken: (n) => db.users[String(n || '').toLowerCase().replace(/^@/, '').slice(0, 20)] || null,
+    clubOf: (t) => require('./clubs').clubOf(db, t),
+    canInvite: (a, b) => {
+        const ra = db.players[a];
+        const c = require('./clubs').clubOf(db, a);
+        return !!(ra && ra.user && ((ra.friends || []).includes(b) || (c && c.members.includes(b))));
+    }
+});
 
 // أحداث مسموحة قبل تسجيل الدخول
 const LOGIN_OPEN = new Set(['hello', 'register', 'login', 'reset_password', 'logout', 'get_online', 'leaderboard']);
@@ -1377,6 +1434,45 @@ io.on('connection', (socket) => {
         p.online = isConnected(want);
         if (!p.me) { p.recent = []; }           // مباريات الغير خاصة
         socket.emit('profile', p);
+    });
+    // ───── لغز اليوم: الخادم يقيس الزمن ويحفظ الترتيب والسلسلة ─────
+    socket.on('daily_start', () => {
+        const a = acct();
+        if (!a) return;
+        const today = daily.dayStr(Date.now());
+        if (!socket.data.dStart || socket.data.dStart.day !== today) socket.data.dStart = { day: today, t: Date.now() };   // إعادة البدء لا تصفّر الساعة
+    });
+    socket.on('daily_done', (d) => {
+        const a = acct();
+        const ds = socket.data.dStart;
+        const now = Date.now();
+        if (!a || !ds || ds.day !== daily.dayStr(now)) return socket.emit('daily_res', { ok: false });
+        const r = daily.record(db, a.rec, now - ds.t, d && d.mistakes, now);
+        if (r.ok && !r.already) { saveSoon(); awardFor(a.ctx.token); }
+        socket.emit('daily_res', r);
+    });
+    socket.on('daily_top', () => {
+        const a = acct();
+        if (!a) return;
+        const now = Date.now();
+        socket.emit('daily_top', Object.assign(daily.top(db, now, a.rec.user), { streak: daily.liveStreak(a.rec, now), solved: daily.solvedToday(a.rec, now) }));
+    });
+    // ───── إشعارات الهاتف ─────
+    socket.on('push_sub', (sub) => {
+        const a = acct();
+        const v = require('./push').validSub(sub);
+        if (!a || !v || !pushSvc.enabled) return socket.emit('push_state', { on: false, error: 'الإشعارات غير مفعّلة على الخادم.' });
+        a.rec.push = [v].concat((a.rec.push || []).filter((x) => x.endpoint !== v.endpoint)).slice(0, 3);
+        saveSoon();
+        socket.emit('push_state', { on: true });
+        pushTo(a.ctx.token, { title: '🔔 تم تفعيل الإشعارات', body: 'سنخبرك بالبطولات وطلبات الصداقة وتذكير لغز اليوم.', url: '/' }).catch(() => {});
+    });
+    socket.on('push_unsub', () => {
+        const a = acct();
+        if (!a) return;
+        a.rec.push = [];
+        saveSoon();
+        socket.emit('push_state', { on: false });
     });
     socket.on('pz_save', (d) => {
         const a = acct();
@@ -1814,6 +1910,7 @@ io.on('connection', (socket) => {
             a.rec.reqOut.push(target);
             other_.reqIn.push(a.token);
             emitTo(target, 'notify', { text: 'طلب صداقة جديد من ' + a.rec.user });
+            pushOffline(target, { title: '👋 طلب صداقة', body: a.rec.user + ' يريد أن يصادقك', url: '/' });
         }
         saveSoon();
         pushFriends(a.token);
@@ -1874,12 +1971,56 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => onDisconnect(socket));
 });
 
+// ───── الموسم الشهري وتذكير لغز اليوم ─────
+const stampNow = () => {
+    const d = new Date();
+    const p2 = (n) => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()) + '-' + p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + p2(d.getUTCSeconds());
+};
+async function checkSeason() {
+    try {
+        const now = Date.now();
+        if (db.season && db.season.id !== season.seasonId(now)) await backupDb('pre-restore-' + stampNow());   // نسخة أمان قبل تقريب التصنيفات
+        const r = season.rollover(db, now, CATEGORIES);
+        if (!r) return;
+        saveSoon();
+        console.log('Season ended: ' + r.prev + ' · awards ' + r.awards.length + ' · ratings softened ' + r.reset);
+        const CN = { bullet: 'الرصاصة', blitz: 'الخاطف', rapid: 'السريع' };
+        r.awards.forEach((x) => {
+            const text = season.MEDAL[x.rank - 1] + ' فزت بالمركز ' + x.rank + ' في ' + CN[x.cat] + ' لموسم ' + x.season + '!';
+            emitTo(x.token, 'notify', { text });
+            pushOffline(x.token, { title: '🏅 شارة الموسم', body: text, url: '/' });
+            awardFor(x.token);
+        });
+    } catch (e) { console.error('Season check failed:', e.message); }
+}
+// تذكير ظهرًا (17:00 UTC) لمن فعّل الإشعارات ولم يحلّ لغز اليوم
+async function dailyReminders() {
+    try {
+        const now = Date.now();
+        const today = daily.dayStr(now);
+        if (!pushSvc.enabled || new Date(now).getUTCHours() < 17 || db.remindDay === today) return;
+        db.remindDay = today;
+        saveSoon();
+        for (const [t, p] of Object.entries(db.players)) {
+            if (!p.user || !Array.isArray(p.push) || !p.push.length || daily.solvedToday(p, now)) continue;
+            const st = daily.liveStreak(p, now);
+            pushOffline(t, { title: '🧩 لغز اليوم جاهز', body: st ? 'سلسلتك ' + st + ' يوم 🔥 لا تدعها تنقطع!' : 'حلّه الآن وانظر ترتيبك بين اللاعبين.', url: '/' });
+        }
+    } catch (e) { console.error('Reminder failed:', e.message); }
+}
+function startPeriodic() {
+    checkSeason();
+    setInterval(() => { checkSeason(); dailyReminders(); }, 3600 * 1000).unref();
+}
+
 // ───────────────────────── التشغيل والإيقاف ─────────────────────────
 async function start(port) {
     await loadDb();
     await autoRestoreIfEmpty();
     tourneys.resume();
     startBackups();
+    startPeriodic();
     return new Promise((resolve) => {
         server.listen(port === undefined ? PORT : port, () => {
             console.log(`Server running on port ${server.address().port}`);
