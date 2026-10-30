@@ -322,3 +322,31 @@ html[dir="rtl"] .mode-row.primary::after { -webkit-mask-image: linear-gradient(t
 .pf-a small{font-size:11px;opacity:.75;line-height:1.35}
 .pf-a.locked{border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.03);filter:grayscale(1);opacity:.55}
 #fr-list .nm,#club-members .nm{text-decoration:underline dotted rgba(255,255,255,.3);text-underline-offset:3px}
+
+/* ───── سلم وثعبان: أنماط، خانات خاصة، مظهر ───── */
+.snk-c.sp { position: absolute; }
+.snk-c .spi { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: clamp(.9rem, 3.8vw, 1.7rem); opacity: .95; pointer-events: none; }
+.snk-c.sp-again { background: #2d4a3a; }
+.snk-c.sp-back { background: #4d3140; }
+.snk-c.sp-shield { background: #2d3f5e; box-shadow: inset 0 0 0 1px rgba(88,121,174,.8); }
+.snk-tk.tk-hex, .snk-tk.tk-diamond, .snk-tk.tk-star, .snk-tk.tk-shield { border: 0; border-radius: 0; box-shadow: none; width: 4.4%; background: var(--ring, #fff) !important; }
+.snk-tk.tk-hex { clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%); }
+.snk-tk.tk-diamond { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.snk-tk.tk-star { clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); }
+.snk-tk.tk-shield { clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); }
+.snk-tk.tk-hex::after, .snk-tk.tk-diamond::after, .snk-tk.tk-star::after, .snk-tk.tk-shield::after { content: ''; position: absolute; inset: 16%; background: var(--tkc, #888); clip-path: inherit; }
+.snk-die.die-gold { background: linear-gradient(145deg, #f7d56b, #b8862b); color: #3a2a05; border-color: #f7d56b; }
+.snk-die.die-neon { background: #0b1220; color: #6bf3ff; text-shadow: 0 0 8px #6bf3ff; border-color: #6bf3ff; box-shadow: 0 0 12px rgba(107, 243, 255, .5); }
+.snk-skin { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.snk-skin summary { cursor: pointer; font-weight: 600; }
+.snk-skin .field { margin-bottom: 6px; }
+#snk-searching { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#snk-searching.hidden { display: none; }
+#snk-top .rt { font-variant-numeric: tabular-nums; }
+
+/* ───── ترتيب لغز اليوم والشارات ───── */
+#daily-list li.me { background: var(--gold-soft); border-radius: 8px; }
+#daily-list .rt { font-variant-numeric: tabular-nums; direction: ltr; }
+.pf-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-badges:empty { display: none; }
+.pf-badge { background: var(--gold-soft); border: 1px solid var(--gold); border-radius: 999px; padding: 2px 12px; font-size: .85rem; font-weight: 600; }
