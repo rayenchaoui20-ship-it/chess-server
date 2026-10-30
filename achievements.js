@@ -17,6 +17,14 @@ const DEFS = [
     { id: 'puzzle_streak_10', icon: '🔥', title: 'عشرة بلا خطأ', desc: 'احلل 10 ألغاز متتالية من أول محاولة.', test: (r) => !!(r.pz && r.pz.k >= 10) },
     { id: 'friend_first', icon: '🤝', title: 'أول صديق', desc: 'أضف صديقًا إلى قائمتك.', test: (r) => (r.friends || []).length >= 1 },
     { id: 'club_member', icon: '🛡', title: 'ابن النادي', desc: 'انضم إلى نادٍ.', test: (r, c) => !!(c && c.club) },
+    { id: 'sl_first', icon: '🎲', title: 'أول فوز في السلم', desc: 'اربح لعبة سلم وثعبان.', test: (r) => !!(r.sl && r.sl.w >= 1) },
+    { id: 'sl_wins_10', icon: '🪜', title: 'سيد السلالم', desc: 'اربح 10 ألعاب سلم وثعبان.', test: (r) => !!(r.sl && r.sl.w >= 10) },
+    { id: 'sl_ladders3', icon: '🧗', title: 'متسلّق', desc: 'اصعد 3 سلالم في لعبة واحدة.', test: (r) => !!(r.sl && r.sl.maxLad >= 3) },
+    { id: 'sl_big_snake', icon: '🐍', title: 'نجا من الثعبان الكبير', desc: 'اربح لعبة بعد أن لدغك ثعبان طويل.', test: (r) => !!(r.sl && r.sl.big >= 1) },
+    { id: 'sl_games_25', icon: '🎮', title: 'عاشق النرد', desc: 'العب 25 لعبة سلم وثعبان.', test: (r) => !!(r.sl && r.sl.g >= 25) },
+    { id: 'daily_7', icon: '📅', title: 'أسبوع من الألغاز', desc: 'احلل لغز اليوم 7 أيام متتالية.', test: (r) => !!(r.dc && r.dc.best >= 7) },
+    { id: 'daily_30', icon: '🔥', title: 'شهر بلا انقطاع', desc: 'احلل لغز اليوم 30 يومًا متتالية.', test: (r) => !!(r.dc && r.dc.best >= 30) },
+    { id: 'season_badge', icon: '🏅', title: 'نجم الموسم', desc: 'احصل على شارة أفضل 3 في موسم شهري.', test: (r) => Array.isArray(r.badges) && r.badges.length >= 1 },
     { id: 'champion', icon: '🏆', title: 'بطل بطولة', desc: 'افز ببطولة في ناديك.', test: (r) => (r.champ || 0) >= 1 }
 ];
 const BY_ID = Object.fromEntries(DEFS.map((d) => [d.id, d]));
@@ -62,6 +70,9 @@ function profile(rec, ctx) {
         club: (ctx && ctx.clubName) || null,
         pz: { rating: rec.pz ? rec.pz.r : null, solved: solved(rec), streak: rec.pz ? rec.pz.k || 0 : 0 },
         champ: rec.champ || 0,
+        daily: { streak: require('./daily').liveStreak(rec, Date.now()), best: (rec.dc && rec.dc.best) || 0, n: (rec.dc && rec.dc.n) || 0 },
+        badges: Array.isArray(rec.badges) ? rec.badges.slice(-12) : [],
+        sl: rec.sl ? { g: rec.sl.g || 0, w: rec.sl.w || 0, wh: rec.sl.wh || 0 } : { g: 0, w: 0, wh: 0 },
         ach: Object.entries(rec.ach || {}).filter(([id]) => BY_ID[id]).map(([id, at]) => Object.assign(info(id), { at })),
         all: DEFS.map((x) => info(x.id)),
         recent
