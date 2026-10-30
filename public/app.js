@@ -492,9 +492,15 @@
             socket.emit('chat', { message: msg });
             $('#chat-input').val('');
         },
-        showDaily() { pzIsDaily = true; show('puzzle-screen'); pzStart(dailyPuzzle()); },
+        showDaily() {
+            pzIsDaily = true; show('puzzle-screen'); pzStart(dailyPuzzle());
+            $('#pz-dtop').removeClass('hidden'); $('#daily-board').addClass('hidden');
+            if (dailyState().last !== dayStr(dayNum())) socket.emit('daily_start');
+        },
+        dailyTop() { socket.emit('daily_top'); },
+        togglePush() { pushOn ? disablePush() : enablePush(); },
         showLessons() { show('lessons-screen'); if (window.Lessons) window.Lessons.open(); },
-        showPuzzles() { pzIsDaily = false; show('puzzle-screen'); pzNext(false); },
+        showPuzzles() { pzIsDaily = false; show('puzzle-screen'); $('#pz-dtop, #daily-board').addClass('hidden'); pzNext(false); },
         pzLevel(el) {
             pzLevelN = Number(el.dataset.n);
             $('#pz-levels button').each(function () { $(this).attr('aria-pressed', String(Number($(this).data('n')) === pzLevelN)); });
@@ -660,7 +666,9 @@
         if (!account) forceAuth();
         if (account) { if (w.pz) pzMerge(w.pz); else pzSync(); }
         if (account) socket.emit('t_get');
-        renderDaily();
+        if (w.dc && w.dc.last) lsSet('chess-daily', JSON.stringify({ last: w.dc.last, streak: w.dc.streak || 0 }));
+        vapidKey = w.vapid || null; pushOn = !!w.push; seasonInfo = w.season || null;
+        renderDaily(); renderSeason(); renderPushBtn();
         setOnline(w.online);
         if (!$('#player-name').val() && w.name) $('#player-name').val(w.name);
 
@@ -961,6 +969,9 @@
         if (p.club) bits.push('🛡 ' + p.club);
         if (p.champ) bits.push('🏆 ×' + p.champ);
         $('#pf-sub').text(bits.join(' · '));
+        const MEDAL = ['🥇', '🥈', '🥉'], CN = { bullet: tr('رصاصة'), blitz: tr('خاطف'), rapid: tr('سريع') };
+        $('#pf-badges').empty().append((p.badges || []).map((b) => $('<span class="pf-badge">').text((MEDAL[b.k - 1] || '🏅') + ' ' + (CN[b.c] || b.c) + ' · ' + b.s)));
+        $('#pf-push').data('mine', !!p.me); renderPushBtn();
         const rt = $('#pf-ratings').empty();
         Object.keys(CAT_NAME).forEach((k) => {
             const r = p.ratings[k];
@@ -969,7 +980,7 @@
         if (p.pz && p.pz.rating) rt.append($('<div class="pf-box">').append($('<b>').text(p.pz.rating), $('<span>').text(tr('ألغاز'))));
         drawSpark(p.history);
         const st = $('#pf-stats').empty();
-        [[p.games, 'مباريات'], [p.w, 'فوز'], [p.l, 'خسارة'], [p.d, 'تعادل'], [p.rate == null ? '—' : p.rate + '%', 'نسبة الفوز'], [p.pz ? p.pz.solved : 0, 'ألغاز محلولة']].forEach((x) => {
+        [[p.games, 'مباريات'], [p.w, 'فوز'], [p.l, 'خسارة'], [p.d, 'تعادل'], [p.rate == null ? '—' : p.rate + '%', 'نسبة الفوز'], [p.pz ? p.pz.solved : 0, 'ألغاز محلولة'], [p.sl ? p.sl.w : 0, 'فوز في السلم والثعبان'], [p.daily ? p.daily.streak : 0, 'سلسلة لغز اليوم'], [p.daily ? p.daily.best : 0, 'أفضل سلسلة']].forEach((x) => {
             st.append($('<div class="pf-box small">').append($('<b>').text(x[0]), $('<span>').text(tr(x[1]))));
         });
         const have = {};
@@ -2285,6 +2296,7 @@
     }
     function dailyCheck() {
         if (!pzCur || !pzIsDaily || pzCur.id !== dailyPuzzle().id) return;
+        socket.emit('daily_done', { mistakes: pzMistakes });          // الخادم يقيس الزمن ويحفظ الترتيب والسلسلة
         const s = dailyState(), today = dayStr(dayNum());
         if (s.last === today) return;
         const streak = s.last === dayStr(dayNum() - 1) ? s.streak + 1 : 1;
@@ -2293,6 +2305,54 @@
         gtoast('🔥 ' + tr('لغز اليوم: سلسلة {n} يوم', { n: streak }));
     }
     let pzIsDaily = false;
+    let vapidKey = null, pushOn = false, seasonInfo = null;
+    const fmtMs = (ms) => { const s = Math.round(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+    socket.on('daily_res', (r) => {
+        if (!r || !r.ok || r.already) return;
+        lsSet('chess-daily', JSON.stringify({ last: dayStr(dayNum()), streak: r.streak }));
+        renderDaily();
+        gtoast('🏆 ' + tr('المركز {n} اليوم · سلسلة {s} يوم', { n: r.rank, s: r.streak }));
+        socket.emit('daily_top');
+    });
+    socket.on('daily_top', (d) => {
+        $('#daily-board').removeClass('hidden');
+        $('#daily-me').text(d.solved ? (d.me ? tr('ترتيبك اليوم: {n} من {t}', { n: d.me, t: d.total }) : tr('حللته اليوم')) : tr('حلّ لغز اليوم لتظهر في الترتيب.'));
+        const ol = $('#daily-list').empty();
+        if (!d.rows.length) return ol.append($('<li class="lb-empty">').text(tr('لم يحلّه أحد بعد. كن الأول!')));
+        d.rows.forEach((r, i) => {
+            ol.append($('<li>').toggleClass('me', r.u === account).append(
+                $('<span class="rk">').text(i + 1), $('<span class="nm">').text(r.u),
+                $('<span class="rt">').text(fmtMs(r.ms)), $('<span class="gm">').text(r.m ? tr('{n} خطأ', { n: r.m }) : '✓')));
+        });
+    });
+    function renderSeason() {
+        if (!seasonInfo) return;
+        $('#season-note').text(tr('موسم {id} · يتبقى {n} يوم. في نهايته تُمنح شارات لأفضل 3 في كل نظام وتُقرَّب التصنيفات إلى النصف.', { id: seasonInfo.id, n: seasonInfo.daysLeft }));
+    }
+    // ───── إشعارات الهاتف ─────
+    function renderPushBtn() {
+        $('#pf-push').toggleClass('hidden', !(vapidKey && $('#pf-push').data('mine'))).text(pushOn ? '🔕 ' + tr('إيقاف الإشعارات') : '🔔 ' + tr('تفعيل الإشعارات'));
+    }
+    const b64u8 = (s) => { const p = '='.repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, (c) => c.charCodeAt(0)); };
+    async function enablePush() {
+        try {
+            if (!vapidKey) return gtoast(tr('الإشعارات غير مفعّلة على الخادم بعد.'));
+            if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return gtoast(tr('متصفحك لا يدعم الإشعارات. على الآيفون ثبّت الموقع أولًا على الشاشة الرئيسية.'));
+            if ((await Notification.requestPermission()) !== 'granted') return gtoast(tr('لم يُسمح بالإشعارات. يمكنك تفعيلها من إعدادات المتصفح.'));
+            const reg = await navigator.serviceWorker.ready;
+            const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(vapidKey) });
+            socket.emit('push_sub', sub.toJSON());
+        } catch (e) { gtoast(tr('تعذّر تفعيل الإشعارات.')); }
+    }
+    async function disablePush() {
+        socket.emit('push_unsub');
+        try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) await sub.unsubscribe(); } catch (e) { /* */ }
+    }
+    socket.on('push_state', (d) => {
+        pushOn = !!(d && d.on);
+        if (d && d.error) gtoast(d.error);
+        renderPushBtn();
+    });
 
     function pzFinish() {
         pzDone = true;
