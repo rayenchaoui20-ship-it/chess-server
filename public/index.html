@@ -327,6 +327,7 @@
         <div class="panel stack">
             <h2 class="section-title" style="margin-bottom:0" id="pf-title">الملف الشخصي</h2>
             <p class="muted small" id="pf-sub"></p>
+            <div class="pf-badges" id="pf-badges"></div>
             <div class="pf-ratings" id="pf-ratings"></div>
             <svg id="pf-spark" class="pf-spark hidden" viewBox="0 0 300 60" preserveAspectRatio="none" aria-hidden="true"></svg>
             <div class="pf-stats" id="pf-stats"></div>
@@ -336,6 +337,7 @@
                 <h3 class="pf-h">آخر المباريات</h3>
                 <ul class="fr-list" id="pf-recent"></ul>
             </div>
+            <button class="btn secondary block hidden" id="pf-push" data-action="togglePush">🔔 تفعيل الإشعارات</button>
             <button class="btn ghost block" data-action="goMenu">رجوع</button>
         </div>
     </section>
@@ -355,6 +357,7 @@
     <section id="leaderboard-screen" class="narrow hidden">
         <div class="panel">
             <h2 class="section-title">المتصدرون</h2>
+            <p class="muted small" id="season-note"></p>
             <div class="seg" role="group" aria-label="النظام" id="lb-tabs">
                 <button type="button" data-action="lbTab" data-cat="bullet" aria-pressed="false">بوليت</button>
                 <button type="button" data-action="lbTab" data-cat="blitz" aria-pressed="true">بليتز</button>
@@ -508,6 +511,19 @@
         <div id="snk-error" class="error" role="alert"></div>
 
         <div id="snk-home" class="narrow stack">
+            <div id="snk-clubroom" class="mp-clubroom hidden" role="status"></div>
+            <div class="panel stack">
+                <h3 class="sub-title">نمط اللوحة</h3>
+                <select id="snk-mode" class="field" aria-label="نمط اللوحة">
+                    <option value="classic">كلاسيكية: 100 خانة</option>
+                    <option value="quick">سريعة: 50 خانة</option>
+                    <option value="chaos">الفوضى: ثعابين كثيرة 🐍</option>
+                    <option value="surprise">المفاجآت: خانات خاصة 🎁</option>
+                </select>
+                <p class="muted small" id="snk-mode-note"></p>
+                <button class="btn primary block" data-snk="quick">🎯 قابل لاعبًا عشوائيًا</button>
+                <div id="snk-searching" class="hidden status-card"><span>⏳ نبحث عن خصم...</span> <button class="btn ghost" data-snk="quickcancel">إلغاء</button></div>
+            </div>
             <div class="panel stack">
                 <h3 class="sub-title">العب ضد الحاسوب</h3>
                 <div class="join-row">
@@ -528,14 +544,31 @@
                     <button class="btn secondary" data-snk="join">انضم</button>
                 </div>
             </div>
-            <p class="muted small">القواعد: ارمِ النرد وتحرّك. السلم يرفعك، والثعبان يُنزلك. الرقم 6 يمنحك رمية إضافية. للوصول إلى 100 تحتاج رقمًا مطابقًا تمامًا.</p>
+            <div class="panel stack">
+                <button class="btn ghost block" data-snk="top">🏆 أفضل اللاعبين</button>
+                <ul class="fr-list hidden" id="snk-top"></ul>
+            </div>
+            <p class="muted small">القواعد: ارمِ النرد وتحرّك. السلم يرفعك، والثعبان يُنزلك. الرقم 6 يمنحك رمية إضافية. للوصول إلى آخر خانة تحتاج رقمًا مطابقًا تمامًا. في نمط المفاجآت: 🎲 رمية إضافية، ↩ تراجع 3 خطوات، 🛡 درع يصدّ ثعبانًا واحدًا.</p>
         </div>
 
         <div id="snk-lobby" class="narrow stack hidden">
             <div class="panel stack">
                 <h3 class="sub-title">كود الغرفة</h3>
                 <div class="mp-codebox"><span id="snk-code" dir="ltr"></span> <button class="btn ghost" id="snk-copy" data-snk="copy">انسخ الكود</button></div>
+                <select id="snk-lmode" class="field hidden" aria-label="نمط اللوحة">
+                    <option value="classic">كلاسيكية: 100 خانة</option>
+                    <option value="quick">سريعة: 50 خانة</option>
+                    <option value="chaos">الفوضى: ثعابين كثيرة 🐍</option>
+                    <option value="surprise">المفاجآت: خانات خاصة 🎁</option>
+                </select>
+                <p class="muted small" id="snk-lmode-note"></p>
                 <ul class="fr-list" id="snk-lplayers"></ul>
+                <div class="join-row">
+                    <input type="text" id="snk-inv-user" class="field" maxlength="20" list="mp-inv-list" placeholder="ادعُ صديقًا باسم المستخدم" autocomplete="off" autocapitalize="none" spellcheck="false">
+                    <button class="btn secondary" data-snk="invite" type="button">ادعُ</button>
+                </div>
+                <button class="btn ghost block" data-snk="shareclub" type="button">🛡 شارك الغرفة مع ناديك</button>
+                <div class="muted small" id="snk-inv-msg" role="status"></div>
                 <p class="muted small" id="snk-wait"></p>
                 <button class="btn primary block hidden" id="snk-start" data-snk="start">ابدأ اللعبة</button>
             </div>
@@ -552,6 +585,20 @@
                     <button class="btn" id="snk-roll" data-snk="roll" disabled>🎲 ارمِ النرد</button>
                 </div>
                 <ul class="mp-plist snk-plist" id="snk-plist"></ul>
+                <div class="mp-reactbar" id="snk-reactbar" role="group" aria-label="تفاعلات سريعة">
+                    <button type="button" data-sreact="👍">👍</button><button type="button" data-sreact="😂">😂</button><button type="button" data-sreact="😮">😮</button><button type="button" data-sreact="😡">😡</button><button type="button" data-sreact="🎉">🎉</button><button type="button" data-sreact="😭">😭</button><button type="button" data-sreact="🤝">🤝</button><button type="button" data-sreact="🐍">🐍</button>
+                </div>
+                <details class="snk-skin">
+                    <summary>🎨 مظهر الحجر والنرد</summary>
+                    <label class="label" for="snk-sk-tk">شكل الحجر</label>
+                    <select id="snk-sk-tk" class="field"></select>
+                    <label class="label" for="snk-sk-ring">لون الإطار</label>
+                    <select id="snk-sk-ring" class="field"></select>
+                    <label class="label" for="snk-sk-die">شكل النرد</label>
+                    <select id="snk-sk-die" class="field"></select>
+                    <p class="muted small">تُفتح الخيارات المقفلة بالإنجازات. مظهرك يراه أنت.</p>
+                </details>
+                <div id="snk-reacts" class="mp-reacts" aria-live="polite"></div>
                 <div id="snk-over" class="hidden"><button class="btn secondary block hidden" id="snk-replay" data-snk="replay">🎬 إعادة المشاهدة</button><button class="btn primary block" data-snk="again">لعبة جديدة</button></div>
             </aside>
         </div>
@@ -608,9 +655,16 @@
                 <div class="actions">
                     <button class="btn ghost" id="pz-hint" data-action="pzHint">تلميح</button>
                     <button class="btn ghost" data-action="pzSolution">أظهر الحل</button>
+                    <button class="btn secondary hidden" id="pz-dtop" data-action="dailyTop">🏆 ترتيب اليوم</button>
                     <button class="btn secondary" data-action="pzRetry">أعد المحاولة</button>
                     <button class="btn primary" id="pz-next" data-action="pzNext">اللغز التالي</button>
                     <button class="btn ghost full" data-action="goMenu">العودة إلى القائمة</button>
+                </div>
+                <div class="panel hidden" id="daily-board">
+                    <h3>🏆 ترتيب لغز اليوم</h3>
+                    <p class="muted small" id="daily-me"></p>
+                    <ol class="lb-list" id="daily-list"></ol>
+                    <p class="muted small">الترتيب بالزمن؛ كل خطأ يضيف 15 ثانية.</p>
                 </div>
             </aside>
         </div>
