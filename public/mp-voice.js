@@ -193,13 +193,24 @@
     window.addEventListener('pagehide', function () { leave(); });
 
     // ───────── دعوات الأصدقاء والنادي ─────────
-    var known = {};                       // أسماء الأصدقاء وأعضاء النادي (للاقتراح)
+    var known = {};                       // اسم -> متصل الآن؟ (أصدقاء وأعضاء النادي)
     function fillNames() {
         var dl = $('#mp-inv-list').empty();
         Object.keys(known).forEach(function (n) { dl.append($('<option>').attr('value', n)); });
+        // أزرار سريعة للمتصلين: ضغطة واحدة ترسل الدعوة
+        [['#mp-inv-chips', 'mp'], ['#snk-inv-chips', 'snk']].forEach(function (c) {
+            var box = $(c[0]).empty();
+            Object.keys(known).filter(function (n) { return known[n]; }).slice(0, 8).forEach(function (n) {
+                box.append($('<button type="button" class="btn ghost inv-chip">').attr({ 'data-g': c[1], 'data-u': n }).text('🟢 ' + n));
+            });
+        });
     }
-    socket.on('friends', function (d) { (d && d.friends || []).forEach(function (f) { known[f.username] = 1; }); fillNames(); });
-    socket.on('club', function (d) { if (d && d.club) d.club.members.forEach(function (m) { known[m.username] = 1; }); fillNames(); });
+    $(document).on('click', '.inv-chip', function () {
+        var u = $(this).attr('data-u');
+        socket.emit($(this).attr('data-g') === 'snk' ? 'sl_invite' : 'mp_invite', { username: u });
+    });
+    socket.on('friends', function (d) { (d && d.friends || []).forEach(function (f) { known[f.username] = f.status && f.status !== 'offline'; }); fillNames(); });
+    socket.on('club', function (d) { if (d && d.club) d.club.members.forEach(function (m) { known[m.username] = known[m.username] || (m.status ? m.status !== 'offline' : false); }); fillNames(); });
 
     function inRoom() { return !!(Mono.state && Mono.state()); }
     function joinCode(code) {
