@@ -444,6 +444,7 @@
                 <datalist id="mp-inv-list"></datalist>
                 <button class="btn primary" id="mp-inv-send" type="button">أرسل</button>
             </div>
+            <div class="inv-chips" id="mp-inv-chips" aria-label="أصدقاء متصلون"></div>
             <div class="muted small" id="mp-inv-msg" role="status"></div>
         </div>
         <div id="mp-clubroom" class="mp-clubroom hidden" role="status"></div>
@@ -475,6 +476,19 @@
                 </select>
                 <button class="btn secondary" data-action="monoAI">العب ضد الحاسوب</button>
             </div>
+            <section id="mt-box" class="panel hidden" aria-label="بطولات النادي">
+                <h3>🏆 بطولات ملك المدينة</h3>
+                <div id="mt-create" class="chat-row hidden">
+                    <input type="text" id="mt-name" class="field" maxlength="30" placeholder="اسم البطولة" aria-label="اسم البطولة">
+                    <button class="btn primary" data-action="mtCreate">افتح التسجيل</button>
+                </div>
+                <div id="mt-error" class="error" role="alert"></div>
+                <div id="mt-list"></div>
+            </section>
+            <button class="btn ghost block" data-action="monoTop">🏆 ترتيب اللاعبين</button>
+            <div class="hidden" id="mp-top"></div>
+            <button class="btn ghost block" data-action="monoHist">🎬 ألعابي الأخيرة</button>
+            <ul class="fr-list hidden" id="mp-hist"></ul>
             <p class="muted small">قواعد اللعبة: مزادات وتبادل وبناء ورهن. اللاعب الذي يفلس يخرج، وآخر لاعب يبقى يفوز.</p>
         </div>
 
@@ -489,6 +503,13 @@
         </div>
 
         <div id="mp-game" class="hidden">
+            <div id="mp-replay" class="mp-replay hidden" role="group" aria-label="إعادة المشاهدة">
+                <button class="btn secondary" data-action="rpPrev" aria-label="السابق">⏮</button>
+                <button class="btn primary" id="rp-play" data-action="rpPlay" aria-label="تشغيل">▶</button>
+                <button class="btn secondary" data-action="rpNext" aria-label="التالي">⏭</button>
+                <input type="range" id="rp-range" min="0" max="0" value="0" aria-label="موضع اللعبة">
+                <span class="muted small" id="rp-n"></span>
+            </div>
             <div id="mp-board" class="mp-board" dir="ltr"></div>
             <div id="mp-status" class="mp-status"></div>
             <div class="mp-actions" id="mp-actions"></div>
@@ -546,7 +567,18 @@
             </div>
             <div class="panel stack">
                 <button class="btn ghost block" data-snk="top">🏆 أفضل اللاعبين</button>
-                <ul class="fr-list hidden" id="snk-top"></ul>
+                <div class="hidden" id="snk-top"></div>
+                <section id="st-box" class="panel hidden" aria-label="بطولات النادي">
+                    <h3>🐍 بطولات سلم وثعبان</h3>
+                    <div id="st-create" class="chat-row hidden">
+                        <input type="text" id="st-name" class="field" maxlength="30" placeholder="اسم البطولة" aria-label="اسم البطولة">
+                        <button class="btn primary" data-snk="stCreate">افتح التسجيل</button>
+                    </div>
+                    <div id="st-error" class="error" role="alert"></div>
+                    <div id="st-list"></div>
+                </section>
+                <button class="btn ghost block" data-snk="hist">🎬 ألعابي الأخيرة</button>
+                <ul class="fr-list hidden" id="snk-hist"></ul>
             </div>
             <p class="muted small">القواعد: ارمِ النرد وتحرّك. السلم يرفعك، والثعبان يُنزلك. الرقم 6 يمنحك رمية إضافية. للوصول إلى آخر خانة تحتاج رقمًا مطابقًا تمامًا. في نمط المفاجآت: 🎲 رمية إضافية، ↩ تراجع 3 خطوات، 🛡 درع يصدّ ثعبانًا واحدًا.</p>
         </div>
@@ -568,6 +600,7 @@
                     <button class="btn secondary" data-snk="invite" type="button">ادعُ</button>
                 </div>
                 <button class="btn ghost block" data-snk="shareclub" type="button">🛡 شارك الغرفة مع ناديك</button>
+                <div class="inv-chips" id="snk-inv-chips" aria-label="أصدقاء متصلون"></div>
                 <div class="muted small" id="snk-inv-msg" role="status"></div>
                 <p class="muted small" id="snk-wait"></p>
                 <button class="btn primary block hidden" id="snk-start" data-snk="start">ابدأ اللعبة</button>
