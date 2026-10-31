@@ -25,7 +25,11 @@ const DEFS = [
     { id: 'daily_7', icon: '📅', title: 'أسبوع من الألغاز', desc: 'احلل لغز اليوم 7 أيام متتالية.', test: (r) => !!(r.dc && r.dc.best >= 7) },
     { id: 'daily_30', icon: '🔥', title: 'شهر بلا انقطاع', desc: 'احلل لغز اليوم 30 يومًا متتالية.', test: (r) => !!(r.dc && r.dc.best >= 30) },
     { id: 'season_badge', icon: '🏅', title: 'نجم الموسم', desc: 'احصل على شارة أفضل 3 في موسم شهري.', test: (r) => Array.isArray(r.badges) && r.badges.length >= 1 },
-    { id: 'champion', icon: '🏆', title: 'بطل بطولة', desc: 'افز ببطولة في ناديك.', test: (r) => (r.champ || 0) >= 1 }
+    { id: 'champion', icon: '🏆', title: 'بطل بطولة', desc: 'افز ببطولة في ناديك.', test: (r) => (r.champ || 0) >= 1 },
+    { id: 'mp_first', icon: '🏙', title: 'أول فوز في ملك المدينة', desc: 'اربح لعبة ملك المدينة ضد لاعبين حقيقيين.', test: (r) => !!(r.ml && r.ml.wh >= 1) },
+    { id: 'mp_wins_10', icon: '🏰', title: 'ملك المدينة', desc: 'اربح 10 ألعاب ملك المدينة ضد لاعبين حقيقيين.', test: (r) => !!(r.ml && r.ml.wh >= 10) },
+    { id: 'mp_champion', icon: '👑', title: 'بطل ملك المدينة', desc: 'افز ببطولة «ملك المدينة» في ناديك.', test: (r) => (r.mchamp || 0) >= 1 },
+    { id: 'sl_champion', icon: '🐍', title: 'بطل سلم وثعبان', desc: 'افز ببطولة «سلم وثعبان» في ناديك.', test: (r) => (r.schamp || 0) >= 1 }
 ];
 const BY_ID = Object.fromEntries(DEFS.map((d) => [d.id, d]));
 const info = (id) => (BY_ID[id] ? { id, icon: BY_ID[id].icon, title: BY_ID[id].title, desc: BY_ID[id].desc } : null);
@@ -69,7 +73,8 @@ function profile(rec, ctx) {
         w, l, d, games: rec.games || 0, rate: w + l + d ? Math.round((w / (w + l + d)) * 100) : null,
         club: (ctx && ctx.clubName) || null,
         pz: { rating: rec.pz ? rec.pz.r : null, solved: solved(rec), streak: rec.pz ? rec.pz.k || 0 : 0 },
-        champ: rec.champ || 0,
+        champ: rec.champ || 0, mchamp: rec.mchamp || 0, schamp: rec.schamp || 0,
+        ml: rec.ml ? { g: rec.ml.g || 0, w: rec.ml.w || 0, wh: rec.ml.wh || 0 } : { g: 0, w: 0, wh: 0 },
         daily: { streak: require('./daily').liveStreak(rec, Date.now()), best: (rec.dc && rec.dc.best) || 0, n: (rec.dc && rec.dc.n) || 0 },
         badges: Array.isArray(rec.badges) ? rec.badges.slice(-12) : [],
         sl: rec.sl ? { g: rec.sl.g || 0, w: rec.sl.w || 0, wh: rec.sl.wh || 0 } : { g: 0, w: 0, wh: 0 },
