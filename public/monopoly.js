@@ -490,10 +490,80 @@
         }
     }
 
+    // ───────── ألعابي الأخيرة: إعادة مشاهدة لعبة محفوظة ─────────
+    var RP = null;        // { base, frames, i, playing, timer }
+    var RP_MS = 1100;
+    function rpFrame(i) {
+        if (!RP) return;
+        i = Math.max(0, Math.min(RP.frames.length - 1, i));
+        var prev = RP.i === null ? null : last;
+        RP.i = i;
+        last = Object.assign({}, RP.base, { game: RP.frames[i] });
+        selSq = null;
+        try { if (prev) diffSounds(prev, last); } catch (e) { /* الصوت اختياري */ }
+        render();
+        $('#rp-range').attr('max', RP.frames.length - 1).val(i);
+        $('#rp-n').text((i + 1) + ' / ' + RP.frames.length);
+        $('#rp-play').text(RP.playing ? '⏸' : '▶');
+    }
+    function rpTick() {
+        if (!RP || !RP.playing) return;
+        if (RP.i >= RP.frames.length - 1) { RP.playing = false; $('#rp-play').text('▶'); return; }
+        rpFrame(RP.i + 1);
+        RP.timer = setTimeout(rpTick, RP_MS);
+    }
+    function rpToggle() {
+        if (!RP) return;
+        clearTimeout(RP.timer);
+        RP.playing = !RP.playing;
+        if (RP.playing && RP.i >= RP.frames.length - 1) rpFrame(0);
+        $('#rp-play').text(RP.playing ? '⏸' : '▶');
+        if (RP.playing) RP.timer = setTimeout(rpTick, RP_MS);
+    }
+    function stopReplay(keepView) {
+        if (RP) clearTimeout(RP.timer);
+        RP = null;
+        $('#mp-replay').addClass('hidden');
+        if (!keepView) { last = null; selSq = null; shown = {}; shownKey = ''; view('home'); }
+    }
+    function applyDeltas(deltas) {
+        var out = [], cur = null;
+        deltas.forEach(function (d) { cur = Object.assign({}, cur || {}, d); out.push(cur); });
+        return out;
+    }
+    var MAP_AR = { coast: 'الساحلية', desert: 'الصحراوية', future: 'المستقبل' };
+    socket.on('mp_hist', function (rows) {
+        var ul = $('#mp-hist').empty().removeClass('hidden');
+        if (!rows || !rows.length) return ul.append($('<li class="empty">').text(T('لا توجد ألعاب محفوظة بعد. تُحفظ آخر 5 ألعاب.')));
+        rows.forEach(function (r) {
+            var d = new Date(r.t), won = r.winner === r.me;
+            ul.append($('<li>').append(
+                $('<span class="gr-res">').addClass(won ? 'win' : 'loss').text(won ? T('فوز') : T('خسارة')),
+                $('<span class="nm">').text((MAP_AR[r.map] || '') + ' · ' + r.names.length + ' ' + T('لاعبين')),
+                $('<span class="st">').text(d.toLocaleDateString('ar') + ' ' + d.toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' })),
+                $('<button class="btn secondary">').text(T('شاهد')).attr({ 'data-action': 'monoHistGame', 'data-i': r.i })
+            ));
+        });
+    });
+    socket.on('mp_hist_game', function (d) {
+        if (!d || !d.frames || !d.frames.length) return err(T('تعذّر فتح هذه اللعبة.'));
+        var COL = ['#e5484d', '#3b82f6', '#22c55e', '#f5a524', '#a855f7', '#14b8a6', '#ec4899', '#9ca3af'];
+        stopReplay(true);
+        RP = { base: { code: 'REPLAY', me: -1, host: 0, started: true, map: d.map, players: d.names.map(function (n, i) { return { name: n, color: COL[i % COL.length], on: true, bot: false }; }) }, frames: applyDeltas(d.frames), i: null, playing: false, timer: null };
+        shown = {}; shownKey = '';
+        $('#mp-replay').removeClass('hidden');
+        APP.show('mono-screen');
+        rpFrame(0);
+    });
+    document.addEventListener('input', function (e) {
+        if (e.target && e.target.id === 'rp-range' && RP) { RP.playing = false; clearTimeout(RP.timer); rpFrame(+e.target.value); }
+    });
+
     // ───────── الأحداث ─────────
     function translateErr(k) { return T(k); }
     socket.on('mp_update', function (d) {
         err('');
+        if (RP) stopReplay(true);
         var prevState = last;
         last = d;
         diffSounds(prevState, d);
@@ -502,15 +572,66 @@
         render();
     });
     socket.on('mp_error', function (k) { err(translateErr(k)); });
+
+    // ───────── بطولات النادي ─────────
+    function mtRender(d) {
+        var list = d.list || [];
+        var box = $('#mt-box');
+        box.toggleClass('hidden', !list.length && !d.canCreate);
+        var busy = list.some(function (t) { return t.status === 'open' || t.status === 'running'; });
+        $('#mt-create').toggleClass('hidden', !d.canCreate || busy);
+        var host = $('#mt-list').empty();
+        var st = { open: T('التسجيل مفتوح'), running: T('جارية'), done: T('انتهت'), cancelled: T('أُلغيت') };
+        list.forEach(function (t) {
+            var det = $('<details class="t-card">').prop('open', t.status === 'open' || t.status === 'running');
+            det.append($('<summary>').append($('<b>').text('🎲 ' + t.name), document.createTextNode(' · ' + st[t.status] + ' · ' + t.count + '/' + t.max)));
+            if (t.winner) det.append($('<p>').text('👑 ' + T('البطل: ') + t.winner));
+            var acts = $('<div class="chat-row">');
+            function mk(txt, act, cls) { return $('<button class="btn ' + (cls || 'secondary') + '">').text(txt).attr({ 'data-action': act, 'data-id': t.id }); }
+            if (t.status === 'open') {
+                if (!t.joined) acts.append(mk(T('شارك'), 'mtJoin'));
+                else if (!t.isOwner) acts.append(mk(T('انسحب'), 'mtLeave', 'ghost'));
+                if (t.isOwner) acts.append(mk(t.canStart ? T('ابدأ البطولة') : T('يلزم {n} لاعبين').replace('{n}', t.min), 'mtStart', 'primary').prop('disabled', !t.canStart));
+            }
+            if (t.play) acts.append(mk(T('العب'), 'mtPlay', 'primary'));
+            if (t.isOwner && (t.status === 'open' || t.status === 'running')) acts.append(mk(T('إلغاء'), 'mtCancel', 'danger'));
+            if (acts.children().length) det.append(acts);
+            det.append($('<p class="muted small">').text(t.players.map(function (p) { return (t.status === 'open' || p.alive ? '' : '✖ ') + p.u; }).join('، ')));
+            if (t.status === 'running' && t.tables.length) {
+                var ul = $('<ul class="t-bd">');
+                t.tables.forEach(function (tb, i) {
+                    ul.append($('<li>').text((t.final ? T('النهائي') : T('طاولة') + ' ' + (i + 1)) + ': ' + tb.names.join('، ') + (tb.winner ? ' ← 👑 ' + tb.winner : tb.state === 'playing' ? ' ▶' : '')));
+                });
+                det.append(ul);
+            }
+            host.append(det);
+        });
+    }
+    socket.on('mt_list', mtRender);
+    function topRender(d) {
+        var host = $('#mp-top').empty().removeClass('hidden');
+        function block(title, rows) {
+            host.append($('<h4>').text(title));
+            var ul = $('<ul class="fr-list">').appendTo(host);
+            if (!rows || !rows.length) return ul.append($('<li class="empty">').text(T('لا يوجد ترتيب بعد. اربح ضد لاعبين حقيقيين لتظهر هنا.')));
+            rows.forEach(function (r, i) { ul.append($('<li>').append($('<span class="nm">').text((['🥇', '🥈', '🥉'][i] || (i + 1) + '.') + ' ' + r.user), $('<span class="rt">').text(r.w + ' ' + T('فوز')))); });
+        }
+        block(T('هذا الشهر'), d && d.month);
+        block(T('كل الأوقات'), d && d.all);
+    }
+    socket.on('mp_top', topRender);
+    socket.on('mt_error', function (m) { $('#mt-error').text(T(m)); });
     socket.on('mp_none', function () {
         last = null; selSq = null; shown = {}; shownKey = '';
         try { sessionStorage.removeItem('mp-in'); } catch (e) { /* ignore */ }
         view('home');
+        socket.emit('mt_get');
     });
     socket.on('welcome', function () {
         var inRoom = false;
         try { inRoom = sessionStorage.getItem('mp-in') === '1'; } catch (e) { /* ignore */ }
         if (inRoom) socket.emit('mp_rejoin');
+        socket.emit('mt_get');
     });
 
     document.addEventListener('change', function (e) {
@@ -543,6 +664,15 @@
             socket.emit('mp_act', { a: 'tpropose', to: draft.to, give: gv, take: tv });
             return;
         }
+        if (a === 'rpPlay') return rpToggle();
+        if (a === 'rpPrev' || a === 'rpNext') { if (RP) { RP.playing = false; clearTimeout(RP.timer); rpFrame(RP.i + (a === 'rpNext' ? 1 : -1)); } return; }
+        if (a === 'monoHist') { var hl = $('#mp-hist'); if (hl.is(':visible')) hl.addClass('hidden'); else socket.emit('mp_hist'); return; }
+        if (a === 'monoTop') { var tp = $('#mp-top'); if (tp.is(':visible')) tp.addClass('hidden'); else socket.emit('mp_top'); return; }
+        if (a === 'mtCreate') { $('#mt-error').text(''); socket.emit('mt_create', { name: $('#mt-name').val() }); return; }
+        if (a === 'mtPlay') { socket.emit('mp_rejoin'); return; }
+        if (/^mt(Join|Leave|Start|Cancel)$/.test(a)) { $('#mt-error').text(''); socket.emit('mt_' + a.slice(2).toLowerCase(), { id: el.getAttribute('data-id') }); return; }
+                if (a === 'monoHistGame') { socket.emit('mp_hist_game', { i: +el.getAttribute('data-i') }); return; }
+        if (a === 'monoLeave' && RP) { stopReplay(); return; }
         if (a === 'monoQuick') { err(''); socket.emit('mp_quick'); return; }
         if (a === 'monoCreate') { err(''); socket.emit('mp_create', { map: $('#mp-map').val() }); }
         else if (a === 'monoSound') { muted = !muted; try { localStorage.setItem('mp-mute', muted ? '1' : '0'); } catch (e2) { /* ignore */ } soundBtn(); if (!muted) sfx('buy'); }
@@ -567,8 +697,8 @@
 
     window.Mono = {
         state: function () { return last; },
-        busy: function () { return !!(last && last.started && last.game && last.game.phase !== 'over'); },
-        leave: function () { if (last) socket.emit('mp_leave'); },
-        open: function () { err(''); soundBtn(); if (window.Voice) window.Voice.decorate(); if (!last) view('home'); else render(); }
+        busy: function () { return !!(!RP && last && last.started && last.game && last.game.phase !== 'over'); },
+        leave: function () { if (RP) return stopReplay(); if (last) socket.emit('mp_leave'); },
+        open: function () { err(''); soundBtn(); socket.emit('mt_get'); if (window.Voice) window.Voice.decorate(); if (!last) view('home'); else render(); }
     };
 })();
