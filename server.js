@@ -101,7 +101,10 @@ async function flushDb() {
     if (json.length > 12e6) {        // حد مستند MongoDB الواحد 16MB: نقلّص المباريات المحفوظة
         for (const p of Object.values(db.players)) {
             if (Array.isArray(p.hist)) { p.hist = p.hist.slice(0, 5); p.hist.forEach((g) => { g.an = null; }); }
+            if (Array.isArray(p.slh)) p.slh = p.slh.slice(0, 1);
+            if (Array.isArray(p.mh)) p.mh = p.mh.slice(0, 2);
         }
+        if (db.mgames) { const keep = new Set(); Object.values(db.players).forEach((p) => (p.mh || []).forEach((x) => keep.add(x))); Object.keys(db.mgames).forEach((k) => { if (!keep.has(k)) delete db.mgames[k]; }); }
         json = JSON.stringify(db);
         console.warn('DB pruned: saved games trimmed (size ' + json.length + ')');
     }
@@ -629,11 +632,22 @@ function randomLegal(room) {
     return { from: p.from, to: p.to, promotion: p.promotion };
 }
 
+// الحاسوب يبيّت في شطرنج 960 حين يكون التبييت قانونيًا وقد تقدّمت المباراة قليلًا
+async function castleChoice(room, rnd) {
+    const g = room.game;
+    if (room.variant !== '960' || !g || typeof g.castles !== 'function') return null;
+    const cs = g.castles();
+    if (!cs.length || room.plies < 6) return null;
+    if (room.plies < 16 && (rnd || Math.random)() > 0.45) return null;      // أحيانًا ينتظر، ثم يبيّت حتمًا
+    const c = cs[Math.floor((rnd || Math.random)() * cs.length)];
+    return { from: c.from, to: c.rook };                                       // الملك فوق قلعته = تبييت صريح
+}
 async function aiTurn(room) {
     if (room.over || room.closed || room.aiBusy || room.game.turn() !== room.aiColor) return;
     room.aiBusy = true;
     try {
-        let move = await fetchStockfish(room);
+        let move = await castleChoice(room);              // شطرنج 960: المحرك الخارجي لا يعرف حقوق التبييت
+        if (!move) move = await fetchStockfish(room);
         if (!move) {
             move = await localEngineMove(room.game.fen(), room.aiLevel);
             if (!room.notifiedFallback) {
@@ -1296,33 +1310,88 @@ const monoRoom = require('./monoroom').init({
     clubOf: (t) => require('./clubs').clubOf(db, t),
     socketIdOf: (t) => (live.get(t) && live.get(t).socketId) || null
 });
-require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' });
+// إحصاءات ألعاب الطاولة: rec[key] = { g, w, wh, m: { id, w, g } } حيث m إحصاء الشهر الحالي (ضد بشر فقط للفوز)
+function gameStat(rec, key, win, humans) {
+    const st = rec[key] = rec[key] || { g: 0, w: 0, wh: 0 };
+    const id = require('./season').seasonId(Date.now());
+    if (!st.m || st.m.id !== id) st.m = { id, w: 0, g: 0 };
+    st.g++;
+    if (humans >= 2) st.m.g++;
+    if (win) { st.w++; if (humans >= 2) { st.wh = (st.wh || 0) + 1; st.m.w++; } }
+    return st;
+}
+const gameTops = {};
+function gameTop(key) {
+    const c = gameTops[key] || (gameTops[key] = { at: 0, rows: null });
+    if (c.rows && Date.now() - c.at < 20000) return c.rows;
+    const id = require('./season').seasonId(Date.now());
+    const people = Object.values(db.players).filter((p) => p.user && p[key]);
+    const month = people.filter((p) => p[key].m && p[key].m.id === id && p[key].m.w > 0)
+        .map((p) => ({ user: p.user, w: p[key].m.w, g: p[key].m.g })).sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 10);
+    const all = people.filter((p) => p[key].wh > 0)
+        .map((p) => ({ user: p.user, w: p[key].wh, g: p[key].g })).sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 10);
+    c.at = Date.now(); c.rows = { month, all, id };
+    return c.rows;
+}
+// سجل «ملك المدينة»: اللعبة تُخزَّن مرة واحدة في db.mgames، وكل لاعب مسجّل يحتفظ بمعرّفات آخر 5 ألعاب
+function monoRecord(r) {
+    if (!db.mgames || typeof db.mgames !== 'object') db.mgames = {};
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    db.mgames[id] = { t: Date.now(), map: r.map, names: r.names, tokens: r.tokens, winner: r.winner, n: r.n, z: r.z };
+    let any = false;
+    new Set(r.tokens.filter(Boolean)).forEach((tk) => {
+        const rec = db.players[tk];
+        if (!rec || !rec.user) return;
+        gameStat(rec, 'ml', r.tokens[r.winner] === tk, r.tokens.filter(Boolean).length);
+        awardFor(tk);
+        rec.mh = [id].concat(Array.isArray(rec.mh) ? rec.mh : []).slice(0, 5);
+        any = true;
+    });
+    // تنظيف: نحذف الألعاب التي لا يشير إليها أحد، ونبقي 80 لعبة كحد أقصى
+    const used = new Set();
+    Object.values(db.players).forEach((p) => (Array.isArray(p.mh) ? p.mh : []).forEach((x) => used.add(x)));
+    Object.keys(db.mgames).forEach((k) => { if (!used.has(k)) delete db.mgames[k]; });
+    const ids = Object.keys(db.mgames).sort((a, b) => db.mgames[b].t - db.mgames[a].t);
+    ids.slice(80).forEach((k) => delete db.mgames[k]);
+    if (any) saveSoon();
+}
+function monoHist(t) {
+    const rec = db.players[t];
+    if (!rec || !Array.isArray(rec.mh) || !db.mgames) return [];
+    return rec.mh.map((id) => db.mgames[id]).filter(Boolean);
+}
+const monoApi = require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب', onEnd: monoRecord, hist: monoHist, top: () => gameTop('ml') });
+// بطولات «ملك المدينة» للنوادي
+const monoTourneys = require('./monotourney').init({
+    getDb: () => db, saveSoon, playerCtx, emitTo, uname, safety, pushOffline,
+    onChampion: (t) => { const r = db.players[t]; if (r) { r.champ = (r.champ || 0) + 1; r.mchamp = (r.mchamp || 0) + 1; awardFor(t); } },
+    clubOf: (t) => require('./clubs').clubOf(db, t),
+    settings: () => { try { return Object.keys(require('./public/monopoly-maps.json')); } catch (e) { return ['coast']; } },
+    makeRoom: (tokens, map, cb) => monoApi.createTourneyRoom(tokens, map, cb)
+});
 // إحصاءات سلم وثعبان: rec.sl = { g ألعاب, w فوز, wh فوز على بشر, lad سلالم, snk لدغات, maxLad أكثر سلالم في لعبة, big لدغات كبيرة مع فوز }
 function slRecord(results) {
     for (const r of results) {
         const rec = db.players[r.token];
         if (!rec || !rec.user) continue;
-        const sl = rec.sl = rec.sl || { g: 0, w: 0, wh: 0, lad: 0, snk: 0, maxLad: 0, big: 0 };
-        sl.g++;
+        rec.sl = rec.sl || { g: 0, w: 0, wh: 0, lad: 0, snk: 0, maxLad: 0, big: 0 };
+        const sl = gameStat(rec, 'sl', false, r.humans);          // يزيد g ويحدّث الشهر
+        sl.lad = sl.lad || 0; sl.snk = sl.snk || 0;
         sl.lad += r.lad; sl.snk += r.snk;
         sl.maxLad = Math.max(sl.maxLad || 0, r.lad);
-        if (r.win) { sl.w++; if (r.humans >= 2) sl.wh = (sl.wh || 0) + 1; if (r.big) sl.big = (sl.big || 0) + 1; }
+        if (r.rec) rec.slh = [r.rec].concat(Array.isArray(rec.slh) ? rec.slh : []).slice(0, 5);   // آخر 5 ألعاب لإعادة المشاهدة
+        if (r.win) {
+            sl.w++; if (r.humans >= 2) { sl.wh = (sl.wh || 0) + 1; sl.m.w++; }
+            if (r.big) sl.big = (sl.big || 0) + 1;
+        }
         awardFor(r.token);
     }
     saveSoon();
 }
-let slTopCache = { at: 0, rows: [] };
-function slTop() {
-    if (Date.now() - slTopCache.at < 20000) return slTopCache.rows;
-    const rows = Object.values(db.players).filter((p) => p.user && p.sl && p.sl.wh > 0)
-        .map((p) => ({ user: p.user, w: p.sl.wh, g: p.sl.g }))
-        .sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 20);
-    slTopCache = { at: Date.now(), rows };
-    return rows;
-}
-require('./snakes').attach(io, {
+const snakeApi = require('./snakes').attach(io, {
     nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب',
-    onEnd: slRecord, top: slTop, uname, statusOf, emitTo,
+    onEnd: slRecord, top: () => gameTop('sl'), emitTo, statusOf, uname,
+    hist: (t) => (db.players[t] && Array.isArray(db.players[t].slh) ? db.players[t].slh : []),
     userToken: (n) => db.users[String(n || '').toLowerCase().replace(/^@/, '').slice(0, 20)] || null,
     clubOf: (t) => require('./clubs').clubOf(db, t),
     canInvite: (a, b) => {
@@ -1330,6 +1399,15 @@ require('./snakes').attach(io, {
         const c = require('./clubs').clubOf(db, a);
         return !!(ra && ra.user && ((ra.friends || []).includes(b) || (c && c.members.includes(b))));
     }
+});
+// بطولات «سلم وثعبان» للنوادي (نفس نظام الطاولات)
+const snakeTourneys = require('./monotourney').init({
+    getDb: () => db, saveSoon, playerCtx, emitTo, uname, safety, pushOffline,
+    cfg: { prefix: 'st', key: 'stourneys', emoji: '🐍', game: 'سلم وثعبان' },
+    onChampion: (t) => { const r = db.players[t]; if (r) { r.champ = (r.champ || 0) + 1; r.schamp = (r.schamp || 0) + 1; awardFor(t); } },
+    clubOf: (t) => require('./clubs').clubOf(db, t),
+    settings: () => ['classic', 'quick', 'chaos', 'surprise'],
+    makeRoom: (tokens, mode, cb) => snakeApi.createTourneyRoom(tokens, mode, cb)
 });
 
 // أحداث مسموحة قبل تسجيل الدخول
@@ -1966,6 +2044,8 @@ io.on('connection', (socket) => {
     clubs.register(socket);
     monoRoom.register(socket);
     tourneys.register(socket);
+    monoTourneys.register(socket);
+    snakeTourneys.register(socket);
     voice.register(socket);
 
     socket.on('disconnect', () => onDisconnect(socket));
@@ -2019,6 +2099,8 @@ async function start(port) {
     await loadDb();
     await autoRestoreIfEmpty();
     tourneys.resume();
+    monoTourneys.resume();
+    snakeTourneys.resume();
     startBackups();
     startPeriodic();
     return new Promise((resolve) => {
