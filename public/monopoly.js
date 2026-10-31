@@ -15,6 +15,24 @@
     var TOKEN = ['🚗', '🎩', '🐕', '🚢', '👢', '🛵', '🚀', '🐴'];
     var ICON = { go: '➜', chest: '🎁', chance: '❓', tax: '💸', jail: '⛓', free: '🅿', gojail: '👮', rail: '🚆', util: '💡' };
 
+    var wonKey = null, zoomOn = false;
+    function confetti() {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        var box = $('<div class="confetti" aria-hidden="true">').appendTo(document.body), cols = ['#e2b14b', '#46c08f', '#ef6b72', '#5879ae', '#fff'];
+        for (var i = 0; i < 70; i++) {
+            $('<i>').css({ left: Math.random() * 100 + '%', background: cols[i % 5], animationDuration: (2.2 + Math.random() * 2) + 's', animationDelay: Math.random() * .8 + 's' })
+                .css({ '--dx': (Math.random() * 160 - 80) + 'px', '--rot': (360 + Math.random() * 720) + 'deg' }).appendTo(box);
+        }
+        setTimeout(function () { box.remove(); }, 5200);
+    }
+    function centerOnToken() {
+        var w = document.getElementById('mp-bwrap'), g = last && last.game;
+        if (!w || !g) return;
+        var sq = g.players[last.me] && g.players[last.me].pos;
+        var cell = $('#mp-board .mp-sq[data-sq="' + sq + '"]')[0];
+        if (!cell) return;
+        try { cell.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }); } catch (e) { cell.scrollIntoView(); }
+    }
     function loadBoard(cb) {
         if (BASE) return cb();
         Promise.all([
@@ -40,7 +58,7 @@
         if (i <= 30) return [1, i - 19];
         return [i - 29, 11];
     }
-    function short(n) { n = T(n); return n.length > 9 ? n.slice(0, 8) + '…' : n; }
+    function short(n) { n = T(n); return n.length > 20 ? n.slice(0, 19) + '…' : n; }
     function money(n) { return '$' + n; }
 
     function buildBoard() {
@@ -48,12 +66,17 @@
         BOARD.forEach(function (s, i) {
             var p = pos(i);
             var c = $('<button type="button" class="mp-sq">').attr({ 'data-sq': i, 'aria-label': T(s.n) }).css({ gridRow: p[0], gridColumn: p[1] });
-            if (i % 10 === 0) c.addClass('corner');
+            var corner = i % 10 === 0;
+            if (corner) c.addClass('corner');
+            c.addClass('k-' + s.t);
             var band = $('<span class="band">');
             if (s.g) band.css('background', GCOL[s.g]); else band.addClass('none');
             c.append(band);
-            c.append($('<span class="nm">').text(ICON[s.t] && s.t !== 'prop' ? ICON[s.t] + ' ' + (s.t === 'rail' || s.t === 'util' ? '' : '') + short(s.n) : short(s.n)));
-            if (s.p) c.append($('<span class="pr">').text(s.p));
+            if (s.t !== 'prop') c.append($('<span class="ic" aria-hidden="true">').text(ICON[s.t] || ''));
+            c.append($('<span class="nm">').text(short(s.n)));
+            if (s.p) c.append($('<span class="pr">').text('$' + s.p));
+            else if (s.t === 'tax') c.append($('<span class="pr">').text('$' + s.amt));
+            c.append($('<span class="own" aria-hidden="true">'));
             c.append($('<span class="tk">'));
             b.append(c);
         });
@@ -109,10 +132,12 @@
             var c = cells[i];
             if (!c) continue;
             var o = g.owner[i];
-            c.css('box-shadow', o !== undefined ? 'inset 0 -4px 0 ' + last.players[o].color : 'none');
+            c.toggleClass('owned', o !== undefined).css('--own', o !== undefined ? last.players[o].color : '');
             c.toggleClass('mort', !!g.mort[i]).toggleClass('sel', selSq === i);
             var h = g.houses[i] || 0;
-            c.find('.band').text(h >= 5 ? '🏨' : h > 0 ? new Array(h + 1).join('▪') : '');
+            var bd = c.find('.band').empty();
+            if (h >= 5) bd.append($('<u class="hotel">'));
+            else for (var hk = 0; hk < h; hk++) bd.append($('<u class="house">'));
         }
         // حالة الدور
         var cp = g.players[g.turn];
@@ -126,6 +151,13 @@
         if (g.mult > 1 && g.phase !== 'over') st += ' · ' + T('الإيجارات ×{m}', { m: g.mult });
         $('#mp-status').text(st);
         $('#mp-status')[0].style.setProperty('border-inline-start-color', g.phase === 'over' ? '#e2b14b' : colorOf(g.turn));
+        var bd = $('#mp-board');
+        bd.toggleClass('t-on', g.phase !== 'over').toggleClass('t-me', g.phase !== 'over' && g.turn === me);
+        bd[0].style.setProperty('--turn', colorOf(g.turn));
+        $('#mp-status').toggleClass('won', g.phase === 'over');
+        if (g.phase === 'over' && g.winner === me && wonKey !== last.code) { wonKey = last.code; confetti(); }
+        if (g.phase !== 'over') wonKey = wonKey === last.code ? null : wonKey;
+        if (zoomOn) centerOnToken();
         showDice(g);
         syncShown(g);
         paintTokens();
@@ -134,7 +166,7 @@
         $('#mp-event').text(g.log.length ? T(g.log[g.log.length - 1][0], tp(g.log[g.log.length - 1][1])) : '');
         // البطاقة المسحوبة
         var cd = $('#mp-card');
-        if (g.drawn) cd.removeClass('hidden').text((g.drawn.type === 'chance' ? '❓ ' : '🎁 ') + T(g.drawn.k)); else cd.addClass('hidden');
+        if (g.drawn) cd.removeClass('hidden chance chest').addClass(g.drawn.type).empty().append($('<small>').text(g.drawn.type === 'chance' ? T('فرصة') : T('صندوق الحظ')), $('<div>').text((g.drawn.type === 'chance' ? '❓ ' : '🎁 ') + T(g.drawn.k))); else cd.addClass('hidden');
         // الأزرار
         var A = $('#mp-actions').empty();
         function btn(label, act, cls, sq) {
@@ -188,9 +220,10 @@
         g.players.forEach(function (p, pi) {
             var n = 0; for (var k in g.owner) if (g.owner[k] === pi) n++;
             var li = $('<li>').attr('data-pi', pi).toggleClass('out', p.out).toggleClass('cur', pi === g.turn && g.phase !== 'over');
-            li.append($('<span class="dot">').css('background', last.players[pi].color),
+            li.append($('<span class="dot">').css('background', last.players[pi].color).text(TOKEN[pi % 8]),
                 $('<span class="nm">').text(p.name + (pi === me ? ' (' + T('أنت') + ')' : '') + (!last.players[pi].on ? ' ⚠' : '')),
-                $('<span class="mc">').text((TOKEN[pi % 8]) + ' ' + (p.out ? T('مُفلس') : money(p.cash) + ' · ' + T('{n} ملكية', { n: n }) + (p.jail ? ' ⛓' : '') + (p.cards ? ' 🎟' + p.cards : ''))));
+                $('<span class="mc">').text(p.out ? T('مُفلس') : money(p.cash)),
+                $('<span class="sub">').text(p.out ? '' : T('{n} ملكية', { n: n }) + (p.jail ? ' ⛓' : '') + (p.cards ? ' 🎟' + p.cards : '')));
             var chips = $('<span class="chips">');
             for (var sq2 = 0; sq2 < 40; sq2++) if (g.owner[sq2] === pi) chips.append($('<i>').css('background', BOARD[sq2].g ? GCOL[BOARD[sq2].g] : '#8a94ad').toggleClass('mort', !!g.mort[sq2]).attr('data-sq', sq2));
             if (chips.children().length) li.append(chips);
@@ -253,7 +286,13 @@
         var fresh = lastDiceKey !== '' && g.log.length && /رمى النرد/.test(g.log[g.log.length - 1][0] || '');
         lastDiceKey = key;
         diceFresh = fresh;
-        function put(a, b, cls) { dc.empty().append($('<b class="die ' + (cls || '') + '">').text(a), $('<b class="die ' + (cls || '') + '">').text(b)); }
+        var PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+        function die(n, cls) {
+            var d = $('<b class="die ' + (cls || '') + '">').attr({ 'aria-label': n, role: 'img' });
+            for (var c = 0; c < 9; c++) d.append($('<s>').toggleClass('on', PIPS[n].indexOf(c) >= 0));
+            return d;
+        }
+        function put(a, b, cls) { dc.empty().append(die(a, cls), die(b, cls)); }
         clearInterval(diceTimer);
         if (!fresh) return put(g.dice[0], g.dice[1]);
         var n = 0;
@@ -467,18 +506,28 @@
         if (selSq === null || !last || !last.game) return box.addClass('hidden');
         var g = last.game, s = BOARD[selSq], me = last.me, o = g.owner[selSq];
         box.removeClass('hidden').empty();
-        box.append($('<div class="t">').text(T(s.n)));
-        var lines = [];
-        if (s.p) lines.push(T('السعر: {p}', { p: money(s.p) }));
+        var deedCol = s.g ? GCOL[s.g] : (s.t === 'rail' ? '#334155' : s.t === 'util' ? '#64748b' : '#475569');
+        box.append($('<div class="deed-h">').css('background', deedCol).append($('<span>').text(s.t === 'prop' ? T('سند ملكية') : (ICON[s.t] || '') + ' ' + T(s.t === 'rail' ? 'محطة' : s.t === 'util' ? 'مرفق' : 'خانة')), $('<b>').text(T(s.n))));
+        function row(a, b, hl) { return $('<div class="dr">').toggleClass('hl', !!hl).append($('<span>').text(a), $('<b>').text(b)); }
+        var tbl = $('<div class="deed">').appendTo(box);
         if (s.t === 'prop') {
-            lines.push(T('الإيجار: {r}', { r: s.r.slice(0, 1) + ' / ' + s.r.slice(1).join(' / ') }));
-            lines.push(T('سعر البناء: {p}', { p: money(s.h) }));
-        } else if (s.t === 'rail') lines.push(T('الإيجار: 25 / 50 / 100 / 200 حسب عدد المحطات'));
-        else if (s.t === 'util') lines.push(T('الإيجار: 4× أو 10× النرد'));
-        else if (s.t === 'tax') lines.push(T('ادفع {p}', { p: money(s.amt) }));
-        if (o !== undefined) lines.push(T('المالك: {n}', { n: g.players[o].name }) + (g.mort[selSq] ? ' (' + T('مرهونة') + ')' : ''));
-        else if (s.p) lines.push(T('بلا مالك'));
-        lines.forEach(function (l) { box.append($('<div class="l">').text(l)); });
+            var hh = g.houses[selSq] || 0;
+            tbl.append(row(T('الإيجار'), money(s.r[0]), hh === 0));
+            tbl.append(row(T('مجموعة كاملة'), money(s.r[0] * 2)));
+            for (var hi = 1; hi <= 4; hi++) tbl.append(row(hi + ' ' + T(hi === 1 ? 'منزل' : 'منازل'), money(s.r[hi]), hh === hi));
+            tbl.append(row('🏨 ' + T('فندق'), money(s.r[5]), hh >= 5));
+            tbl.append(row(T('سعر البناء'), money(s.h)));
+        } else if (s.t === 'rail') {
+            [1, 2, 3, 4].forEach(function (k) { tbl.append(row(k + ' ' + T('محطة'), money(25 * Math.pow(2, k - 1)))); });
+        } else if (s.t === 'util') {
+            tbl.append(row(T('مرفق واحد'), '4× ' + T('النرد')));
+            tbl.append(row(T('المرفقان'), '10× ' + T('النرد')));
+        } else if (s.t === 'tax') tbl.append(row(T('ادفع'), money(s.amt)));
+        if (s.p) tbl.append(row(T('السعر'), money(s.p)));
+        var own = $('<div class="deed-own">');
+        if (o !== undefined) own.text(T('المالك: {n}', { n: g.players[o].name }) + (g.mort[selSq] ? ' (' + T('مرهونة') + ')' : '')).css('border-color', last.players[o].color);
+        else if (s.p) own.text(T('بلا مالك'));
+        if (own.text()) box.append(own);
         if (o === me && g.turn === me && g.phase !== 'over') {
             var row = $('<div class="mp-actions">');
             var h = g.houses[selSq] || 0;
@@ -667,6 +716,12 @@
         if (a === 'rpPlay') return rpToggle();
         if (a === 'rpPrev' || a === 'rpNext') { if (RP) { RP.playing = false; clearTimeout(RP.timer); rpFrame(RP.i + (a === 'rpNext' ? 1 : -1)); } return; }
         if (a === 'monoHist') { var hl = $('#mp-hist'); if (hl.is(':visible')) hl.addClass('hidden'); else socket.emit('mp_hist'); return; }
+        if (a === 'monoZoom') {
+            zoomOn = !zoomOn;
+            $('#mp-bwrap').toggleClass('zoom', zoomOn); $(el).attr('aria-pressed', String(zoomOn)).text(zoomOn ? '🔍 ' + T('تصغير') : '🔍 ' + T('تكبير'));
+            if (zoomOn) setTimeout(centerOnToken, 60); else document.getElementById('mp-bwrap').scrollLeft = 0;
+            return;
+        }
         if (a === 'monoTop') { var tp = $('#mp-top'); if (tp.is(':visible')) tp.addClass('hidden'); else socket.emit('mp_top'); return; }
         if (a === 'mtCreate') { $('#mt-error').text(''); socket.emit('mt_create', { name: $('#mt-name').val() }); return; }
         if (a === 'mtPlay') { socket.emit('mp_rejoin'); return; }
