@@ -3,6 +3,7 @@
 // القواعد المبسّطة: بدون مزادات وبدون تبادل بين اللاعبين.
 
 const crypto = require('crypto');
+const replay = require('./monoreplay');
 
 const P = (n, g, p, h, r) => ({ t: 'prop', n, g, p, h, r });
 const RAIL = (n) => ({ t: 'rail', n, p: 200 });
@@ -583,7 +584,7 @@ function botStep(g, pi) {
     return act(g, pi, c) === null;
 }
 
-function attach(io, { nameOf }) {
+function attach(io, { nameOf, onEnd, hist, top }) {
     const lobbyCd = (room) => {
         if (!room.pub || room.game) return null;
         const now = Date.now();
@@ -591,7 +592,26 @@ function attach(io, { nameOf }) {
         if (room.soloAt) return { kind: 'bots', ms: Math.max(0, room.soloAt - now) };
         return null;
     };
+    // تسجيل لقطات اللعبة، وعند النهاية تسليم السجل للخادم ليحفظه لكل لاعب مسجّل
+    function track(room) {
+        if (!onEnd || !room.game) return;
+        try {
+            if (!room.rec) { room.rec = new replay.Recorder(); room.recTokens = room.players.map((q) => q.token || null); }
+            room.rec.add(publicState(room.game));
+            if (room.game.phase === 'over' && !room.recDone) {
+                room.recDone = true;
+                onEnd({ names: room.game.players.map((q) => q.name), tokens: room.recTokens, winner: room.game.winner, map: room.game.map, n: room.rec.frames.length, z: replay.pack(room.rec.frames) });
+                room.rec = null;
+            }
+        } catch (e) { /* التسجيل لا يعطّل اللعب */ }
+    }
     const emitRoom = (room) => {
+        track(room);
+        if (room.onOver && room.game && room.game.phase === 'over' && !room.overDone) {
+            room.overDone = true;
+            const w = room.game.winner;
+            try { room.onOver(w !== null && w !== undefined && w >= 0 ? room.tokens[w] : null); } catch (e) { /* لا يعطّل اللعب */ }
+        }
         room.players.forEach((pl, i) => {
             if (!pl.sid) return;
             io.to(pl.sid).emit('mp_update', {
@@ -778,6 +798,18 @@ function attach(io, { nameOf }) {
             emitRoom(f.room);
         });
 
+        socket.on('mp_top', () => { if (tok() && top) socket.emit('mp_top', top()); });
+        socket.on('mp_hist', () => {
+            if (!tok() || !hist) return;
+            socket.emit('mp_hist', hist(tok()).map((h, i) => ({ i, t: h.t, map: h.map, names: h.names, me: (h.tokens || []).indexOf(tok()), winner: h.winner, n: h.n })));
+        });
+        socket.on('mp_hist_game', (d) => {
+            if (!tok() || !hist) return;
+            const h = hist(tok())[parseInt(d && d.i, 10)];
+            if (!h) return err('هذه اللعبة لم تعد محفوظة.');
+            socket.emit('mp_hist_game', { names: h.names, me: (h.tokens || []).indexOf(tok()), map: h.map, frames: replay.unpackDeltas(h.z) });
+        });
+
         socket.on('mp_act', (d) => {
             const f = mine();
             if (!f || !f.room.game || !d || typeof d !== 'object') return;
@@ -799,6 +831,24 @@ function attach(io, { nameOf }) {
             emitRoom(room);
         });
     });
+
+    // غرفة بطولة: اللعبة تبدأ فورًا بمقاعد محجوزة بالتوكن، ومن لم يحضر خلال ~3 دقائق يُفلَس تلقائيًا
+    function createTourneyRoom(tokens, map, onOver) {
+        const code = newCode();
+        if (!code) return null;
+        const order = shuffle(tokens.slice());
+        const off = Date.now() + 60000;
+        const room = {
+            code, players: order.map((t) => ({ token: t, name: nameOf(t), sid: null, off })),
+            game: null, t: Date.now(), map: MAPS[map] ? map : 'coast', tourney: true, tokens: order, onOver
+        };
+        const seen = new Set();
+        room.players.forEach((q) => { if (seen.has(q.name)) q.name += ' ' + (seen.size + 1); seen.add(q.name); });
+        room.game = createGame(room.players.map((q) => q.name), room.map);
+        rooms.set(code, room);
+        return code;
+    }
+    return { createTourneyRoom, rooms };
 }
 
 module.exports = { actorOf, botStep, attach, createGame, act, BOARD, publicState, rooms };
