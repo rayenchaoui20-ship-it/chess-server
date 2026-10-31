@@ -21,7 +21,23 @@
     };
     var SNAKE_COLORS = ['#3fae7a', '#d9534f', '#8e6bd0', '#e08a2e', '#2f9fbf'];
     var STEP_MS = 120, JUMP_MS = 650, DIE_MS = 520;
-    var FACES = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+    var PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+    function setDie(n) {
+        var d = $('#snk-die').empty().attr('data-v', n);
+        for (var c = 0; c < 9; c++) d.append($('<s>').toggleClass('on', PIPS[n].indexOf(c) >= 0));
+    }
+    var dieInit = false;
+    function rnd6() { return 1 + Math.floor(Math.random() * 6); }
+    function flashCell(n) { var c = $('#snk-board .snk-c[data-n="' + n + '"]').removeClass('land'); if (c.length) { void c[0].offsetWidth; c.addClass('land'); } }
+    function confetti() {
+        if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        var box = $('<div class="confetti" aria-hidden="true">').appendTo(document.body), cols = ['#e2b14b', '#46c08f', '#ef6b72', '#5879ae', '#fff'];
+        for (var i = 0; i < 70; i++) {
+            $('<i>').css({ left: Math.random() * 100 + '%', background: cols[i % 5], animationDuration: (2.2 + Math.random() * 2) + 's', animationDelay: Math.random() * .8 + 's' })
+                .css({ '--dx': (Math.random() * 160 - 80) + 'px', '--rot': (360 + Math.random() * 720) + 'deg' }).appendTo(box);
+        }
+        setTimeout(function () { box.remove(); }, 5200);
+    }
 
     var last = null;               // آخر حالة من الخادم
     var shown = null;              // المواقع المعروضة حاليًا (للحركة التدريجية)
@@ -84,7 +100,7 @@
             var c = cell(n), r = Math.floor((n - 1) / 10), i = (n - 1) % 10, col = r % 2 === 0 ? i : 9 - i;
             var sp = B.specials[n];
             var cls = 'snk-c' + ((r + col) % 2 ? ' alt' : '') + (B.ladders[n] ? ' lad' : '') + (B.snakes[n] ? ' snk' : '') + (sp ? ' sp sp-' + sp : '') + (n === B.cells ? ' goal' : '');
-            cells += '<div class="' + cls + '" style="left:' + (c.x - 5) + '%;top:' + ((c.y - 5) * 100 / H) + '%;height:' + (100 / R) + '%"><span>' + n + '</span>' + (sp ? '<b class="spi">' + SP_ICON[sp] + '</b>' : '') + '</div>';
+            cells += '<div class="' + cls + '" data-n="' + n + '" style="left:' + (c.x - 5) + '%;top:' + ((c.y - 5) * 100 / H) + '%;height:' + (100 / R) + '%"><span>' + n + '</span>' + (sp ? '<b class="spi">' + SP_ICON[sp] + '</b>' : '') + '</div>';
         }
         var svg = '<svg class="snk-svg" viewBox="0 0 100 ' + H + '" aria-hidden="true">';
         Object.keys(B.ladders).forEach(function (a) { svg += ladderSvg(+a, B.ladders[a]); });
@@ -104,10 +120,11 @@
             el[0].style.setProperty('--tkc', p.color);
             var n = shown[i], c = pt(n);
             var same = shown.filter(function (v, j) { return j < i && v === n; }).length;
-            var ox = (i % 2 ? 1.2 : -1.2) + same * 0.0, oy = (i < 2 ? -1.2 : 1.2);
+            var ox = (i % 2 ? 1.7 : -1.7) + same * 0.0, oy = (i < 2 ? -1.7 : 1.7);
             el.css({ left: (c.x + ox) + '%', top: ((c.y + oy) * 100 / (rowsN() * 10)) + '%' }).toggleClass('me', i === last.me);
             if (i === last.me) applySkinTo(el);
-            el.attr('title', p.name);
+            el.attr('title', p.name).toggleClass('turn', last.game.winner === null && i === last.game.turn);
+            if (!el.attr('data-l')) el.attr('data-l', 1).text(String(p.name || '?').replace(/^\s+/, '').charAt(0).toUpperCase());
         });
     }
 
@@ -117,6 +134,7 @@
         if (!last.started) { renderLobby(); return view('lobby'); }
         view('game');
         var g = last.game;
+        if (!dieInit) { dieInit = true; setDie(5); }
         B = g.board || CLASSIC;
         buildBoard();
         if (!shown) { shown = g.pos.slice(); seenRolls = g.rolls; }
@@ -142,7 +160,8 @@
         last.players.forEach(function (p, i) {
             ul.append($('<li>').toggleClass('cur', g.winner === null && i === g.turn).toggleClass('off', !p.on)
                 .append($('<i class="snk-dot">').css('background', p.color), $('<span class="nm">').text(p.name + (i === last.me ? ' (أنت)' : '') + (p.bot ? ' 🤖' : '') + (g.shield && g.shield[i] ? ' 🛡' : '')),
-                    $('<span class="rt">').text((shown ? shown[i] : g.pos[i]) || 'البداية')));
+                    $('<span class="rt">').text((shown ? shown[i] : g.pos[i]) || 'البداية'),
+                    $('<span class="bar">').append($('<b>').css({ width: Math.min(100, ((shown ? shown[i] : g.pos[i]) || 0) * 100 / B.cells) + '%', background: p.color }))));
         });
     }
     function status() {
@@ -154,6 +173,7 @@
         if (txt || !busy) $('#snk-status').text(txt);
         var can = g.winner === null && g.turn === last.me && !busy;
         $('#snk-roll').prop('disabled', !can).toggleClass('primary', can);
+        $('#snk-status').closest('.status-card').toggleClass('mine', can);
         $('#snk-over').toggleClass('hidden', g.winner === null);
         $('#snk-reactbar').toggleClass('hidden', !!last.ai);   // ضد الحاسوب: لا حاجة للتفاعلات
         $('#snk-replay').toggleClass('hidden', !(g.winner !== null && g.log && g.log.length));
@@ -177,18 +197,20 @@
         $('#snk-roll').prop('disabled', true);
         sfx('dice');
         var die = $('#snk-die').addClass('rolling'), t0 = 0;
-        var iv = setInterval(function () { die.text(FACES[Math.floor(Math.random() * 6)]); }, 70);
+        var iv = setInterval(function () { setDie(rnd6()); }, 70);
         setTimeout(function () {
             clearInterval(iv);
-            die.removeClass('rolling').text(FACES[l.d - 1]);
+            die.removeClass('rolling'); setDie(l.d);
             $('#snk-msg').text(who + ': ' + l.d);
             walk(l, function () {
                 var done = function () {
                     shown = g.pos.slice();
                     busy = false;
+                    flashCell(g.pos[l.p]);
                     renderPlayers(); paintTokens();
                     if (g.winner !== null) {
                         sfx(g.winner === last.me ? 'win' : 'lose');
+                        if (g.winner === last.me) confetti();
                         $('#snk-msg').text('🏆 ' + last.players[g.winner].name);
                     } else if (g.turn === last.me) sfx('turn');
                     status();
@@ -247,7 +269,7 @@
             var step = from + d > B.cells ? from : from + d;
             var l = { p: p, d: d, from: from, step: step, to: to, via: to === step ? (e[4] === 'blocked' ? 'shield' : null) : (e[4] === 'back' ? 'back' : (to > step ? 'ladder' : 'snake')), special: e[4] === 'back' ? null : (e[4] || null) };
             var who = last.players[p].name;
-            $('#snk-die').text(FACES[d - 1]);
+            setDie(d);
             $('#snk-status').text('↻ ' + i + ' / ' + log.length);
             $('#snk-msg').text(who + ': ' + d);
             sfx('dice');
