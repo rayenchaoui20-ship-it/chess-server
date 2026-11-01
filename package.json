@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/smoke.js"
+    "test": "for f in test/*.test.js; do node $f || exit 1; done"
   },
   "dependencies": {
     "@chrisoakman/chessboardjs": "1.0.0",
@@ -27,6 +27,7 @@
     "socket.io-client": "^4.7.2"
   },
   "optionalDependencies": {
-    "stockfish": ">=16.0.0"
+    "stockfish": ">=16.0.0",
+    "web-push": "^3.6.7"
   }
 }

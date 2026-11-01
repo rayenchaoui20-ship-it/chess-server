@@ -2045,6 +2045,59 @@ io.on('connection', (socket) => {
         socket.emit('logged_out');
     });
 
+    // ───── حذف الحساب نهائيًا (يتطلب كلمة المرور) ─────
+    socket.on('delete_account', async (data) => {
+        const ctx = playerCtx(socket);
+        if (!ctx) return;
+        const token = ctx.token;
+        const rec = db.players[token];
+        if (!rec || !rec.user) return socket.emit('delete_error', 'لا يوجد حساب لحذفه.');
+        const pw = data && typeof data.password === 'string' ? data.password : '';
+        const fkey = 'del:' + token;
+        if (tooManyFails(fkey)) return socket.emit('delete_error', 'محاولات كثيرة، حاول بعد عشر دقائق.');
+        let ok = false;
+        try { ok = !!(rec.pass && await verifyPassword(pw, rec.pass)); } catch (e) { ok = false; }
+        if (!ok) { addFail(fkey); return socket.emit('delete_error', 'كلمة المرور غير صحيحة.'); }
+        if (!db.players[token] || !db.players[token].user) return;
+        removeFromQueues(token);
+        leaveRoom(token, true);
+        const lo = live.get(token);
+        if (lo) clearTimeout(lo.grace);
+        live.delete(token);
+        const friends = (rec.friends || []).slice();
+        // إزالة الحساب من قوائم الآخرين
+        for (const t of Object.keys(db.players)) {
+            const o = db.players[t];
+            if (!o || t === token) continue;
+            ['friends', 'reqIn', 'reqOut'].forEach((k) => { if (Array.isArray(o[k]) && o[k].includes(token)) o[k] = o[k].filter((x) => x !== token); });
+            if (o.refBy === token) delete o.refBy;
+        }
+        // النوادي: ينتقل الإشراف لأقدم عضو، أو يُحذف النادي إن كان وحيدًا
+        for (const id of Object.keys(db.clubs || {})) {
+            const c = db.clubs[id];
+            if (!c || !Array.isArray(c.members) || !c.members.includes(token)) continue;
+            c.members = c.members.filter((x) => x !== token);
+            if (!c.members.length) delete db.clubs[id];
+            else if (c.owner === token) c.owner = c.members[0];
+        }
+        // البطولات المفتوحة
+        ['tourneys', 'mtourneys', 'stourneys'].forEach((k) => {
+            Object.values(db[k] || {}).forEach((t) => {
+                if (t && t.status === 'open' && Array.isArray(t.players)) t.players = t.players.filter((x) => x !== token);
+            });
+        });
+        delete db.users[String(rec.user).toLowerCase()];
+        delete db.players[token];
+        loginFails.delete(String(rec.user).toLowerCase());
+        const nt = crypto.randomBytes(18).toString('base64url');
+        const nrec = db.players[nt] = newPlayer();
+        saveSoon();
+        socket.data.token = null;
+        attach(socket, nt, nrec);
+        friends.forEach((f) => { try { pushFriends(f); } catch (e) { /* */ } });
+        socket.emit('account_deleted');
+    });
+
     // ───── الأصدقاء ─────
     function accountCtx() {
         const ctx = playerCtx(socket);
