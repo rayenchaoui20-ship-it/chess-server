@@ -131,3 +131,7 @@
 .mp-plist.snk-plist li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-radius: 12px; }
 .mp-plist.snk-plist .rt { margin-inline-start: auto; font-weight: 800; font-variant-numeric: tabular-nums; }
 .mp-plist.snk-plist .bar { flex: 0 0 100%; }
+
+/* رابط الدعوة والصفحة الافتتاحية */
+.pf-invite { margin: 10px 0; padding: 10px 12px; border: 1px dashed var(--line, #2a3a63); border-radius: 12px; }
+.land-ref { margin: 10px auto 0; padding: 8px 14px; max-width: 460px; border-radius: 999px; background: rgba(226, 177, 75, .16); border: 1px solid rgba(226, 177, 75, .5); font-weight: 700; text-align: center; }

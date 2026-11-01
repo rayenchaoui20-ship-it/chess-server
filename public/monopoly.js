@@ -33,6 +33,20 @@
         if (!cell) return;
         try { cell.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' }); } catch (e) { cell.scrollIntoView(); }
     }
+    if (window.Share) {
+        window.Share.providers.mono = function () {
+            var g = last && last.game;
+            if (!g || g.winner === null || g.winner === undefined) return null;
+            var win = g.players[g.winner].name, iWon = g.winner === last.me;
+            var rank = g.players.map(function (p, i) { return { n: p.name, c: p.cash }; }).sort(function (a, b) { return b.c - a.c; });
+            return {
+                emoji: iWon ? '👑' : '🏙', game: 'ملك المدينة', accent: '#e2b14b',
+                title: iWon ? 'فزت بلعبة ملك المدينة!' : 'فاز ' + win + ' في ملك المدينة',
+                lines: ['أغنى لاعب: ' + win + ' ($' + g.players[g.winner].cash + ')', g.players.length + ' لاعبين · ' + (g.round || 0) + ' جولة'].concat(rank.length > 1 && !iWon ? ['وصلت إلى $' + g.players[last.me].cash] : []),
+                text: iWon ? 'فزت بلعبة ملك المدينة!' : 'لعبنا ملك المدينة!'
+            };
+        };
+    }
     function loadBoard(cb) {
         if (BASE) return cb();
         Promise.all([
@@ -190,6 +204,8 @@
         } else if (g.phase === 'over') {
             btn(T('العودة إلى ملك المدينة'), 'x', 'primary');
             $('#mp-actions button').last().removeAttr('data-mp').attr('data-action', 'monoLeave');
+            btn('📤 ' + T('شارك النتيجة'), 'x', 'secondary');
+            $('#mp-actions button').last().removeAttr('data-mp').attr('data-share', 'mono');
         }
         if (mine && (g.phase === 'roll' || g.phase === 'end') && g.players.filter(function (q, qi) { return !q.out && qi !== me; }).length) {
             btn('🤝 ' + T('تبادل'), 'x', 'secondary');

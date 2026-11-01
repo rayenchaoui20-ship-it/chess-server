@@ -27,6 +27,20 @@
         for (var c = 0; c < 9; c++) d.append($('<s>').toggleClass('on', PIPS[n].indexOf(c) >= 0));
     }
     var dieInit = false;
+    if (window.Share) {
+        window.Share.providers.snk = function () {
+            var g = last && last.game;
+            if (!g || g.winner === null) return null;
+            var iWon = g.winner === last.me, win = last.players[g.winner].name;
+            var MODES = { classic: 'كلاسيكية', quick: 'سريعة', chaos: 'الفوضى', surprise: 'المفاجآت' };
+            return {
+                emoji: iWon ? '🏆' : '🐍', game: 'سلم وثعبان', accent: '#46c08f',
+                title: iWon ? 'فزت في سلم وثعبان!' : 'فاز ' + win + ' في سلم وثعبان',
+                lines: ['لوحة ' + (MODES[g.mode] || 'كلاسيكية'), last.players.length + ' لاعبين · ' + (g.rolls || 0) + ' رمية'],
+                text: iWon ? 'فزت في سلم وثعبان!' : 'لعبنا سلم وثعبان!'
+            };
+        };
+    }
     function rnd6() { return 1 + Math.floor(Math.random() * 6); }
     function flashCell(n) { var c = $('#snk-board .snk-c[data-n="' + n + '"]').removeClass('land'); if (c.length) { void c[0].offsetWidth; c.addClass('land'); } }
     function confetti() {

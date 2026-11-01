@@ -350,3 +350,16 @@ html[dir="rtl"] .mode-row.primary::after { -webkit-mask-image: linear-gradient(t
 .pf-badges { display: flex; flex-wrap: wrap; gap: 6px; }
 .pf-badges:empty { display: none; }
 .pf-badge { background: var(--gold-soft); border: 1px solid var(--gold); border-radius: 999px; padding: 2px 12px; font-size: .85rem; font-weight: 600; }
+
+/* إعادة مشاهدة ملك المدينة */
+.mp-replay { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; flex-wrap: wrap; }
+.mp-replay input[type=range] { flex: 1; min-width: 120px; }
+#mp-hist { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+#mp-hist li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#mp-hist .st { color: var(--muted, #8a94ad); font-size: .8rem; margin-inline-start: auto; }
+#mp-hist .gr-res.win { color: #46c08f; } #mp-hist .gr-res.loss { color: #ef6b72; }
+
+/* دعوة سريعة للأصدقاء المتصلين */
+.inv-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.inv-chips:empty { display: none; }
+.inv-chip { padding: 4px 10px; min-height: 0; font-size: .85rem; }

@@ -1761,7 +1761,9 @@
             if (!key) return $('#auth-error').text(tr('أدخل مفتاح الاستعادة.'));
             return socket.emit('reset_password', { username, key, password });
         }
-        socket.emit(authMode, { username, password });
+        const payload = { username, password };
+        if (authMode === 'register') { const rf = lsGet('chess-ref'); if (rf) payload.ref = rf; }
+        socket.emit(authMode, payload);
     }
     $('#auth-pass, #auth-user').on('keydown', (e) => { if (e.key === 'Enter') authSubmit(); });
     $('#friend-input').on('keydown', (e) => { if (e.key === 'Enter') A.friendAdd(); });
@@ -2432,6 +2434,8 @@
 
     // اللعبة المختارة: أول زيارة تعرض شاشة الاختيار
     (function () {
+        const pw = { '/chess': 'chess', '/monopoly': 'mono', '/snakes': 'snake' }[location.pathname];
+        if (pw) lsSet('chess-world', pw);
         const w = lsGet('chess-world');
         if (w !== 'chess' && w !== 'mono' && w !== 'snake') show('world-screen');
         else if (w === 'snake') setTimeout(() => { if (currentScreen === 'menu-screen') A.showSnake(); }, 0);
