@@ -881,6 +881,54 @@ app.get('/vendor/stockfish/manifest.json', (req, res) => {
     res.json({ file: sfFile });
 });
 app.use('/vendor/stockfish', express.static(nm('stockfish'), { maxAge: '7d' }));
+// ───── محركات البحث والمشاركة: عنوان ووصف وصورة معاينة لكل صفحة ─────
+const SITE_URL = (process.env.SITE_URL || 'https://chess-relay-server-y321.onrender.com').replace(/\/+$/, '');
+const SEO_PAGES = {
+    '/': { t: 'الشطرنج وملك المدينة وسلم وثعبان: ألعاب لوحية أونلاين مجانًا', d: 'العب الشطرنج وملك المدينة وسلم وثعبان مع أصدقائك أو ضد لاعبين حقيقيين والحاسوب. بلا تحميل وبلا اشتراك، مع تصنيف وبطولات وإنجازات.', cat: 'Game' },
+    '/chess': { img: '/og-chess.png', t: 'العب الشطرنج أونلاين مجانًا: تصنيف وألغاز وبطولات', d: 'شطرنج مباشر مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين وألغاز يومية ودروس افتتاحيات وبطولات للنوادي.', cat: 'Chess' },
+    '/monopoly': { img: '/og-monopoly.png', t: 'ملك المدينة: لعبة تجارة وعقارات أونلاين مع الأصدقاء', d: 'اشترِ المدن وابنِ الفنادق وأفلس خصومك في ملك المدينة. حتى 8 لاعبين، مزادات وتبادل ودردشة صوتية وبطولات للنوادي.', cat: 'Board game' },
+    '/snakes': { img: '/og-snakes.png', t: 'سلم وثعبان أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة سلم وثعبان بأربعة أنماط: كلاسيكية وسريعة وفوضى ومفاجآت. العب مع الأصدقاء أو لاعبين عشوائيين، مع ترتيب شهري وبطولات.', cat: 'Board game' }
+};
+const escAttr = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+let seoBase = null;
+function seoHtml(pathname) {
+    if (!seoBase) seoBase = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+    const pg = SEO_PAGES[pathname] || SEO_PAGES['/'];
+    const url = SITE_URL + (pathname === '/' ? '/' : pathname);
+    const img = SITE_URL + (pg.img || '/og-image.png');
+    const ld = JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebApplication', name: pg.t, url, description: pg.d, applicationCategory: 'GameApplication', genre: pg.cat, inLanguage: 'ar', operatingSystem: 'Any', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' } }).replace(/</g, '\\u003c');
+    const block = [
+        '<meta name="description" content="' + escAttr(pg.d) + '">',
+        '<link rel="canonical" href="' + url + '">',
+        '<meta property="og:type" content="website">', '<meta property="og:locale" content="ar_AR">', '<meta property="og:site_name" content="الألعاب اللوحية">',
+        '<meta property="og:title" content="' + escAttr(pg.t) + '">', '<meta property="og:description" content="' + escAttr(pg.d) + '">', '<meta property="og:url" content="' + url + '">',
+        '<meta property="og:image" content="' + img + '">', '<meta property="og:image:width" content="1200">', '<meta property="og:image:height" content="630">', '<meta property="og:image:alt" content="' + escAttr(pg.t) + '">',
+        '<meta name="twitter:card" content="summary_large_image">', '<meta name="twitter:title" content="' + escAttr(pg.t) + '">', '<meta name="twitter:description" content="' + escAttr(pg.d) + '">', '<meta name="twitter:image" content="' + img + '">',
+        '<script type="application/ld+json">' + ld + '</script>'
+    ].join('\n    ');
+    return seoBase
+        .replace(/<title>[\s\S]*?<\/title>/, '<title>' + escAttr(pg.t) + '</title>')
+        .replace(/<meta name="description"[^>]*>\s*/g, '')
+        .replace(/<link rel="canonical"[^>]*>\s*/g, '')
+        .replace(/<meta property="og:[^>]*>\s*/g, '')
+        .replace(/<meta name="twitter:[^>]*>\s*/g, '')
+        .replace('</head>', '    ' + block + '\n</head>');
+}
+Object.keys(SEO_PAGES).forEach((p) => {
+    app.get(p, (req, res) => {
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        res.set('Cache-Control', 'no-cache');
+        res.send(seoHtml(p));
+    });
+});
+app.get('/robots.txt', (req, res) => {
+    res.type('text/plain').send('User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: ' + SITE_URL + '/sitemap.xml\n');
+});
+const SITEMAP_AT = new Date().toISOString().slice(0, 10);
+app.get('/sitemap.xml', (req, res) => {
+    const urls = Object.keys(SEO_PAGES).map((p) => '  <url><loc>' + SITE_URL + (p === '/' ? '/' : p) + '</loc><lastmod>' + SITEMAP_AT + '</lastmod><priority>' + (p === '/' ? '1.0' : '0.8') + '</priority></url>').join('\n');
+    res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '\n</urlset>\n');
+});
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 
 // ───── لوحة المشرف (تتطلب المتغير ADMIN_KEY في Render) ─────
@@ -1852,6 +1900,19 @@ io.on('connection', (socket) => {
         rec.name = u;
         ensureSocial(rec);
         db.users[u.toLowerCase()] = token;
+        // دعوة بالرابط: يحصل الداعي والمدعو على شارة (الحد الأعلى 50 دعوة للحساب الواحد)
+        try {
+            const rk = typeof data.ref === 'string' ? cleanUser(data.ref).toLowerCase() : '';
+            const rt = rk && db.users[rk];
+            const rr = rt && rt !== token && db.players[rt];
+            if (rr && rr.user && (rr.refs || 0) < 50) {
+                rec.refBy = rt; rr.refs = (rr.refs || 0) + 1;
+                awardFor(rt);
+                emitTo(rt, 'notify', { text: '🤝 سجّل ' + u + ' عن طريق رابط دعوتك!' });
+                pushOffline(rt, { title: '🤝 دعوتك نجحت', body: 'سجّل ' + u + ' عن طريق رابطك.', url: '/' });
+            }
+        } catch (e) { /* الدعوة اختيارية */ }
+        awardFor(token);
         saveSoon();
         sendWelcome(socket, token, rec);
         pushFriends(token);
