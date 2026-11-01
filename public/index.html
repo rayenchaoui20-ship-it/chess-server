@@ -27,6 +27,7 @@
     <link rel="stylesheet" href="/polish.css">
     <link rel="stylesheet" href="/mono-ui.css">
     <link rel="stylesheet" href="/games-ui.css">
+    <link rel="stylesheet" href="/extras.css">
 </head>
 <body data-theme="classic">
 <div class="app" id="app">
@@ -40,6 +41,13 @@
         </svg>
         <span class="wordmark" id="wordmark">شطرنج</span>
         <button class="btn ghost hidden" id="world-switch" data-action="changeWorld">🔄 غيّر اللعبة</button>
+        <div class="tools">
+            <div class="bell-wrap hidden" id="bell-wrap">
+                <button type="button" class="btn ghost tool-btn" id="bell-btn" aria-label="الإشعارات" aria-expanded="false" aria-controls="bell-panel">🔔<span class="bell-n hidden" id="bell-n">0</span></button>
+                <div class="bell-panel hidden" id="bell-panel" role="region" aria-label="الإشعارات"></div>
+            </div>
+            <button type="button" class="btn ghost tool-btn" id="mode-btn" aria-label="الوضع الفاتح" aria-pressed="false">☀️</button>
+        </div>
     </header>
 
     <noscript><div class="lib-banner">هذه المنصة تحتاج JavaScript لتعمل. العب الشطرنج أونلاين مع لاعبين حقيقيين أو ضد الحاسوب، وحل ألغاز الشطرنج مجانًا.</div></noscript>
@@ -54,6 +62,7 @@
                 <button class="btn primary" data-action="landingStart">أنشئ حسابًا مجانيًا</button>
                 <button class="btn ghost" data-action="landingLogin">لدي حساب</button>
             </div>
+            <p class="land-ref hidden" id="land-ref" role="status"></p>
             <p class="land-online muted small" id="landing-online"></p>
         </div>
 
@@ -329,6 +338,10 @@
         <div class="panel stack">
             <h2 class="section-title" style="margin-bottom:0" id="pf-title">الملف الشخصي</h2>
             <p class="muted small" id="pf-sub"></p>
+            <div class="pf-invite hidden" id="pf-invite">
+                <label class="label" for="pf-ref">رابط دعوتك: كل صديق يسجّل منه تحصلان على شارة <span class="muted small" id="pf-ref-n"></span></label>
+                <div class="join-row"><input type="text" id="pf-ref" class="field" readonly dir="ltr"><button class="btn secondary" type="button" data-share="ref">📤 شارك</button></div>
+            </div>
             <div class="pf-badges" id="pf-badges"></div>
             <div class="pf-ratings" id="pf-ratings"></div>
             <svg id="pf-spark" class="pf-spark hidden" viewBox="0 0 300 60" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -457,6 +470,7 @@
 
         <div id="mp-home" class="stack narrow">
             <p class="lead">من 2 إلى 8 لاعبين. أنشئ غرفة وأرسل الكود لأصدقائك، أو انضم بكود.</p>
+            <button class="btn ghost block" type="button" data-guide="mono">❓ كيف ألعب؟</button>
             <button class="btn primary" data-action="monoQuick">🎲 العب مع لاعبين عشوائيين</button>
             <p class="muted small">تُطابقك المنصة مع لاعبين متصلين الآن. إن لم يتوفر أحد تكمل بالحاسوب.</p>
             <label class="small muted" for="mp-map">اختر اللوحة</label>
@@ -536,6 +550,7 @@
 
         <div id="snk-home" class="narrow stack">
             <div id="snk-clubroom" class="mp-clubroom hidden" role="status"></div>
+            <button class="btn ghost block" type="button" data-guide="snk">❓ كيف ألعب؟</button>
             <div class="panel stack">
                 <h3 class="sub-title">نمط اللوحة</h3>
                 <select id="snk-mode" class="field" aria-label="نمط اللوحة">
@@ -635,7 +650,7 @@
                     <p class="muted small">تُفتح الخيارات المقفلة بالإنجازات. مظهرك يراه أنت.</p>
                 </details>
                 <div id="snk-reacts" class="mp-reacts" aria-live="polite"></div>
-                <div id="snk-over" class="hidden"><button class="btn secondary block hidden" id="snk-replay" data-snk="replay">🎬 إعادة المشاهدة</button><button class="btn primary block" data-snk="again">لعبة جديدة</button></div>
+                <div id="snk-over" class="hidden"><button class="btn secondary block hidden" id="snk-replay" data-snk="replay">🎬 إعادة المشاهدة</button><button class="btn secondary block" data-share="snk">📤 شارك النتيجة</button><button class="btn primary block" data-snk="again">لعبة جديدة</button></div>
             </aside>
         </div>
     </section>
@@ -812,6 +827,7 @@
             <p class="reason" id="rematch-note" style="margin:-8px 0 12px"></p>
             <button class="btn primary" id="result-rematch" data-action="requestRematch">العب مجددًا</button>
             <button class="btn secondary" data-action="closeResult">مراجعة المباراة</button>
+            <button class="btn ghost" data-share="chess">📤 شارك النتيجة</button>
             <button class="btn ghost" data-action="exitGame">العودة إلى القائمة</button>
         </div>
     </div>
