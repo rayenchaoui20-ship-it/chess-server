@@ -1,6 +1,8 @@
 // يحمّل المكتبات بالترتيب: النسخة المحلية أولًا ثم CDN كاحتياط، ثم يشغّل التطبيق.
 (function () {
     'use strict';
+    // الوضع الفاتح قبل أي رسم كي لا يومض الموقع بالداكن أولًا
+    try { if (localStorage.getItem('chess-mode') === 'light') document.documentElement.setAttribute('data-mode', 'light'); } catch (e) { /* */ }
 
     function loadScript(srcs) {
         return new Promise(function (resolve, reject) {
@@ -76,6 +78,6 @@
             app.insertBefore(b, app.firstChild);
             return;
         }
-        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/castle960.js']).catch(function () {}); }).then(function () { return loadScript(['/app.js']); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}).then(function () { return loadScript(['/lessons.js']).catch(function () {}); }).then(function () { return loadScript(['/snakes-client.js']).catch(function () {}); }); });
+        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/castle960.js']).catch(function () {}); }).then(function () { return loadScript(['/app.js']).then(function () { return loadScript(['/share.js']).catch(function () {}).then(function () { return loadScript(['/extras.js']).catch(function () {}); }); }); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}).then(function () { return loadScript(['/lessons.js']).catch(function () {}); }).then(function () { return loadScript(['/snakes-client.js']).catch(function () {}); }); });
     });
 })();
