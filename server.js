@@ -1427,8 +1427,19 @@ function monoHist(t) {
     return rec.mh.map((id) => db.mgames[id]).filter(Boolean);
 }
 const monoApi = require('./monopoly').attach(voice.wrapIo(io), { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب', onEnd: monoRecord, hist: monoHist, top: () => gameTop('ml') });
+// بطولات الألعاب اللوحية: إن كان الملف ناقصًا أو غير مكتمل الرفع يعمل الموقع بدونها بدل أن ينهار
+function gameTourneys(deps) {
+    try {
+        const m = require('./monotourney');
+        if (typeof m.init !== 'function') throw new Error('monotourney.js لا يصدّر init. مفاتيحه: [' + Object.keys(m).join(', ') + '] — أعد رفع الملف كاملًا (حجمه نحو 10 KB).');
+        return m.init(deps);
+    } catch (e) {
+        console.error('تحذير: بطولات الألعاب معطّلة:', e.message);
+        return { register() {}, resume() {} };
+    }
+}
 // بطولات «ملك المدينة» للنوادي
-const monoTourneys = require('./monotourney').init({
+const monoTourneys = gameTourneys({
     getDb: () => db, saveSoon, playerCtx, emitTo, uname, safety, pushOffline,
     onChampion: (t) => { const r = db.players[t]; if (r) { r.champ = (r.champ || 0) + 1; r.mchamp = (r.mchamp || 0) + 1; awardFor(t); } },
     clubOf: (t) => require('./clubs').clubOf(db, t),
@@ -1467,7 +1478,7 @@ const snakeApi = require('./snakes').attach(io, {
     }
 });
 // بطولات «سلم وثعبان» للنوادي (نفس نظام الطاولات)
-const snakeTourneys = require('./monotourney').init({
+const snakeTourneys = gameTourneys({
     getDb: () => db, saveSoon, playerCtx, emitTo, uname, safety, pushOffline,
     cfg: { prefix: 'st', key: 'stourneys', emoji: '🐍', game: 'سلم وثعبان' },
     onChampion: (t) => { const r = db.players[t]; if (r) { r.champ = (r.champ || 0) + 1; r.schamp = (r.schamp || 0) + 1; awardFor(t); } },
