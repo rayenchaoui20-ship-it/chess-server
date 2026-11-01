@@ -1,0 +1,74 @@
+/* الوضع الفاتح · جرس الإشعارات · جولة الشرح. يُحمَّل آخرًا. */
+
+/* ───── أدوات الرأس ───── */
+.brand .tools { display: flex; align-items: center; gap: 6px; margin-inline-start: auto; }
+#world-switch:not(.hidden) ~ .tools { margin-inline-start: 0; }
+.tool-btn { position: relative; min-height: 0; padding: 6px 10px; font-size: 1.05rem; line-height: 1; }
+.bell-wrap { position: relative; }
+.bell-n { position: absolute; top: -5px; inset-inline-end: -5px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--loss); color: #fff; font-size: .7rem; font-weight: 800; line-height: 18px; text-align: center; }
+
+/* ───── لوحة الإشعارات ───── */
+.bell-panel {
+    position: absolute; top: calc(100% + 8px); inset-inline-start: 0; z-index: 70; width: min(340px, calc(100vw - 24px)); max-height: 62vh; overflow: auto;
+    background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgba(0, 0, 0, .45); text-align: start;
+}
+@media (max-width: 520px) { .bell-wrap { position: static; } .bell-panel { position: fixed; top: 64px; inset-inline: 12px; width: auto; } }
+.bell-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface); }
+.bell-head .btn { min-height: 0; padding: 4px 10px; font-size: .82rem; }
+.bell-empty { padding: 18px 14px; text-align: center; }
+.bell-list { list-style: none; margin: 0; padding: 0; }
+.bell-list li { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.bell-list li:last-child { border-bottom: 0; }
+.bell-list li.new { background: var(--gold-soft, rgba(226, 177, 75, .14)); border-inline-start: 3px solid var(--gold); }
+.bell-list .bt { font-size: .92rem; line-height: 1.5; }
+
+/* ───── جولة الشرح ───── */
+.tour-dlg { max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.tour-ic { font-size: 3.4rem; line-height: 1; }
+.tour-dlg h2 { margin: 0; }
+.tour-tx { font-size: 1.02rem; line-height: 1.8; min-height: 7.2em; }
+.tour-dots { display: flex; gap: 6px; }
+.tour-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.tour-dots i.on { background: var(--gold); width: 22px; border-radius: 4px; }
+.tour-row { display: flex; gap: 10px; width: 100%; }
+.tour-row .btn { flex: 1; min-height: 46px; }
+.tour-skip { min-height: 0; font-size: .85rem; }
+
+/* ═════════ الوضع الفاتح ═════════ */
+html[data-mode="light"] { color-scheme: light; }
+html[data-mode="light"] body {
+    --bg: #F4F6FB; --surface: #FFFFFF; --surface-2: #EAEFF8; --line: #CBD5E6; --text: #17213A; --muted: #55627F;
+    --gold: #B27300; --gold-ink: #FFFFFF; --win: #17855A; --loss: #D13A44; --gold-soft: rgba(178, 115, 0, .12);
+    --shadow-1: 0 8px 24px rgba(30, 50, 90, .14);
+    background: var(--bg); color: var(--text);
+}
+html[data-mode="light"] body { background-image: none; }
+html[data-mode="light"] .overlay { background: rgba(23, 33, 58, .45); }
+html[data-mode="light"] .bell-panel { box-shadow: 0 16px 40px rgba(30, 50, 90, .22); }
+html[data-mode="light"] .wordmark { color: var(--text); }
+/* بطاقات اختيار اللعبة والصفحة الافتتاحية لها صور داكنة: نبقي نصها فاتحًا */
+html[data-mode="light"] .world-card, html[data-mode="light"] .land-card { --text: #E9EDF7; --muted: #C3CCE2; color: #E9EDF7; }
+/* حقول وأزرار */
+html[data-mode="light"] .field, html[data-mode="light"] select, html[data-mode="light"] input[type="text"], html[data-mode="light"] input[type="password"] { background: #fff; color: var(--text); border-color: var(--line); }
+html[data-mode="light"] .btn.ghost { color: var(--text); }
+html[data-mode="light"] .btn.secondary { background: var(--surface-2); color: var(--text); border-color: var(--line); }
+/* ألعاب الطاولة: لوحاتها كائنات داكنة، لكن الألواح المحيطة بها تتبع الوضع */
+html[data-mode="light"] .mp-plist li, html[data-mode="light"] .snk-plist li, html[data-mode="light"] .status-card, html[data-mode="light"] .mp-status,
+html[data-mode="light"] .mp-log, html[data-mode="light"] .panel, html[data-mode="light"] .fr-list li { background: var(--surface); color: var(--text); border-color: var(--line); }
+html[data-mode="light"] .mp-plist li.cur, html[data-mode="light"] .snk-plist li.cur { background: #FFF6DE; border-color: var(--gold); }
+html[data-mode="light"] .mp-plist .sub, html[data-mode="light"] .muted { color: var(--muted); }
+html[data-mode="light"] .mp-plist .mc { color: #17855A; }
+html[data-mode="light"] .snk-dice { background: rgba(255, 255, 255, .92); }
+html[data-mode="light"] .snk-plist .bar { background: rgba(23, 33, 58, .12); }
+html[data-mode="light"] .mp-card, html[data-mode="light"] .t-card { color: var(--text); }
+html[data-mode="light"] .t-card { background: var(--surface); border-color: var(--line); }
+
+/* رأس مزدحم على الهاتف: لا يلتفّ العنوان على سطرين */
+.brand .wordmark { white-space: nowrap; }
+@media (max-width: 520px) {
+    .brand { gap: 8px; }
+    .brand .wordmark { font-size: 1.5rem; }
+    .brand svg { width: 28px; height: 28px; }
+    #world-switch { padding: 5px 8px; font-size: .74rem; }
+    .tool-btn { padding: 5px 8px; font-size: 1rem; }
+}
