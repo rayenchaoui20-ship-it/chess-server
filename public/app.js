@@ -519,6 +519,14 @@
         copyKey() { copyText($('#key-value').text(), '#key-copy', tr('انسخ المفتاح')); },
         closeKey() { $('#key-dialog').addClass('hidden'); $('#key-value').text(''); },
         authSubmit() { authSubmit(); },
+        showDelete() { $('#del-pass').val(''); $('#del-error').text(''); $('#del-dialog').removeClass('hidden'); $('#del-pass').trigger('focus'); },
+        closeDelete() { $('#del-dialog').addClass('hidden'); $('#del-pass').val(''); },
+        deleteSubmit() {
+            const pw = $('#del-pass').val();
+            if (!pw) return $('#del-error').text(tr('اكتب كلمة المرور.'));
+            $('#del-error').text('');
+            socket.emit('delete_account', { password: pw });
+        },
         logout() {
             askConfirm(tr('هل تريد تسجيل الخروج من حسابك؟'), () => { resetToMenu(); socket.emit('logout'); });
         },
@@ -1790,6 +1798,8 @@
         if (pendingJoin) { socket.emit('join_room', { roomId: pendingJoin }); pendingJoin = null; }
         gtoast(authMode === 'register' ? tr('تم إنشاء حسابك. أهلًا بك!') : tr('تم تسجيل الدخول.'));
     });
+    socket.on('delete_error', (m) => { $('#del-error').text(typeof m === 'string' ? m : tr('تعذّر الحذف.')); });
+    socket.on('account_deleted', () => { $('#del-dialog').addClass('hidden'); $('#del-pass').val(''); resetToMenu(); account = null; renderAccount(); forceAuth(); gtoast(tr('تم حذف حسابك نهائيًا.')); });
     socket.on('logged_out', () => { account = null; renderAccount(); forceAuth(); gtoast(tr('تم تسجيل الخروج.')); });
 
     const STATUS_TEXT = { online: tr('متصل'), playing: tr('يلعب الآن'), searching: tr('يبحث عن خصم'), offline: tr('غير متصل') };

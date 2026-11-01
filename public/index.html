@@ -46,6 +46,7 @@
                 <button type="button" class="btn ghost tool-btn" id="bell-btn" aria-label="الإشعارات" aria-expanded="false" aria-controls="bell-panel">🔔<span class="bell-n hidden" id="bell-n">0</span></button>
                 <div class="bell-panel hidden" id="bell-panel" role="region" aria-label="الإشعارات"></div>
             </div>
+            <button type="button" class="btn ghost tool-btn" id="lang-btn" aria-label="اللغة">EN</button>
             <button type="button" class="btn ghost tool-btn" id="mode-btn" aria-label="الوضع الفاتح" aria-pressed="false">☀️</button>
         </div>
     </header>
@@ -354,6 +355,7 @@
             </div>
             <button class="btn secondary block hidden" id="pf-push" data-action="togglePush">🔔 تفعيل الإشعارات</button>
             <button class="btn ghost block" data-action="goMenu">رجوع</button>
+            <button class="btn ghost danger-link" id="pf-delete" type="button" data-action="showDelete">حذف حسابي</button>
         </div>
     </section>
 
@@ -868,6 +870,20 @@
         <div class="dialog-actions">
             <button class="btn primary" id="key-copy" data-action="copyKey">انسخ المفتاح</button>
             <button class="btn ghost" data-action="closeKey">حفظته</button>
+        </div>
+    </div>
+</div>
+
+<div id="del-dialog" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="del-title">
+    <div class="dialog">
+        <h2 id="del-title" style="font-size:1.3rem">حذف حسابي نهائيًا</h2>
+        <p class="muted small" style="margin:8px 0">سيُمسح حسابك وتصنيفاتك وإنجازاتك ومبارياتك وصداقاتك، ولا يمكن التراجع. اكتب كلمة المرور للتأكيد.</p>
+        <label class="label" for="del-pass">كلمة المرور</label>
+        <input type="password" id="del-pass" class="field" autocomplete="current-password" maxlength="100">
+        <p class="error" id="del-error" role="alert" style="min-height:1.4em"></p>
+        <div class="dialog-actions">
+            <button class="btn danger" id="del-go" data-action="deleteSubmit">احذف حسابي</button>
+            <button class="btn ghost" data-action="closeDelete">تراجع</button>
         </div>
     </div>
 </div>

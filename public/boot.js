@@ -4,6 +4,9 @@
     // الوضع الفاتح قبل أي رسم كي لا يومض الموقع بالداكن أولًا
     try { if (localStorage.getItem('chess-mode') === 'light') document.documentElement.setAttribute('data-mode', 'light'); } catch (e) { /* */ }
 
+    // اللغة المحفوظة قبل أي رسم (اتجاه الصفحة)
+    try { var L = localStorage.getItem('chess-lang'); if (L === 'en' || L === 'fr') { document.documentElement.setAttribute('lang', L); document.documentElement.setAttribute('dir', 'ltr'); } } catch (e) { /* */ }
+
     function loadScript(srcs) {
         return new Promise(function (resolve, reject) {
             var i = 0;
@@ -51,6 +54,9 @@
         installEv.prompt();
         installEv.userChoice.then(function () { installEv = null; document.getElementById('install-btn').classList.add('hidden'); });
     });
+
+    // الترجمة تُحمَّل مستقلة: إن فشلت يبقى الموقع بالعربية
+    loadScript(['/i18n-data.js']).then(function () { return loadScript(['/i18n.js']); }).catch(function () {});
 
     loadCss([
         '/vendor/chessboard/chessboard-1.0.0.min.css',

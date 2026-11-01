@@ -72,3 +72,8 @@ html[data-mode="light"] .t-card { background: var(--surface); border-color: var(
     #world-switch { padding: 5px 8px; font-size: .74rem; }
     .tool-btn { padding: 5px 8px; font-size: 1rem; }
 }
+
+/* حذف الحساب + زر اللغة */
+.danger-link { color: var(--bad, #c0392b); justify-self: start; font-size: .9rem; }
+#lang-btn { font-weight: 700; font-size: .85rem; letter-spacing: .02em; min-width: 2.6rem; }
+html[dir="ltr"] .bell-panel { right: auto; left: 0; }
