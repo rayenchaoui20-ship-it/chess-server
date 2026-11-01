@@ -224,7 +224,24 @@ function awardFor(token) {
         emitTo(token, 'ach_new', { list: ids.map(ach.info).filter(Boolean) });
     }
 }
+// جرس الإشعارات: نحفظ آخر 30 إشعارًا لكل حساب مسجّل حتى يراها حتى لو كان غير متصل وقت وصولها
+const NT_KINDS = { notify: (p) => p && p.text, mp_invite: (p) => p && p.from && '🎲 دعاك ' + p.from + ' إلى غرفة ملك المدينة', sl_invite: (p) => p && p.from && '🐍 دعاك ' + p.from + ' إلى غرفة سلم وثعبان' };
+function ntAdd(token, ev, payload) {
+    const f = NT_KINDS[ev];
+    const rec = db.players[token];
+    if (!f || !rec || !rec.user) return;
+    const x = String(f(payload) || '').slice(0, 200);
+    if (!x) return;
+    rec.nt = (Array.isArray(rec.nt) ? rec.nt : []).concat([{ t: Date.now(), x }]).slice(-30);
+    saveSoon();
+}
+function ntPayload(rec) {
+    const list = Array.isArray(rec.nt) ? rec.nt : [];
+    const seen = rec.ntSeen || 0;
+    return { list: list.slice().reverse(), unread: list.filter((n) => n.t > seen).length };
+}
 function emitTo(token, ev, payload) {
+    try { ntAdd(token, ev, payload); } catch (e) { /* الجرس اختياري */ }
     const l = live.get(token);
     if (l && l.socketId) io.to(l.socketId).emit(ev, payload);
 }
@@ -1247,7 +1264,8 @@ function sendWelcome(socket, token, rec) {
         pz: rec.user && rec.pz ? rec.pz : null,
         dc: rec.user ? { streak: daily.liveStreak(rec, Date.now()), best: (rec.dc && rec.dc.best) || 0, solved: daily.solvedToday(rec, Date.now()), last: (rec.dc && rec.dc.last) || '' } : null,
         season: { id: season.seasonId(Date.now()), daysLeft: season.daysLeft(Date.now()) },
-        vapid: pushSvc.publicKey, push: !!(rec.push && rec.push.length)
+        vapid: pushSvc.publicKey, push: !!(rec.push && rec.push.length),
+        nt: rec.user ? ntPayload(rec) : null
     });
 }
 
@@ -2106,6 +2124,22 @@ io.on('connection', (socket) => {
     monoRoom.register(socket);
     tourneys.register(socket);
     monoTourneys.register(socket);
+    socket.on('nt_get', () => {
+        const ctx = playerCtx(socket); const rec = ctx && db.players[ctx.token];
+        if (rec && rec.user) socket.emit('nt_list', ntPayload(rec));
+    });
+    socket.on('nt_read', () => {
+        const ctx = playerCtx(socket); const rec = ctx && db.players[ctx.token];
+        if (!rec || !rec.user) return;
+        rec.ntSeen = Date.now(); saveSoon();
+        socket.emit('nt_list', ntPayload(rec));
+    });
+    socket.on('nt_clear', () => {
+        const ctx = playerCtx(socket); const rec = ctx && db.players[ctx.token];
+        if (!rec || !rec.user) return;
+        rec.nt = []; rec.ntSeen = Date.now(); saveSoon();
+        socket.emit('nt_list', ntPayload(rec));
+    });
     snakeTourneys.register(socket);
     voice.register(socket);
 
