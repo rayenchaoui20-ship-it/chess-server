@@ -757,6 +757,7 @@
     // ───────────────────────── اللوحة ─────────────────────────
     function initBoard() {
         xv = null;
+        premove = null;
         analysis = null;
         analyzing = false;
         $('#eval-bar').addClass('hidden');
@@ -780,7 +781,7 @@
     function clearLegal() { $('#board .square-55d63').removeClass('legal-move legal-capture'); }
     function showLegal(source) {
         clearLegal();
-        (xv ? xv.g : game).moves({ square: source, verbose: true }).forEach((m) => {
+        (xv ? xv.g : (canPremove() ? { moves: () => premoveTargets(source) } : game)).moves({ square: source, verbose: true }).forEach((m) => {
             const isCapture = m.captured || m.flags.indexOf('e') !== -1;
             if (m.castle) {                                   // تبييت 960: نضيء قلعة الملك ووجهته (إن تحرّك الملك فعلًا)
                 $('#board .square-' + m.rook).addClass('legal-move');
@@ -790,10 +791,47 @@
             $('#board .square-' + m.to).addClass(isCapture ? 'legal-capture' : 'legal-move');
         });
     }
+    // ───────────────────────── النقلة المسبقة (Pre-move) ─────────────────────────
+    // أثناء دور الخصم تحرّك إحدى قطعك فتُحفظ، وتُلعب تلقائيًا فور وصول دورك إن كانت قانونية.
+    let premove = null;                              // { from, to }
+    function canPremove() { return !!state && !state.over && !spectating && reviewIndex === null && !xv && game.turn() !== myColor; }
+    function clearPremove() { premove = null; $('#board .square-55d63').removeClass('premove-sq'); }
+    function setPremove(from, to) {
+        if (!from || !to || from === to) return false;
+        const pc = game.get(from);
+        if (!pc || pc.color !== myColor) return false;
+        const same = game.get(to);
+        if (same && same.color === myColor && !(pc.type === 'k' && same.type === 'r')) return false;   // لا تأخذ قطعتك (إلا التبييت)
+        clearPremove();
+        premove = { from, to };
+        $('#board .square-' + from + ', #board .square-' + to).addClass('premove-sq');
+        playSound('move');
+        return true;
+    }
+    function premoveTargets(source) {                // حركات تقريبية كأن الدور دورك (للتلميح فقط)
+        try {
+            const p = game.fen().split(' ');
+            p[1] = myColor; p[3] = '-';
+            return new Chess(p.join(' ')).moves({ square: source, verbose: true });
+        } catch (e) { return []; }
+    }
+    function runPremove(s) {
+        if (!premove) return;
+        if (!s || s.over || spectating || game.turn() !== myColor) { if (s && (s.over || spectating)) clearPremove(); return; }
+        const pm = premove;
+        clearPremove();
+        const m = game.moves({ verbose: true }).find((x) => x.from === pm.from && (x.to === pm.to || (x.castle && x.rook === pm.to)));
+        if (!m) return;
+        if (submitMove({ from: m.from, to: m.castle ? m.to : pm.to, promotion: 'q' })) { if (board) board.position(game.fen()); }
+    }
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && premove) clearPremove(); });
+    $('#board').on('contextmenu', (e) => { if (premove) { e.preventDefault(); clearPremove(); } });
+
     function canPlay() { return !!state && !state.over && !spectating && reviewIndex === null && game.turn() === myColor; }
 
     function onDragStart(source, piece) {
         if (xv) { if (piece.charAt(0) !== xv.g.turn()) return false; showLegal(source); return; }
+        if (canPremove()) { if (piece.charAt(0) !== myColor) return false; showLegal(source); return; }
         if (!canPlay()) return false;
         if (piece.charAt(0) !== myColor) return false;
         showLegal(source);
@@ -803,6 +841,12 @@
         if (xv) {
             if (source === target) { handleSquareTap(source); return 'snapback'; }
             return xTry(source, target) ? undefined : 'snapback';
+        }
+        if (canPremove()) {
+            if (source === target) { handleSquareTap(source); return 'snapback'; }
+            clearSelection();
+            if (target !== 'offboard') setPremove(source, target);
+            return 'snapback';
         }
         if (source === target) { handleSquareTap(source); return 'snapback'; }
         clearSelection();
@@ -846,6 +890,12 @@
             if (selectedSquare && selectedSquare !== sq && xTry(selectedSquare, sq)) { clearSelection(); board.position(xv.g.fen()); return; }
             const pc = xv.g.get(sq);
             if (pc && pc.color === xv.g.turn()) { if (selectedSquare === sq) clearSelection(); else selectSquare(sq); } else clearSelection();
+            return;
+        }
+        if (canPremove()) {
+            if (selectedSquare && selectedSquare !== sq && setPremove(selectedSquare, sq)) { clearSelection(); return; }
+            const pc2 = game.get(sq);
+            if (pc2 && pc2.color === myColor) { if (selectedSquare === sq) clearSelection(); else { clearPremove(); selectSquare(sq); } } else { clearSelection(); if (premove) clearPremove(); }
             return;
         }
         if (!canPlay()) { clearSelection(); return; }
@@ -1849,6 +1899,7 @@
         }
         updateStatus();
         renderClocks();
+        runPremove(s);
     });
 
     function updateGameButtons(s) {

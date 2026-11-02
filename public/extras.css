@@ -94,3 +94,6 @@ html[dir="ltr"] .bell-panel { right: auto; left: 0; }
 .x-line { font-weight: 700; direction: ltr; text-align: start; unicode-bidi: plaintext; overflow-wrap: anywhere; }
 .x-eval { font-size: .95rem; }
 .an-best { margin-top: 6px; color: #3b82f6; font-weight: 600; }
+
+/* النقلة المسبقة */
+#board .premove-sq { background-color: rgba(220, 38, 38, .55) !important; box-shadow: inset 0 0 0 3px rgba(220, 38, 38, .9); }

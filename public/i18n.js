@@ -5,7 +5,7 @@
     var ORDER = ['ar', 'en', 'fr'];
     var LABEL = { ar: 'ع', en: 'EN', fr: 'FR' };
     var NAME = { ar: 'العربية', en: 'English', fr: 'Français' };
-    var ATTRS = ['placeholder', 'aria-label', 'title', 'alt'];
+    var ATTRS = ['placeholder', 'aria-label', 'title', 'alt', 'data-gname', 'data-start', 'data-title'];
     var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, CODE: 1, NOSCRIPT: 1 };
     var lang = 'ar';
     try { var sv = localStorage.getItem('chess-lang'); if (ORDER.indexOf(sv) >= 0) lang = sv; } catch (e) { /* */ }

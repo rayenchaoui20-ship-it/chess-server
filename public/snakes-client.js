@@ -114,7 +114,7 @@
             var c = cell(n), r = Math.floor((n - 1) / 10), i = (n - 1) % 10, col = r % 2 === 0 ? i : 9 - i;
             var sp = B.specials[n];
             var cls = 'snk-c' + ((r + col) % 2 ? ' alt' : '') + (B.ladders[n] ? ' lad' : '') + (B.snakes[n] ? ' snk' : '') + (sp ? ' sp sp-' + sp : '') + (n === B.cells ? ' goal' : '');
-            cells += '<div class="' + cls + '" data-n="' + n + '" style="left:' + (c.x - 5) + '%;top:' + ((c.y - 5) * 100 / H) + '%;height:' + (100 / R) + '%"><span>' + n + '</span>' + (sp ? '<b class="spi">' + SP_ICON[sp] + '</b>' : '') + '</div>';
+            cells += '<div class="' + cls + '" data-n="' + n + '"' + (n === 1 ? ' data-start="ابدأ"' : '') + ' style="left:' + (c.x - 5) + '%;top:' + ((c.y - 5) * 100 / H) + '%;height:' + (100 / R) + '%"><span>' + n + '</span>' + (sp ? '<b class="spi">' + SP_ICON[sp] + '</b>' : '') + '</div>';
         }
         var svg = '<svg class="snk-svg" viewBox="0 0 100 ' + H + '" aria-hidden="true">';
         Object.keys(B.ladders).forEach(function (a) { svg += ladderSvg(+a, B.ladders[a]); });

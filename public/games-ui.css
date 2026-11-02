@@ -81,7 +81,7 @@
 .snk-c.snk { background-image: linear-gradient(135deg, rgba(248, 113, 113, .24), transparent 70%); }
 .snk-c.goal { background: linear-gradient(145deg, #f7d56b, #c58a1d); color: #3a2a05; box-shadow: inset 0 0 0 2px #fff3c4; }
 .snk-c.goal::after { content: "🏁"; position: absolute; inset-inline-end: 3px; bottom: 1px; font-size: 1.1em; }
-.snk-c[data-n="1"]::after { content: "ابدأ"; position: absolute; inset-inline-end: 3px; bottom: 2px; font-size: .78em; color: #7dd3fc; font-weight: 800; }
+.snk-c[data-n="1"]::after { content: attr(data-start); position: absolute; inset-inline-end: 3px; bottom: 2px; font-size: .78em; color: #7dd3fc; font-weight: 800; }
 .snk-c.land { animation: sk-land .9s ease-out; }
 @keyframes sk-land { 0% { box-shadow: inset 0 0 0 3px #fff, 0 0 22px #fff; filter: brightness(1.9); } 100% { box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .06); filter: none; } }
 

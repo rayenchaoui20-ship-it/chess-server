@@ -68,7 +68,7 @@
 /* ───── مركز اللوحة والنرد ───── */
 .mp-center { justify-content: center; padding-bottom: 0; gap: 8px; box-shadow: inset 0 0 40px rgba(0, 0, 0, .45); }
 .mp-center::after {
-    content: "ملك المدينة"; position: absolute; top: 24%; left: 50%; transform: translateX(-50%) rotate(-8deg); white-space: nowrap;
+    content: attr(data-gname); position: absolute; top: 24%; left: 50%; transform: translateX(-50%) rotate(-8deg); white-space: nowrap;
     padding: 4px 18px; border-radius: 6px; font-weight: 900; letter-spacing: .04em; font-size: clamp(.9rem, 5.4vw, 2rem); color: #fff;
     background: linear-gradient(135deg, #b4232a, #7f1d1d); border: 2px solid #fecaca; box-shadow: 0 6px 16px rgba(0, 0, 0, .5); pointer-events: none;
 }
