@@ -347,6 +347,13 @@
             chatMuted = !chatMuted;
             $('#chat-mute-btn').attr('aria-pressed', String(chatMuted)).text(chatMuted ? '🔊 أظهر رسائل الخصم' : '🔇 اكتم رسائل الخصم');
         },
+        prevErr() { jumpErr(-1); },
+        xToggleBest() { showBest = !showBest; lsSet('chess-showbest', showBest ? '1' : '0'); $('#x-best').attr('aria-pressed', String(showBest)); markAnalysis(reviewIndex === null ? positions.length - 1 : reviewIndex); },
+        xStart() { xStart(); },
+        xUndo() { xUndo(); },
+        xPlayBest() { xPlayBest(); },
+        xExit() { xStop(); },
+        nextErr() { jumpErr(1); },
         reviewPly(el) { reviewTo(parseInt(el.dataset.ply, 10) || 0); },
         pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
@@ -749,6 +756,7 @@
 
     // ───────────────────────── اللوحة ─────────────────────────
     function initBoard() {
+        xv = null;
         analysis = null;
         analyzing = false;
         $('#eval-bar').addClass('hidden');
@@ -764,7 +772,7 @@
             moveSpeed: 130, snapSpeed: 40, snapbackSpeed: 130, appearSpeed: 120, trashSpeed: 90,
             onDragStart,
             onDrop,
-            onSnapEnd: () => { clearLegal(); board.position(game.fen()); }
+            onSnapEnd: () => { clearLegal(); board.position(xv ? xv.g.fen() : game.fen()); }
         });
     }
     $(window).on('resize', () => { if (board) board.resize(); if (pzBoard) pzBoard.resize(); });
@@ -772,7 +780,7 @@
     function clearLegal() { $('#board .square-55d63').removeClass('legal-move legal-capture'); }
     function showLegal(source) {
         clearLegal();
-        game.moves({ square: source, verbose: true }).forEach((m) => {
+        (xv ? xv.g : game).moves({ square: source, verbose: true }).forEach((m) => {
             const isCapture = m.captured || m.flags.indexOf('e') !== -1;
             if (m.castle) {                                   // تبييت 960: نضيء قلعة الملك ووجهته (إن تحرّك الملك فعلًا)
                 $('#board .square-' + m.rook).addClass('legal-move');
@@ -785,12 +793,17 @@
     function canPlay() { return !!state && !state.over && !spectating && reviewIndex === null && game.turn() === myColor; }
 
     function onDragStart(source, piece) {
+        if (xv) { if (piece.charAt(0) !== xv.g.turn()) return false; showLegal(source); return; }
         if (!canPlay()) return false;
         if (piece.charAt(0) !== myColor) return false;
         showLegal(source);
     }
     function onDrop(source, target) {
         clearLegal();
+        if (xv) {
+            if (source === target) { handleSquareTap(source); return 'snapback'; }
+            return xTry(source, target) ? undefined : 'snapback';
+        }
         if (source === target) { handleSquareTap(source); return 'snapback'; }
         clearSelection();
         return attemptMove(source, target) === 'moved' ? undefined : 'snapback';
@@ -829,6 +842,12 @@
         if (sq === lastTapSq && now - lastTapAt < 400) return;
         lastTapSq = sq;
         lastTapAt = now;
+        if (xv) {
+            if (selectedSquare && selectedSquare !== sq && xTry(selectedSquare, sq)) { clearSelection(); board.position(xv.g.fen()); return; }
+            const pc = xv.g.get(sq);
+            if (pc && pc.color === xv.g.turn()) { if (selectedSquare === sq) clearSelection(); else selectSquare(sq); } else clearSelection();
+            return;
+        }
         if (!canPlay()) { clearSelection(); return; }
         if (selectedSquare && selectedSquare !== sq) {
             if (attemptMove(selectedSquare, sq)) {
@@ -912,6 +931,7 @@
     }
     function reviewTo(i) {
         if (!state || !state.over || !board) return;
+        if (xv) { xv = null; $('#x-panel').addClass('hidden'); $('#x-start').removeClass('hidden'); }
         i = Math.max(0, Math.min(positions.length - 1, i));
         reviewIndex = i === positions.length - 1 ? null : i;
         const p = positions[i];
@@ -1092,7 +1112,7 @@
     }
     // شريط التقييم بجانب اللوحة (الأبيض فاتح، الأسود داكن)
     function setEvalBar(i) {
-        const cp = evalAt(i);
+        const cp = xv && xv.cp != null ? xv.cp : evalAt(i);
         const bar = $('#eval-bar');
         const show = cp != null;
         const was = !bar.hasClass('hidden');
@@ -1104,7 +1124,210 @@
         $('#eval-text').text(Math.abs(cp) >= 9000 ? 'M' : (Math.abs(cp) / 100).toFixed(1)).attr('data-lead', cp >= 0 ? 'w' : 'b');
         bar.attr('title', tr('التقييم: {v}', { v: fmtEval(cp) }));
     }
+    // ───────────────────────── أفضل نقلة + تجربة نقلات بديلة ─────────────────────────
+    let xv = null;                                   // { base, g, line: [{san, fen}], cp, best }
+    let showBest = lsGet('chess-showbest') !== '0';
+    function bestMoveAt(i) {                          // أفضل نقلة في المركز i (قبل الحركة i+1) من نتيجة التحليل
+        const p = analysis && analysis.plies[i];
+        if (!p) return null;
+        return p.best || p.san;
+    }
+    function showBestHere(i, note) {
+        $('#x-best').attr('aria-pressed', String(showBest));
+        if (!showBest || !analysis) return;
+        const san = bestMoveAt(i);
+        const fen = positions[i] && positions[i].fen;
+        if (!san || !fen) return;
+        note.append($('<div class="an-best">').text('💡 ' + tr('الأفضل هنا: {m}', { m: san })));
+        drawArrowFen(fen, san, '#3b82f6');
+    }
+    // محرك Stockfish دائم داخل المتصفح لتقييم المراكز التجريبية
+    const eng = { w: null, ready: false, failed: false, queue: null, job: null, stops: 0, waiting: [] };
+    function engStart(cb) {
+        if (eng.ready) return cb(true);
+        if (eng.failed) return cb(false);
+        eng.waiting.push(cb);
+        if (eng.w || typeof Worker === 'undefined') { if (typeof Worker === 'undefined') engFail(); return; }
+        eng.w = {};
+        $.getJSON('/vendor/stockfish/manifest.json').done((m) => {
+            if (!m || !m.file) return engFail();
+            let w;
+            try { w = new Worker('/vendor/stockfish/' + m.file.split('/').map(encodeURIComponent).join('/')); } catch (e) { return engFail(); }
+            eng.w = w;
+            const t = setTimeout(() => { if (!eng.ready) engFail(); }, 25000);
+            w.onerror = () => engFail();
+            w.onmessage = (ev) => {
+                const line = typeof ev.data === 'string' ? ev.data : '';
+                if (!eng.ready) {
+                    if (line.indexOf('uciok') === 0) { w.postMessage('setoption name Hash value 16'); w.postMessage('isready'); }
+                    else if (line.indexOf('readyok') === 0) { eng.ready = true; clearTimeout(t); eng.waiting.splice(0).forEach((f) => f(true)); if (eng.queue) { const q = eng.queue; eng.queue = null; engRun(q.fen, q.cb); } }
+                    return;
+                }
+                const j = eng.job;
+                if (line.indexOf('bestmove') === 0) {
+                    if (eng.stops > 0) { eng.stops--; return; }
+                    if (j) { const bm = /^bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line); if (bm) j.best = bm[1]; eng.job = null; j.cb({ cp: j.cp, best: j.best, done: true }); }
+                    return;
+                }
+                if (!j || line.indexOf('info') !== 0 || line.indexOf(' score ') < 0 || line.indexOf('bound') > 0) return;
+                const s = /score (cp|mate) (-?\d+)/.exec(line);
+                const pv = / pv ([a-h][1-8][a-h][1-8][qrbn]?)/.exec(line);
+                if (!s) return;
+                const sc = s[1] === 'cp' ? Number(s[2]) : (Number(s[2]) > 0 ? 10000 : -10000);
+                j.cp = Math.max(-10000, Math.min(10000, j.white ? sc : -sc));
+                if (pv) j.best = pv[1];
+                j.cb({ cp: j.cp, best: j.best, done: false });
+            };
+            w.postMessage('uci');
+        }).fail(() => engFail());
+    }
+    function engFail() { eng.failed = true; eng.waiting.splice(0).forEach((f) => f(false)); if (eng.queue) { const q = eng.queue; eng.queue = null; q.cb(null); } }
+    function engRun(fen, cb) {
+        if (!eng.ready) { eng.queue = { fen, cb }; return; }
+        if (eng.job) { eng.stops++; eng.w.postMessage('stop'); }
+        eng.job = { fen, cb, cp: null, best: null, white: fen.split(' ')[1] === 'w' };
+        eng.w.postMessage('position fen ' + fen);
+        eng.w.postMessage('go depth 16 movetime 2500');
+    }
+    function engEval(fen, cb) {
+        engStart((ok) => { if (!ok) return cb(null); engRun(fen, cb); });
+    }
+    function uciToSan(fen, uci) {
+        try { const g = new Chess(fen); const m = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] }); return m ? m.san : null; } catch (e) { return null; }
+    }
+    function xLineText() {
+        const f = positions[xv.base].fen.split(' ');
+        let no = parseInt(f[5], 10) || 1;
+        let white = f[1] === 'w';
+        return xv.line.map((m, k) => { const s = (white ? no + '. ' : (k === 0 ? no + '... ' : '')) + m.san; if (!white) no++; white = !white; return s; }).join(' ');
+    }
+    function xPaint() {
+        if (!xv) return;
+        $('#best-arrow').remove();
+        const fen = xv.line.length ? xv.line[xv.line.length - 1].fen : positions[xv.base].fen;
+        const over = xv.g.game_over ? xv.g.game_over() : false;
+        $('#x-line').text(xv.line.length ? xLineText() : tr('حرّك أي قطعة لتجربة نقلة بديلة.'));
+        let txt;
+        if (over) txt = tr('انتهت اللعبة في هذا الخط.');
+        else if (eng.failed) txt = tr('المحرك غير متاح الآن: يمكنك تجربة النقلات بدون تقييم.');
+        else if (xv.cp == null) txt = tr('جارٍ تقييم المركز...');
+        else txt = tr('التقييم: {v}', { v: fmtEval(xv.cp) }) + (xv.best ? ' · ' + tr('الأفضل هنا: {m}', { m: uciToSan(fen, xv.best) || xv.best }) : '');
+        $('#x-eval').text(txt);
+        $('#x-playbest').prop('disabled', over || !xv.best);
+        $('#x-undo').prop('disabled', !xv.line.length);
+        setEvalBar(xv.base);
+        if (!over && xv.best && showBest) { const s = uciToSan(fen, xv.best); if (s) drawArrowFen(fen, s, '#3b82f6'); }
+    }
+    function xRequestEval() {
+        const fen = xv.line.length ? xv.line[xv.line.length - 1].fen : positions[xv.base].fen;
+        const mine = xv;
+        const tag = fen;
+        xv.cp = null; xv.best = null;
+        if (xv.g.game_over && xv.g.game_over()) {
+            xv.cp = xv.g.in_checkmate() ? (xv.g.turn() === 'w' ? -10000 : 10000) : 0;
+            return xPaint();
+        }
+        engEval(fen, (r) => {
+            if (xv !== mine || (mine.line.length ? mine.line[mine.line.length - 1].fen : positions[mine.base].fen) !== tag) return;
+            if (r) { mine.cp = r.cp; mine.best = r.best; }
+            xPaint();
+        });
+    }
+    function xStart() {
+        if (!state || !state.over || spectating || xv) return;
+        if (state.startFen) return gtoast(tr('تجربة النقلات غير متاحة في شطرنج فيشر 960.'));
+        const base = reviewIndex === null ? positions.length - 1 : reviewIndex;
+        try { xv = { base, g: new Chess(positions[base].fen), line: [], cp: null, best: null }; } catch (e) { xv = null; return; }
+        $('#x-panel').removeClass('hidden'); $('#x-start').addClass('hidden');
+        $('#analysis-note').empty();
+        xPaint(); xRequestEval();
+    }
+    function xTry(from, to) {
+        if (!xv) return false;
+        const legal = xv.g.moves({ square: from, verbose: true }).filter((m) => m.to === to);
+        if (!legal.length) return false;
+        const mv = xv.g.move({ from, to, promotion: 'q' });
+        if (!mv) return false;
+        xv.line.push({ san: mv.san, fen: xv.g.fen() });
+        highlightLastMove({ from: mv.from, to: mv.to });
+        markCheck(xv.g.fen());
+        board.position(xv.g.fen());
+        xPaint(); xRequestEval();
+        return true;
+    }
+    function xUndo() {
+        if (!xv || !xv.line.length) return;
+        xv.g.undo(); xv.line.pop();
+        const fen = xv.line.length ? xv.line[xv.line.length - 1].fen : positions[xv.base].fen;
+        board.position(fen); markCheck(fen);
+        highlightLastMove(null);
+        xPaint(); xRequestEval();
+    }
+    function xPlayBest() {
+        if (!xv || !xv.best) return;
+        xTry(xv.best.slice(0, 2), xv.best.slice(2, 4));
+    }
+    function xStop() {
+        if (!xv) return;
+        const base = xv.base;
+        xv = null;
+        if (eng.job) { eng.stops++; eng.w.postMessage('stop'); eng.job = null; }
+        $('#x-panel').addClass('hidden'); $('#x-start').removeClass('hidden');
+        clearSelection();
+        reviewTo(base);
+    }
+
+    // ───────────────────────── شرح الخطأ بكلمات بسيطة ─────────────────────────
+    const PVAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    const pName = (t) => ({ p: tr('بيدق'), n: tr('حصان'), b: tr('فيل'), r: tr('قلعة'), q: tr('وزير'), k: tr('ملك') }[t] || '');
+    function explainPly(i, an) {
+        try {
+            const before = new Chess(positions[i - 1].fen);
+            const me = before.turn();
+            const sgn = me === 'w' ? 1 : -1;
+            const bestEval = evalAt(i - 1);
+            if (sgn * an.cp <= -9000) return tr('هذه الحركة تسمح للخصم بكش مات.');
+            if (bestEval != null && sgn * bestEval >= 9000 && sgn * an.cp < 9000) return tr('فاتك كش مات كان متاحًا.');
+            const mv = before.move(an.san);
+            const after = new Chess(positions[i].fen);
+            let hang = null;
+            after.moves({ verbose: true }).forEach((m) => {
+                if (!m.captured || m.captured === 'k') return;
+                const c = new Chess(after.fen());
+                c.move(m);
+                const defended = c.moves({ verbose: true }).some((r) => r.to === m.to && r.captured);
+                const gain = PVAL[m.captured] - (defended ? PVAL[m.piece] : 0);
+                if (gain >= 2 && (!hang || gain > hang.gain)) hang = { gain, piece: m.captured, sq: m.to };
+            });
+            if (hang) {
+                return mv && hang.sq === mv.to
+                    ? tr('تضع {p} على {sq} حيث يمكن للخصم كسبه.', { p: pName(hang.piece), sq: hang.sq })
+                    : tr('تترك {p} على {sq} معرّضًا للأخذ.', { p: pName(hang.piece), sq: hang.sq });
+            }
+            if (an.best) {
+                const b = new Chess(positions[i - 1].fen);
+                const bm = b.move(an.best);
+                if (bm && /#$/.test(an.best)) return tr('كان كش مات بحركة {m}.', { m: an.best });
+                if (bm && bm.captured && PVAL[bm.captured] >= 3 && !(mv && mv.captured)) return tr('فاتتك فرصة أخذ {p} على {sq}.', { p: pName(bm.captured), sq: bm.to });
+                if (bm && /\+$/.test(an.best)) return tr('كان كش بحركة {m} أقوى.', { m: an.best });
+                return tr('كانت {m} حركة أقوى.', { m: an.best });
+            }
+        } catch (e) { /* الشرح اختياري */ }
+        return null;
+    }
+    const perfRating = (acc) => (acc == null ? null : Math.round((300 + Math.pow(acc / 100, 3) * 2400) / 10) * 10);
+    function jumpErr(dir) {
+        if (!analysis) return;
+        const errs = [];
+        analysis.plies.forEach((p, k) => { if (p.cls === 'mistake' || p.cls === 'blunder') errs.push(k + 1); });
+        const cur = reviewIndex === null ? positions.length - 1 : reviewIndex;
+        const t = dir > 0 ? errs.find((x) => x > cur) : errs.slice().reverse().find((x) => x < cur);
+        if (t == null) return gtoast(tr('لا توجد أخطاء أخرى في هذا الاتجاه.'));
+        reviewTo(t);
+    }
+
     function markAnalysis(i) {
+        if (xv) return;
         $('#board .square-55d63').removeAttr('data-sym').removeAttr('data-cls');
         const note = $('#analysis-note').empty();
         $('#best-arrow').remove();
@@ -1120,6 +1343,8 @@
         const extra = [tr('التقييم: {v}', { v: fmtEval(an.cp) })];
         if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push(tr('الأفضل كان: {m}', { m: an.best }));
         note.append(line, $('<div class="muted small">').text(extra.join(' · ')));
+        showBestHere(i, note);
+        if (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder') { const why = explainPly(i, an); if (why) note.append($('<div class="an-why">').text('💡 ' + why)); }
         if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) drawBestArrow(i, an.best);
     }
     function renderAnalysisSummary(res) {
@@ -1152,6 +1377,23 @@
     function renderDeep(res, box) {
         const n = res.plies.length;
         if (!n) return;
+        // الافتتاح + مستوى الأداء التقديري + التنقل بين الأخطاء
+        const nm0 = (state && state.names) || {};
+        const head = $('<div class="an-head">');
+        try {
+            const std = !((positions[0] || {}).fen) || String(positions[0].fen).indexOf('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') === 0;
+            const op = std && window.OPENINGS ? window.OPENINGS.find(res.plies.map((p) => p.san)) : null;
+            if (op) head.append($('<div class="an-open">').text('📖 ' + tr('الافتتاح: {o}', { o: op })));
+        } catch (e) { /* */ }
+        const pw = perfRating(res.accuracy.w);
+        const pb = perfRating(res.accuracy.b);
+        if (pw != null || pb != null) {
+            head.append($('<div class="an-perf muted small">').text(tr('مستوى الأداء التقديري') + ': ' + tr(nm0.w || tr('الأبيض')) + ' ~' + (pw == null ? '-' : pw) + ' · ' + tr(nm0.b || tr('الأسود')) + ' ~' + (pb == null ? '-' : pb)));
+        }
+        head.append($('<div class="an-nav">').append(
+            $('<button type="button" class="btn secondary">').attr('data-action', 'prevErr').text(tr('⬅ خطأ سابق')),
+            $('<button type="button" class="btn secondary">').attr('data-action', 'nextErr').text(tr('خطأ تالٍ ➡'))));
+        box.prepend(head);
         // رسم التقييم
         const pts = [];
         let prev = res.startCp == null ? 20 : res.startCp;
@@ -1194,6 +1436,10 @@
         box.append($('<h4 class="an-h">').text(tr('اللحظات الحاسمة')));
         if (!bad.length && !gems.length) mom.append($('<p class="muted small">').text(tr('لا أخطاء كبيرة في هذه المباراة.')));
         bad.slice(0, 4).forEach((x) => addMoment(x, '⚠'));
+        const missed = [];
+        res.plies.forEach((p, k) => { const q = res.plies[k - 1]; if (k > 0 && q && q.color !== p.color && q.loss >= 15 && p.loss >= 10) missed.push([p, k + 1]); });
+        missed.sort((u, v) => v[0].loss - u[0].loss);
+        missed.slice(0, 2).forEach(([p, i]) => mom.append($('<button type="button" class="an-moment c-inaccuracy">').attr({ 'data-action': 'reviewPly', 'data-ply': i }).text('🎯 ' + tr('فرصة ضائعة') + ' ' + plyNum(i) + ' ' + p.san)));
         gems.slice(0, 2).forEach((x) => addMoment(x, '✨'));
         box.append(mom);
 
@@ -1227,9 +1473,10 @@
         reviewTo(Math.round(Math.max(0, Math.min(1, x)) * n));
     });
     // سهم أفضل حركة فوق اللوحة
-    function drawBestArrow(i, bestSan) {
+    function drawBestArrow(i, bestSan) { drawArrowFen(positions[i - 1].fen, bestSan, '#22c55e'); }
+    function drawArrowFen(fen, bestSan, color) {
         try {
-            const g = new Chess(positions[i - 1].fen);
+            const g = new Chess(fen);
             const mv = g.move(bestSan);
             const bEl = document.getElementById('board');
             if (!mv || !bEl) return;
@@ -1255,7 +1502,7 @@
             const py = ux;
             const poly = [[sx + px * w, sy + py * w], [ex + px * w, ey + py * w], [ex + px * head * 0.55, ey + py * head * 0.55], [x2, y2], [ex - px * head * 0.55, ey - py * head * 0.55], [ex - px * w, ey - py * w], [sx - px * w, sy - py * w]]
                 .map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ');
-            const svg = '<svg id="best-arrow" xmlns="http://www.w3.org/2000/svg" width="' + r.width + '" height="' + r.height + '" viewBox="0 0 ' + r.width + ' ' + r.height + '"><polygon points="' + poly + '" fill="#22c55e" fill-opacity=".82" stroke="#0b3d1c" stroke-width="1"/></svg>';
+            const svg = '<svg id="best-arrow" xmlns="http://www.w3.org/2000/svg" width="' + r.width + '" height="' + r.height + '" viewBox="0 0 ' + r.width + ' ' + r.height + '"><polygon points="' + poly + '" fill="' + color + '" fill-opacity=".82" stroke="#0b2a4a" stroke-width="1"/></svg>';
             $(bEl).append(svg);
         } catch (e) { /* ignore */ }
     }

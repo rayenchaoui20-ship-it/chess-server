@@ -84,6 +84,6 @@
             app.insertBefore(b, app.firstChild);
             return;
         }
-        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/castle960.js']).catch(function () {}); }).then(function () { return loadScript(['/app.js']).then(function () { return loadScript(['/share.js']).catch(function () {}).then(function () { return loadScript(['/extras.js']).catch(function () {}); }); }); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}).then(function () { return loadScript(['/lessons.js']).catch(function () {}); }).then(function () { return loadScript(['/snakes-client.js']).catch(function () {}); }); });
+        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/castle960.js']).catch(function () {}); }).then(function () { return loadScript(['/openings.js']).catch(function () {}); }).then(function () { return loadScript(['/app.js']).then(function () { return loadScript(['/share.js']).catch(function () {}).then(function () { return loadScript(['/extras.js']).catch(function () {}); }); }); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}).then(function () { return loadScript(['/lessons.js']).catch(function () {}); }).then(function () { return loadScript(['/snakes-client.js']).catch(function () {}); }); });
     });
 })();

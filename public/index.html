@@ -773,6 +773,21 @@
                         <div id="analysis-status" class="muted small" role="status"></div>
                         <div id="analysis-bar" class="pbar hidden"><i id="analysis-fill"></i></div>
                         <div id="analysis-note" class="analysis-note"></div>
+                        <div id="an-explore" class="an-explore">
+                            <div class="an-tools">
+                                <button type="button" class="btn secondary" id="x-best" data-action="xToggleBest" aria-pressed="true">💡 أفضل نقلة</button>
+                                <button type="button" class="btn secondary" id="x-start" data-action="xStart">🧪 جرّب نقلات أخرى</button>
+                            </div>
+                            <div id="x-panel" class="x-panel hidden">
+                                <div class="x-line" id="x-line"></div>
+                                <div class="x-eval" id="x-eval" role="status"></div>
+                                <div class="an-tools">
+                                    <button type="button" class="btn primary" id="x-playbest" data-action="xPlayBest">▶ العب الأفضل</button>
+                                    <button type="button" class="btn ghost" id="x-undo" data-action="xUndo">↩ تراجع</button>
+                                    <button type="button" class="btn ghost" data-action="xExit">✖ إنهاء التجربة</button>
+                                </div>
+                            </div>
+                        </div>
                         <div id="analysis-summary"></div>
                     </div>
                 </div>

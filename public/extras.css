@@ -77,3 +77,20 @@ html[data-mode="light"] .t-card { background: var(--surface); border-color: var(
 .danger-link { color: var(--bad, #c0392b); justify-self: start; font-size: .9rem; }
 #lang-btn { font-weight: 700; font-size: .85rem; letter-spacing: .02em; min-width: 2.6rem; }
 html[dir="ltr"] .bell-panel { right: auto; left: 0; }
+
+/* تحليل المباراة: الرأس والشرح */
+.an-head { display: grid; gap: 8px; margin-bottom: 12px; }
+.an-open { font-weight: 700; }
+.an-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+.an-nav .btn { flex: 1 1 8rem; }
+.an-why { margin-top: 6px; padding: 8px 10px; border-radius: 10px; border-inline-start: 3px solid var(--gold, #E2B14B); background: rgba(226, 177, 75, .12); font-size: .92rem; }
+
+/* تجربة النقلات */
+.an-explore { display: grid; gap: 8px; margin: 10px 0; }
+.an-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.an-tools .btn { flex: 1 1 8rem; }
+.an-tools .btn[aria-pressed="true"] { outline: 2px solid #3b82f6; outline-offset: -2px; }
+.x-panel { display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid #3b82f6; background: rgba(59,130,246,.08); }
+.x-line { font-weight: 700; direction: ltr; text-align: start; unicode-bidi: plaintext; overflow-wrap: anywhere; }
+.x-eval { font-size: .95rem; }
+.an-best { margin-top: 6px; color: #3b82f6; font-weight: 600; }

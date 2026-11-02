@@ -25,6 +25,16 @@
         t.pats.sort(function (a, b) { return b.re.source.length - a.re.source.length; });
         return (tables[l] = t);
     }
+    // ترجمة جزئية: نستبدل العبارات المعروفة داخل جملة لم تُطابَق كاملة (الأطول أولًا)
+    function partial(core, t) {
+        if (!t.keys) t.keys = Object.keys(t.exact).filter(function (k) { return k.length >= 3 && /[\u0600-\u06FF]/.test(k); }).sort(function (a, b) { return b.length - a.length; });
+        var out = core, changed = false;
+        for (var i = 0; i < t.keys.length && /[\u0600-\u06FF]/.test(out); i++) {
+            var k = t.keys[i];
+            if (out.indexOf(k) >= 0) { out = out.split(k).join(t.exact[k]); changed = true; }
+        }
+        return changed ? out : null;
+    }
     function conv(s, l) {
         if (l === 'ar' || !s) return s;
         var m = s.match(/^(\s*)([\s\S]*?)(\s*)$/);
@@ -41,6 +51,7 @@
                 }
             }
         }
+        if (hit == null) hit = partial(core, t);
         return hit == null ? s : m[1] + hit + m[3];
     }
 
