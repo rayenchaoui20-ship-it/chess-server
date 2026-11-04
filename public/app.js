@@ -7,7 +7,7 @@
 
     // ───────────────────────── الثوابت ─────────────────────────
     // مجموعات القطع: 'wikipedia' هي الأصل، والباقي من مكتبة lichess على jsDelivr
-    const PIECE_SETS = { wikipedia: 'الكلاسيكية', cburnett: 'سي-بيرنت', merida: 'ميريدا', alpha: 'ألفا', cardinal: 'كاردينال', staunty: 'ستاونتي', pixel: 'بكسل', letter: 'حروف' };
+    const PIECE_SETS = { wikipedia: 'الكلاسيكية', cburnett: 'سي-بيرنت', merida: 'ميريدا', alpha: 'ألفا', cardinal: 'كاردينال', staunty: 'ستاونتي', pixel: 'بكسل', letter: 'حروف', california: 'كاليفورنيا', companion: 'الرفيق', fantasy: 'الخيال', spatial: 'فضائي', gioco: 'جيوكو', maestro: 'المايسترو' };
     const PIECE_IDS = Object.keys(PIECE_SETS);
     let pieceSet = 'wikipedia';
     try { const sv = localStorage.getItem('chess-pieces'); if (sv && PIECE_SETS[sv]) pieceSet = sv; } catch (e) { /* */ }
@@ -25,8 +25,8 @@
         '10+0': { base: 600, inc: 0 }, '15+10': { base: 900, inc: 10 }
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
-    const THEMES = ['classic', 'green', 'brown', 'slate', 'coral', 'purple', 'night'];
-    const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'game-screen'];
+    const THEMES = ['classic', 'green', 'brown', 'slate', 'coral', 'purple', 'night', 'ice', 'ocean', 'rose', 'emerald', 'marble', 'gold', 'obsidian'];
+    const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'mist-screen', 'trainer-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'ludo-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -38,7 +38,7 @@
 
     // ───────────────────────── الحالة ─────────────────────────
     const socket = io();
-    window.APP = { socket, show: (id) => show(id), toMenu: () => show('menu-screen') };
+    window.APP = { socket, show: (id) => show(id), toMenu: () => show('menu-screen'), setTheme: (id) => applyTheme(id), setPieces: (id) => applyPieces(id), themes: () => THEMES.slice(), pieceSets: () => Object.assign({}, PIECE_SETS), curTheme: () => document.body.getAttribute('data-theme') || 'classic', curPieces: () => pieceSet };
     // رسائل الخادم النصية تُترجم عند الاستقبال (الخادم يرسل بالعربية دائمًا)
     const MSG_EVENTS = new Set(['room_error', 'toast', 'notice', 'auth_error', 'friend_error', 'friend_ok', 'analysis_error', 'games_error']);
     const rawOn = socket.on.bind(socket);
@@ -126,8 +126,8 @@
         if (id !== 'club-screen' && clubTimer) { clearInterval(clubTimer); clubTimer = null; }
         if (id !== 'live-screen' && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
-        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen' && id !== 'snk-screen');
-        $('#wordmark').text((id === 'world-screen' || id === 'landing-screen') ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : 'شطرنج');
+        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen' && id !== 'snk-screen' && id !== 'ludo-screen');
+        $('#wordmark').text((id === 'world-screen' || id === 'landing-screen') ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : id === 'ludo-screen' ? 'ليدو' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
@@ -310,6 +310,28 @@
     }
 
     // ───────────────────────── الإجراءات (أزرار الواجهة) ─────────────────────────
+    function applyTheme(id) {
+        if (!THEMES.includes(id)) return;
+        document.body.setAttribute('data-theme', id);
+        lsSet('chess-theme', id);
+    }
+    // نتأكد أن المجموعة تُحمَّل فعلًا قبل اعتمادها، وإلا نبقى على الحالية
+    function applyPieces(next) {
+        if (!PIECE_SETS[next]) return;
+        const probe = new Image();
+        probe.onload = () => {
+            pieceSet = next;
+            try { localStorage.setItem('chess-pieces', next); } catch (e) { /* */ }
+            $('#board img[data-piece], #pboard img[data-piece], #ls-board img[data-piece]').each(function () {
+                const el = $(this);
+                const m = /\/([wb][KQRBNP])\.(png|svg)/.exec(el.attr('src') || '');
+                if (m) el.attr('src', pieceUrl(m[1]));
+            });
+            gtoast(tr('القطع') + ': ' + tr(PIECE_SETS[next]));
+        };
+        probe.onerror = () => gtoast(tr('تعذّر تحميل هذه القطع، جرّب غيرها.'));
+        probe.src = pieceUrl('wK', next);
+    }
     const A = {
         selectTc(el) {
             selectedTc = el.dataset.tc;
@@ -350,6 +372,7 @@
         prevErr() { jumpErr(-1); },
         xToggleBest() { showBest = !showBest; lsSet('chess-showbest', showBest ? '1' : '0'); $('#x-best').attr('aria-pressed', String(showBest)); markAnalysis(reviewIndex === null ? positions.length - 1 : reviewIndex); },
         xStart() { xStart(); },
+        xChallenge(el) { xChallenge(parseInt(el.dataset.ply, 10) || 0); },
         xUndo() { xUndo(); },
         xPlayBest() { xPlayBest(); },
         xExit() { xStop(); },
@@ -357,6 +380,8 @@
         reviewPly(el) { reviewTo(parseInt(el.dataset.ply, 10) || 0); },
         pickChess() { lsSet('chess-world', 'chess'); show('menu-screen'); },
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
+        pickLudo() { lsSet('chess-world', 'ludo'); A.showLudo(); },
+        showLudo() { show('ludo-screen'); if (window.Ludo) window.Ludo.open(); },
         pickSnake() { lsSet('chess-world', 'snake'); A.showSnake(); },
         showSnake() { show('snk-screen'); if (window.Snake) window.Snake.open(); },
         changeWorld() {
@@ -453,26 +478,16 @@
         },
         cycleTheme() {
             const cur = document.body.getAttribute('data-theme') || 'classic';
-            const next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
-            document.body.setAttribute('data-theme', next);
-            lsSet('chess-theme', next);
+            for (let k = 1; k <= THEMES.length; k++) {
+                const next = THEMES[(THEMES.indexOf(cur) + k) % THEMES.length];
+                if (!window.Looks || window.Looks.isOpen('theme', next)) { applyTheme(next); return; }
+            }
         },
         cyclePieces() {
-            const next = PIECE_IDS[(PIECE_IDS.indexOf(pieceSet) + 1) % PIECE_IDS.length];
-            // نتأكد أن المجموعة تُحمَّل فعلًا قبل اعتمادها، وإلا نبقى على الحالية
-            const probe = new Image();
-            probe.onload = () => {
-                pieceSet = next;
-                try { localStorage.setItem('chess-pieces', next); } catch (e) { /* */ }
-                $('#board img[data-piece], #pboard img[data-piece], #ls-board img[data-piece]').each(function () {
-                    const el = $(this);
-                    const m = /\/([wb][KQRBNP])\.(png|svg)/.exec(el.attr('src') || '');
-                    if (m) el.attr('src', pieceUrl(m[1]));
-                });
-                gtoast(tr('القطع') + ': ' + tr(PIECE_SETS[next]));
-            };
-            probe.onerror = () => gtoast(tr('تعذّر تحميل هذه القطع، جرّب غيرها.'));
-            probe.src = pieceUrl('wK', next);
+            for (let k = 1; k <= PIECE_IDS.length; k++) {
+                const next = PIECE_IDS[(PIECE_IDS.indexOf(pieceSet) + k) % PIECE_IDS.length];
+                if (!window.Looks || window.Looks.isOpen('pieces', next)) { applyPieces(next); return; }
+            }
         },
         exitGame() {
             const leave = () => { socket.emit('leave_room'); resetToMenu(); };
@@ -1262,11 +1277,13 @@
         else if (eng.failed) txt = tr('المحرك غير متاح الآن: يمكنك تجربة النقلات بدون تقييم.');
         else if (xv.cp == null) txt = tr('جارٍ تقييم المركز...');
         else txt = tr('التقييم: {v}', { v: fmtEval(xv.cp) }) + (xv.best ? ' · ' + tr('الأفضل هنا: {m}', { m: uciToSan(fen, xv.best) || xv.best }) : '');
+        if (xv.ch && !xv.ch.done) txt = tr('ما أفضل نقلة هنا؟ جرّب نقلتك.');
+        else if (xv.ch && xv.ch.msg) txt = xv.ch.msg + ' ' + txt;
         $('#x-eval').text(txt);
-        $('#x-playbest').prop('disabled', over || !xv.best);
+        $('#x-playbest').prop('disabled', over || !xv.best || !!(xv.ch && !xv.ch.done));
         $('#x-undo').prop('disabled', !xv.line.length);
         setEvalBar(xv.base);
-        if (!over && xv.best && showBest) { const s = uciToSan(fen, xv.best); if (s) drawArrowFen(fen, s, '#3b82f6'); }
+        if (!over && xv.best && showBest && !(xv.ch && !xv.ch.done)) { const s = uciToSan(fen, xv.best); if (s) drawArrowFen(fen, s, '#3b82f6'); }
     }
     function xRequestEval() {
         const fen = xv.line.length ? xv.line[xv.line.length - 1].fen : positions[xv.base].fen;
@@ -1292,6 +1309,14 @@
         $('#analysis-note').empty();
         xPaint(); xRequestEval();
     }
+    function xChallenge(i) {
+        const an = analysis && analysis.plies[i - 1];
+        if (!an || !an.best || !state || !state.over) return;
+        if (xv) xStop();
+        reviewTo(i - 1);
+        xStart();
+        if (xv) { xv.ch = { best: an.best, played: an.san, done: false, msg: '' }; xPaint(); }
+    }
     function xTry(from, to) {
         if (!xv) return false;
         const legal = xv.g.moves({ square: from, verbose: true }).filter((m) => m.to === to);
@@ -1299,6 +1324,11 @@
         const mv = xv.g.move({ from, to, promotion: 'q' });
         if (!mv) return false;
         xv.line.push({ san: mv.san, fen: xv.g.fen() });
+        if (xv.ch && !xv.ch.done) {
+            const ok = mv.san.replace(/[+#]/g, '') === String(xv.ch.best).replace(/[+#]/g, '');
+            xv.ch.done = true;
+            xv.ch.msg = ok ? tr('✅ وجدتها! هذه هي أفضل نقلة.') : tr('❌ ليست الأفضل. الأفضل كانت {m}. ما لعبته في المباراة: {p}.', { m: xv.ch.best, p: xv.ch.played });
+        }
         highlightLastMove({ from: mv.from, to: mv.to });
         markCheck(xv.g.fen());
         board.position(xv.g.fen());
@@ -1394,6 +1424,9 @@
         if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) extra.push(tr('الأفضل كان: {m}', { m: an.best }));
         note.append(line, $('<div class="muted small">').text(extra.join(' · ')));
         showBestHere(i, note);
+        if (an.color === myColor && !spectating && state && state.over && !state.startFen && an.best && (an.cls === 'mistake' || an.cls === 'blunder')) {
+            note.append($('<button type="button" class="btn secondary an-retry">').attr({ 'data-action': 'xChallenge', 'data-ply': i }).text(tr('🔁 جرّبها بنفسك')));
+        }
         if (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder') { const why = explainPly(i, an); if (why) note.append($('<div class="an-why">').text('💡 ' + why)); }
         if (an.best && (an.cls === 'inaccuracy' || an.cls === 'mistake' || an.cls === 'blunder')) drawBestArrow(i, an.best);
     }
@@ -2742,10 +2775,11 @@
 
     // اللعبة المختارة: أول زيارة تعرض شاشة الاختيار
     (function () {
-        const pw = { '/chess': 'chess', '/monopoly': 'mono', '/snakes': 'snake' }[location.pathname];
+        const pw = { '/chess': 'chess', '/monopoly': 'mono', '/snakes': 'snake', '/ludo': 'ludo' }[location.pathname];
         if (pw) lsSet('chess-world', pw);
         const w = lsGet('chess-world');
-        if (w !== 'chess' && w !== 'mono' && w !== 'snake') show('world-screen');
+        if (w !== 'chess' && w !== 'mono' && w !== 'snake' && w !== 'ludo') show('world-screen');
+        else if (w === 'ludo') setTimeout(() => { if (currentScreen === 'menu-screen') A.showLudo(); }, 0);
         else if (w === 'snake') setTimeout(() => { if (currentScreen === 'menu-screen') A.showSnake(); }, 0);
         else if (w === 'mono') setTimeout(() => { if (currentScreen === 'menu-screen') A.showMono(); }, 0);
         else show('menu-screen');

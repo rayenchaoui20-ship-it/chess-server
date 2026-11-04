@@ -96,7 +96,7 @@
         });
         var mp = MAPS[curMap] || {};
         b.attr('data-map', curMap);
-        b.append($('<div class="mp-center">').attr('data-gname', 'ملك المدينة').attr('data-title', curMap === 'coast' ? '' : (mp.title || '')).css('background-image', mp.art ? 'url(' + mp.art + ')' : '').append($('<div class="mp-logo">').text(T('ملك المدينة')), $('<div class="mp-dice" id="mp-dice" dir="ltr">'), $('<div class="mp-event" id="mp-event">')));
+        b.append($('<div class="mp-center">').attr('data-gname', 'ملك المدينة').attr('data-title', curMap === 'coast' ? '' : (mp.title || '')).attr('data-art', mp.art === '/monopoly-bg.webp' ? 'coast' : '').css('background-image', mp.art && mp.art !== '/monopoly-bg.webp' ? 'url(' + mp.art + ')' : '').append($('<div class="mp-logo">').text(T('ملك المدينة')), $('<div class="mp-dice" id="mp-dice" dir="ltr">'), $('<div class="mp-event" id="mp-event">')));
         boardBuilt = true;
     }
 

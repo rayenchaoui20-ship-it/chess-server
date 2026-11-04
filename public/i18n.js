@@ -128,5 +128,11 @@
     });
     function start() { apply(); }
     if (document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+    // نوافذ المتصفح الأصلية (confirm/alert/prompt) تُترجم أيضًا
+    ['confirm', 'alert', 'prompt'].forEach(function (n) {
+        var orig = window[n];
+        if (typeof orig !== 'function') return;
+        window[n] = function (msg, def) { return orig.call(window, typeof msg === 'string' ? conv(msg, lang) : msg, def); };
+    });
     window.Lang = { get: function () { return lang; }, set: set, t: function (s) { return conv(s, lang); } };
 })();

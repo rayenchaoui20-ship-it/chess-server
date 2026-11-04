@@ -67,7 +67,7 @@
             <p class="land-online muted small" id="landing-online"></p>
         </div>
 
-        <div class="world-grid land-grid">
+        <div class="world-grid four land-grid">
             <article class="world-card chess land-card">
                 <span class="w-icon" aria-hidden="true">♞</span>
                 <h2 class="w-name">شطرنج</h2>
@@ -81,6 +81,11 @@
                 <span class="w-icon" aria-hidden="true">🐍</span>
                 <h2 class="w-name">سلم وثعبان</h2>
                 <p class="w-desc">ارمِ النرد وتسلّق السلالم وتجنّب الثعابين. حتى 4 لاعبين أو ضد الحاسوب.</p>
+            </article>
+            <article class="world-card ludo land-card">
+                <span class="w-icon" aria-hidden="true">🎲</span>
+                <h2 class="w-name">ليدو</h2>
+                <p class="w-desc">أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. حتى 4 لاعبين أو ضد الحاسوب.</p>
             </article>
         </div>
 
@@ -96,7 +101,7 @@
     <section id="world-screen" class="hidden">
         <h1 class="world-title">اختر لعبتك</h1>
         <p class="lead">يمكنك تغيير اللعبة في أي وقت من زر «غيّر اللعبة».</p>
-        <div class="world-grid">
+        <div class="world-grid four">
             <button class="world-card chess" data-action="pickChess">
                 <span class="w-icon" aria-hidden="true">♞</span>
                 <span class="w-name">شطرنج</span>
@@ -111,6 +116,59 @@
                 <span class="w-name">سلم وثعبان</span>
                 <span class="w-desc">ارمِ النرد وتسلّق السلالم وتجنّب الثعابين. أول من يصل إلى 100 يفوز</span>
             </button>
+            <button class="world-card ludo" data-action="pickLudo">
+                <span class="w-icon" aria-hidden="true">🎲</span>
+                <span class="w-name">ليدو</span>
+                <span class="w-desc">ارمِ النرد وأخرج قطعك الأربع وسبق الجميع إلى البيت. مع الأصدقاء أو ضد الحاسوب</span>
+            </button>
+        </div>
+    </section>
+
+    <!-- ليدو -->
+    <section id="ludo-screen" class="hidden">
+        <div id="lu-error" class="error" role="alert"></div>
+        <div id="lu-home" class="narrow stack">
+            <button class="btn ghost block" type="button" data-lu="help">❓ كيف ألعب؟</button>
+            <p id="lu-help" class="muted small hidden">ارمِ النرد. الرقم 6 يُخرج قطعة من القاعدة ويعطيك رمية إضافية. اضغط على القطعة المضيئة لتحريكها. إذا نزلت على قطعة خصم خارج الخانات الآمنة (النجوم ونقاط البدء) ترجع إلى قاعدتها. الأكل أو الوصول إلى البيت يعطيك رمية إضافية. تحتاج الرقم المضبوط للوصول إلى البيت. ثلاث ستات متتالية تُلغي دورك. أول من يوصل قطعه الأربع يفوز.</p>
+            <div class="card stack">
+                <h3>🤖 ضد الحاسوب</h3>
+                <div class="row">
+                    <select id="lu-bots" class="field" aria-label="عدد اللاعبين الآليين"><option value="1">لاعب آلي واحد</option><option value="2">لاعبان آليان</option><option value="3" selected>3 لاعبين آليين</option></select>
+                    <button class="btn primary" data-lu="ai">ابدأ</button>
+                </div>
+            </div>
+            <div class="card stack">
+                <h3>🌐 مع الأصدقاء</h3>
+                <button class="btn primary block" data-lu="quick">🎯 قابل لاعبًا عشوائيًا</button>
+                <div id="lu-searching" class="hidden status-card"><span>⏳ نبحث عن خصم...</span> <button class="btn ghost" data-lu="quickcancel">إلغاء</button></div>
+                <button class="btn secondary block" data-lu="create">أنشئ غرفة</button>
+                <div class="row">
+                    <input type="text" id="lu-join" class="field code-input" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="كود الغرفة">
+                    <button class="btn secondary" data-lu="join">انضم</button>
+                </div>
+            </div>
+        </div>
+        <div id="lu-lobby" class="narrow stack hidden">
+            <div class="card stack">
+                <h3>غرفة ليدو</h3>
+                <div class="mp-codebox"><span id="lu-code" dir="ltr"></span> <button class="btn ghost" data-lu="copy">انسخ الكود</button></div>
+                <ul id="lu-players" class="fr-list"></ul>
+                <button class="btn primary block" id="lu-start" data-lu="start">🎲 ابدأ اللعب</button>
+                <p id="lu-wait" class="muted small hidden">ننتظر المضيف ليبدأ اللعبة...</p>
+                <button class="btn ghost block" data-lu="leave">مغادرة الغرفة</button>
+            </div>
+        </div>
+        <div id="lu-play" class="hidden">
+            <div class="lu-wrap">
+                <div id="lu-turn" class="lu-turn" role="status"></div>
+                <canvas id="lu-canvas" width="720" height="720" aria-label="لوحة ليدو"></canvas>
+                <div class="lu-controls">
+                    <div id="lu-die" class="snk-die lu-die" aria-label="النرد"></div>
+                    <button class="btn primary" id="lu-roll" data-lu="roll">🎲 ارمِ النرد</button>
+                </div>
+                <div id="lu-over" class="status-card hidden"><span id="lu-over-t"></span> <button class="btn primary" data-lu="again">🔁 العب مجددًا</button></div>
+                <button class="btn ghost block" data-lu="exit">⬅ مغادرة اللعبة</button>
+            </div>
         </div>
     </section>
 
@@ -175,6 +233,10 @@
                 <button class="mode-row" data-action="showLessons">
                     <span class="t">دروس مصغرة</span>
                     <span class="d">افتتاحيات ونهايات وتكتيك، تتعلمها بتحريك القطع بنفسك</span>
+                </button>
+                <button class="mode-row" data-tr="open">
+                    <span class="t">تدريب على الافتتاحيات</span>
+                    <span class="d">احفظ خطوات الافتتاحيات الشهيرة بتحريك القطع، والموقع يصحّح لك</span>
                 </button>
                 <button class="mode-row" data-action="showPuzzles">
                     <span class="t">حل الألغاز</span>
@@ -353,9 +415,50 @@
                 <h3 class="pf-h">آخر المباريات</h3>
                 <ul class="fr-list" id="pf-recent"></ul>
             </div>
+            <button class="btn secondary block" id="pf-mist" type="button" data-mist="open">🧠 تمارين من أخطائي</button>
             <button class="btn secondary block hidden" id="pf-push" data-action="togglePush">🔔 تفعيل الإشعارات</button>
             <button class="btn ghost block" data-action="goMenu">رجوع</button>
             <button class="btn ghost danger-link" id="pf-delete" type="button" data-action="showDelete">حذف حسابي</button>
+        </div>
+    </section>
+
+    <!-- التدريب على الافتتاحيات -->
+    <section id="trainer-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0">📖 التدريب على الافتتاحيات</h2>
+            <div id="tr-listview" class="stack">
+                <p class="muted small" id="tr-sub"></p>
+                <p class="muted small">اختر افتتاحية، ثم العب خطواتها بنفسك. الموقع يلعب دور الخصم ويصحّح لك إن خرجتَ عن النظرية.</p>
+                <div class="mode-list" id="tr-list"></div>
+                <button class="btn ghost block" data-action="goMenu">رجوع</button>
+            </div>
+            <div id="tr-practice" class="stack hidden">
+                <div class="mist-board-wrap"><div id="tboard"></div></div>
+                <div class="status-card" id="tr-card" data-tone=""><p id="tr-meta" class="muted small"></p><p id="tr-text" aria-live="polite"></p><p id="tr-idea" class="muted small"></p></div>
+                <div class="an-tools">
+                    <button type="button" class="btn ghost" data-tr="hint">تلميح</button>
+                    <button type="button" class="btn secondary" data-tr="restart">أعد المحاولة</button>
+                    <button type="button" class="btn primary" data-tr="list">قائمة الافتتاحيات</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- تمارين من أخطائي -->
+    <section id="mist-screen" class="narrow hidden">
+        <div class="panel stack">
+            <h2 class="section-title" style="margin-bottom:0">🧠 تمارين من أخطائك</h2>
+            <p class="muted small" id="mist-sub"></p>
+            <p class="muted small" id="mist-sub2"></p>
+            <div class="mist-board-wrap"><div id="mboard"></div></div>
+            <div class="status-card" id="mist-card" data-tone=""><p id="mist-meta" class="muted small"></p><p id="mist-text" aria-live="polite"></p></div>
+            <div class="an-tools">
+                <button type="button" class="btn ghost" id="mist-hint" data-mist="hint">تلميح</button>
+                <button type="button" class="btn ghost" id="mist-show" data-mist="show">أظهر الحل</button>
+                <button type="button" class="btn primary" id="mist-next" data-mist="next">التالي</button>
+            </div>
+            <p class="muted small hidden" id="mist-empty">لا توجد أخطاء محفوظة بعد. ادخل إلى مباراة منتهية واضغط «حلّل المباراة»، وستظهر أخطاؤك هنا لتتدرّب عليها.</p>
+            <button class="btn ghost block" data-action="showProfile">رجوع</button>
         </div>
     </section>
 
