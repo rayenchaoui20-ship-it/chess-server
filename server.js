@@ -488,6 +488,34 @@ function onFlag(room, side) {
 }
 
 const MAX_SAVED_GAMES = 20;
+// ───── أخطاء اللاعب المحفوظة للتدرّب عليها (من المباريات التي حلّلها) ─────
+const MAX_MIST = 60;
+function harvestMistakes(rec, g, plies) {
+    if (!rec || !g || g.sf || !Array.isArray(plies) || !Array.isArray(g.h)) return;     // 960 غير مدعوم
+    rec.mist = Array.isArray(rec.mist) ? rec.mist : [];
+    const have = new Set(rec.mist.map((m) => m.id));
+    const ch = new Chess();
+    for (let i = 0; i < g.h.length && i < plies.length; i++) {
+        const fen = ch.fen();
+        let mv;
+        try { mv = ch.move(g.h[i]); } catch (e) { mv = null; }
+        if (!mv) return;
+        const p = plies[i];
+        if (p.color !== g.c || (p.cls !== 'mistake' && p.cls !== 'blunder') || !p.best) continue;
+        const id = g.id + ':' + (i + 1);
+        if (have.has(id)) continue;
+        const men = fen.split(' ')[0].replace(/[^a-zA-Z]/g, '').replace(/[kKpP]/g, '').length;
+        rec.mist.push({ id, fen, best: p.best, played: p.san, loss: Math.round(p.loss), cls: p.cls, t: g.t || Date.now(), pc: mv.piece, ph: i < 24 ? 0 : (men <= 6 ? 2 : 1), ok: 0, tries: 0 });
+        have.add(id);
+    }
+    rec.mist.sort((a, b) => b.t - a.t);
+    if (rec.mist.length > MAX_MIST) {
+        const keep = rec.mist.filter((m) => m.ok < 2).slice(0, MAX_MIST);
+        const room = MAX_MIST - keep.length;
+        rec.mist = keep.concat(rec.mist.filter((m) => m.ok >= 2).slice(0, Math.max(0, room)));
+    }
+}
+
 function saveGameRecords(room) {
     if (room.plies < 2 || !room.result || room.result.reason === 'aborted') return;
     const hist = room.game.history();
@@ -904,6 +932,7 @@ const SEO_PAGES = {
     '/': { t: 'الشطرنج وملك المدينة وسلم وثعبان: ألعاب لوحية أونلاين مجانًا', d: 'العب الشطرنج وملك المدينة وسلم وثعبان مع أصدقائك أو ضد لاعبين حقيقيين والحاسوب. بلا تحميل وبلا اشتراك، مع تصنيف وبطولات وإنجازات.', cat: 'Game' },
     '/chess': { img: '/og-chess.png', t: 'العب الشطرنج أونلاين مجانًا: تصنيف وألغاز وبطولات', d: 'شطرنج مباشر مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين وألغاز يومية ودروس افتتاحيات وبطولات للنوادي.', cat: 'Chess' },
     '/monopoly': { img: '/og-monopoly.png', t: 'ملك المدينة: لعبة تجارة وعقارات أونلاين مع الأصدقاء', d: 'اشترِ المدن وابنِ الفنادق وأفلس خصومك في ملك المدينة. حتى 8 لاعبين، مزادات وتبادل ودردشة صوتية وبطولات للنوادي.', cat: 'Board game' },
+    '/ludo': { img: '/og-snakes.png', t: 'ليدو أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة ليدو كلاسيكية لحتى 4 لاعبين: أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. العب مع الأصدقاء بكود غرفة أو ضد الحاسوب.', cat: 'Board game' },
     '/snakes': { img: '/og-snakes.png', t: 'سلم وثعبان أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة سلم وثعبان بأربعة أنماط: كلاسيكية وسريعة وفوضى ومفاجآت. العب مع الأصدقاء أو لاعبين عشوائيين، مع ترتيب شهري وبطولات.', cat: 'Board game' }
 };
 const escAttr = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -1465,6 +1494,7 @@ function slRecord(results) {
     }
     saveSoon();
 }
+try { require('./ludo').attach(io, { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' }); } catch (e) { console.error('ludo', e); }
 const snakeApi = require('./snakes').attach(io, {
     nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب',
     onEnd: slRecord, top: () => gameTop('sl'), emitTo, statusOf, uname,
@@ -1574,6 +1604,31 @@ io.on('connection', (socket) => {
         }
         socket.emit('game_data', { id: g.id, t: g.t, w: g.w, b: g.b, c: g.c, tc: g.tc, rated: g.rated, v: g.v, sf: g.sf, h: g.h, res: g.res, ai: g.ai, an });
     });
+    // ───── تمارين من أخطائي ─────
+    socket.on('mist_get', () => {
+        const a = acct();
+        if (!a) return socket.emit('mist_list', { list: [], stats: null });
+        const all = Array.isArray(a.rec.mist) ? a.rec.mist : [];
+        const open = all.filter((m) => m.ok < 2).sort((x, y) => y.loss - x.loss).slice(0, 30);
+        for (let i = open.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [open[i], open[j]] = [open[j], open[i]]; }
+        const ph = [0, 0, 0];
+        const pc = {};
+        all.forEach((m) => { ph[m.ph] = (ph[m.ph] || 0) + 1; pc[m.pc] = (pc[m.pc] || 0) + 1; });
+        socket.emit('mist_list', {
+            list: open.map((m) => ({ id: m.id, fen: m.fen, best: m.best, played: m.played, loss: m.loss, cls: m.cls, ok: m.ok })),
+            stats: { total: all.length, mastered: all.filter((m) => m.ok >= 2).length, ph, pc }
+        });
+    });
+    socket.on('mist_result', (d) => {
+        const a = acct();
+        if (!a || !d || typeof d.id !== 'string') return;
+        const m = (a.rec.mist || []).find((x) => x.id === d.id);
+        if (!m) return;
+        m.tries = (m.tries || 0) + 1;
+        m.ok = d.ok ? Math.min(5, (m.ok || 0) + 1) : 0;
+        saveSoon();
+    });
+
     // ملف اللاعب (ملفي أو ملف لاعب آخر باسم المستخدم)
     socket.on('profile_get', (d) => {
         const a = acct();
@@ -1672,6 +1727,7 @@ io.on('connection', (socket) => {
             const sg = gid && rec && rec.user && Array.isArray(rec.hist) ? rec.hist.find((g) => g.id === gid) : null;
             if (sg && sg.h.length === hist.length && sg.h.every((m, i) => m === hist[i])) {
                 sg.an = { src: result.source, acc: result.accuracy, counts: result.counts, p: result.plies.map((x) => [x.cls, x.loss, x.cp, x.best]) };
+                try { harvestMistakes(rec, sg, result.plies); } catch (e) { console.error('mistakes:', e.message); }
                 saveSoon();
             }
         } catch (e) {
