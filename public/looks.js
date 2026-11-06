@@ -5,18 +5,19 @@
     var tr = function (s) { return (window.Lang && window.Lang.t) ? window.Lang.t(s) : s; };
     // ما يلزم لفتح كل مظهر: معرّف الإنجاز (بدون = مفتوح للجميع)
     var NEED = {
-        theme: { ice: 'first_win', ocean: 'wins_10', rose: 'puzzles_10', emerald: 'daily_7', marble: 'rating_1600', gold: 'champion', obsidian: 'games_100' },
+        theme: { ice: 'first_win', ocean: 'wins_10', rose: 'puzzles_10', emerald: 'daily_7', marble: 'rating_1600', gold: 'champion', obsidian: 'games_100', zellij: 'games_25', ramadan: 'daily_7', andalus: 'vip' },
         pieces: { california: 'first_win', companion: 'wins_10', fantasy: 'puzzles_10', spatial: 'rating_1600', gioco: 'games_100', maestro: 'champion' }
     };
-    var NAMES = { classic: 'كلاسيكي', green: 'أخضر', brown: 'بني', slate: 'رمادي', coral: 'مرجاني', purple: 'بنفسجي', night: 'ليلي', ice: 'جليدي', ocean: 'محيطي', rose: 'وردي', emerald: 'زمردي', marble: 'رخامي', gold: 'ذهبي', obsidian: 'سبج' };
-    var TITLES = {};
+    var NAMES = { classic: 'كلاسيكي', green: 'أخضر', brown: 'بني', slate: 'رمادي', coral: 'مرجاني', purple: 'بنفسجي', night: 'ليلي', ice: 'جليدي', ocean: 'محيطي', rose: 'وردي', emerald: 'زمردي', marble: 'رخامي', gold: 'ذهبي', obsidian: 'سبج', zellij: 'زليج مغربي', ramadan: 'ليلة رمضانية', andalus: 'أندلسي 💎' };
+    var TITLES = { vip: 'للداعمين' };
+    var vip = false;
     var unlocked = {};
     try { unlocked = JSON.parse(localStorage.getItem('chess-looks-ach') || '{}') || {}; } catch (e) { unlocked = {}; }
     function save() { try { localStorage.setItem('chess-looks-ach', JSON.stringify(unlocked)); } catch (e) { /* */ } }
 
     function isOpen(kind, id) {
         var need = NEED[kind] && NEED[kind][id];
-        return !need || !!unlocked[need];
+        return !need || (need === 'vip' ? vip : !!unlocked[need]);
     }
     window.Looks = { isOpen: isOpen };
 
@@ -76,6 +77,7 @@
         unlocked = u; save();
         if (!$('#looks-dialog').hasClass('hidden') && $('#looks-dialog').length) render();
     });
+    APP.socket.on('cos_state', function (d) { vip = !!(d && d.vip && d.vip.active); });
     APP.socket.on('ach_new', function (d) {
         (d.list || []).forEach(function (a) { unlocked[a.id] = 1; TITLES[a.id] = a.title; });
         save();

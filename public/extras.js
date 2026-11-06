@@ -18,7 +18,11 @@
         if (b) { b.textContent = m === 'light' ? '🌙' : '☀️'; b.setAttribute('aria-label', m === 'light' ? 'الوضع الداكن' : 'الوضع الفاتح'); b.setAttribute('aria-pressed', String(m === 'light')); }
     }
     function curMode() { return document.documentElement.getAttribute('data-mode') === 'light' ? 'light' : 'dark'; }
-    applyMode(lget('chess-mode') === 'light' ? 'light' : 'dark');
+    var stored = lget('chess-mode');
+    var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+    applyMode(stored === 'light' || stored === 'dark' ? stored : (mq && mq.matches ? 'light' : 'dark'));
+    // بلا اختيار صريح: يتبع الموقع وضع الجهاز لحظةً بلحظة
+    if (mq && mq.addEventListener) mq.addEventListener('change', function (e) { var s = lget('chess-mode'); if (s !== 'light' && s !== 'dark') applyMode(e.matches ? 'light' : 'dark'); });
     document.addEventListener('click', function (e) {
         var b = e.target.closest && e.target.closest('#mode-btn');
         if (!b) return;

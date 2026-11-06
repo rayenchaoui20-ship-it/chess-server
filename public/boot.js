@@ -2,7 +2,11 @@
 (function () {
     'use strict';
     // الوضع الفاتح قبل أي رسم كي لا يومض الموقع بالداكن أولًا
-    try { if (localStorage.getItem('chess-mode') === 'light') document.documentElement.setAttribute('data-mode', 'light'); } catch (e) { /* */ }
+    try {
+        var sm = localStorage.getItem('chess-mode');
+        if (sm !== 'light' && sm !== 'dark') sm = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-mode', sm);
+    } catch (e) { /* */ }
 
     // اللغة المحفوظة قبل أي رسم (اتجاه الصفحة)
     try { var L = localStorage.getItem('chess-lang'); if (L === 'en' || L === 'fr') { document.documentElement.setAttribute('lang', L); document.documentElement.setAttribute('dir', 'ltr'); } } catch (e) { /* */ }
@@ -41,19 +45,23 @@
     var installEv = null;
     window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault(); installEv = e;
-        var btn = document.getElementById('install-btn');
-        if (btn) btn.classList.remove('hidden');
+        ['install-btn', 'land-install'].forEach(function (i) { var x = document.getElementById(i); if (x) x.classList.remove('hidden'); });
     });
     window.addEventListener('appinstalled', function () {
         installEv = null;
-        var btn = document.getElementById('install-btn');
-        if (btn) btn.classList.add('hidden');
+        ['install-btn', 'land-install'].forEach(function (i) { var x = document.getElementById(i); if (x) x.classList.add('hidden'); });
     });
     document.addEventListener('click', function (ev) {
-        if (!ev.target.closest || !ev.target.closest('#install-btn') || !installEv) return;
+        if (!ev.target.closest || !ev.target.closest('#install-btn, #land-install-btn') || !installEv) return;
         installEv.prompt();
-        installEv.userChoice.then(function () { installEv = null; document.getElementById('install-btn').classList.add('hidden'); });
+        installEv.userChoice.then(function () { installEv = null; ['install-btn', 'land-install'].forEach(function (i) { var e = document.getElementById(i); if (e) e.classList.add('hidden'); }); });
     });
+    // آيفون لا يدعم زر التثبيت: نعرض الخطوات
+    (function () {
+        var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+        var standalone = window.navigator.standalone || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+        if (ios && !standalone) window.addEventListener('load', function () { var e = document.getElementById('ios-hint'); if (e) e.classList.remove('hidden'); });
+    })();
 
     // الترجمة تُحمَّل مستقلة: إن فشلت يبقى الموقع بالعربية
     loadScript(['/i18n-data.js']).then(function () { return loadScript(['/i18n.js']); }).catch(function () {});
@@ -84,6 +92,6 @@
             app.insertBefore(b, app.firstChild);
             return;
         }
-        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/castle960.js']).catch(function () {}); }).then(function () { return loadScript(['/openings.js']).catch(function () {}); }).then(function () { return loadScript(['/app.js']).then(function () { return loadScript(['/share.js']).catch(function () {}).then(function () { return loadScript(['/extras.js']).catch(function () {}).then(function () { return loadScript(['/mistakes.js']).catch(function () {}).then(function () { return loadScript(['/trainer.js']).catch(function () {}).then(function () { return loadScript(['/looks.js']).catch(function () {}); }); }); }); }).then(function () { return loadScript(['/ludo-client.js']).catch(function () {}); }); }); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}).then(function () { return loadScript(['/lessons.js']).catch(function () {}); }).then(function () { return loadScript(['/snakes-client.js']).catch(function () {}); }); });
+        return loadScript(['/sfx.js']).catch(function () {}).then(function () { return loadScript(['/castle960.js']).catch(function () {}); }).then(function () { return loadScript(['/openings.js']).catch(function () {}); }).then(function () { return loadScript(['/app.js']).then(function () { return loadScript(['/share.js']).catch(function () {}).then(function () { return loadScript(['/extras.js']).catch(function () {}).then(function () { return loadScript(['/mistakes.js']).catch(function () {}).then(function () { return loadScript(['/trainer.js']).catch(function () {}).then(function () { return loadScript(['/looks.js']).catch(function () {}); }); }); }); }).then(function () { return loadScript(['/ludo-client.js']).catch(function () {}).then(function () { return loadScript(['/dchallenge.js']).catch(function () {}).then(function () { return loadScript(['/cosmetics-client.js']).catch(function () {}); }); }); }); }); }).then(function () { return loadScript(['/monopoly.js']).then(function () { return loadScript(['/mp-voice.js']); }).catch(function () {}).then(function () { return loadScript(['/lessons.js']).catch(function () {}); }).then(function () { return loadScript(['/snakes-client.js']).catch(function () {}); }); });
     });
 })();

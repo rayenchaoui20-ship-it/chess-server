@@ -25,7 +25,7 @@
         '10+0': { base: 600, inc: 0 }, '15+10': { base: 900, inc: 10 }
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
-    const THEMES = ['classic', 'green', 'brown', 'slate', 'coral', 'purple', 'night', 'ice', 'ocean', 'rose', 'emerald', 'marble', 'gold', 'obsidian'];
+    const THEMES = ['classic', 'green', 'brown', 'slate', 'coral', 'purple', 'night', 'ice', 'ocean', 'rose', 'emerald', 'marble', 'gold', 'obsidian', 'zellij', 'ramadan', 'andalus'];
     const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'mist-screen', 'trainer-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'ludo-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
@@ -1056,13 +1056,13 @@
     }
     socket.on('profile', (p) => {
         if (!$('#profile-screen').is(':visible')) return;
-        $('#pf-title').text((p.me ? '👤 ' : '') + p.user);
+        if (window.Deco) $('#pf-title').empty().append(window.Deco.el(p.user, p.deco, p.me ? '👤 ' : '')); else $('#pf-title').text((p.me ? '👤 ' : '') + p.user);
         const bits = [];
         if (p.since) bits.push(tr('عضو منذ {d}', { d: new Date(p.since).toLocaleDateString(I18N.tag) }));
         if (p.club) bits.push('🛡 ' + p.club);
         if (p.champ) bits.push('🏆 ×' + p.champ);
         $('#pf-sub').text(bits.join(' · '));
-        const MEDAL = ['🥇', '🥈', '🥉'], CN = { bullet: tr('رصاصة'), blitz: tr('خاطف'), rapid: tr('سريع') };
+        const MEDAL = ['🥇', '🥈', '🥉'], CN = { bullet: tr('رصاصة'), blitz: tr('خاطف'), rapid: tr('سريع'), ml: tr('ملك المدينة'), sl: tr('سلم وثعبان'), lu: tr('ليدو') };
         $('#pf-badges').empty().append((p.badges || []).map((b) => $('<span class="pf-badge">').text((MEDAL[b.k - 1] || '🏅') + ' ' + (CN[b.c] || b.c) + ' · ' + b.s)));
         $('#pf-push').data('mine', !!p.me); renderPushBtn();
         const rt = $('#pf-ratings').empty();
@@ -1444,6 +1444,7 @@
         });
         const box = $('#analysis-summary').empty().append(tbl);
         try { renderDeep(res, box); } catch (e) { /* التحليل الأعمق اختياري */ }
+        try { renderCoach(res, box); } catch (e) { /* المدرّب اختياري */ }
     }
 
     // ───────────────────────── تحليل أعمق: الرسم والحركات الحاسمة والمراحل والسهم ─────────────────────────
@@ -1457,6 +1458,46 @@
         for (const ch of bd) { const c = ch.toLowerCase(); if (c === 'q') queen++; else if (c === 'r' || c === 'n' || c === 'b') minor++; }
         return (queen === 0 && minor <= 6) || queen + minor <= 4 ? 2 : 1;
     }
+    // ───────────────────────── المدرّب: ملخص بسيط بعد المباراة وتمرين مقترح ─────────────────
+    function renderCoach(res, box) {
+        if (!myColor || spectating || !res.plies || !res.plies.length) return;
+        const mine = [];
+        res.plies.forEach((p, k) => { if (p.color === myColor) mine.push({ p, i: k + 1 }); });
+        if (mine.length < 6) return;
+        const ph = [[], [], []];
+        mine.forEach((m) => ph[phaseOf(m.i)].push(Math.max(0, m.p.loss || 0)));
+        const avg = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
+        let worst = -1;
+        let wv = 40;
+        ph.forEach((a, k) => { const v = avg(a); if (v != null && a.length >= 3 && v > wv) { wv = v; worst = k; } });
+        const errs = mine.filter((m) => m.p.cls === 'mistake' || m.p.cls === 'blunder');
+        let hang = 0;
+        let missed = 0;
+        errs.forEach((m) => { const w = explainPly(m.i, m.p) || ''; if (/حيث يمكن للخصم|معرّضًا للأخذ/.test(w)) hang++; else if (/فاتتك|كش/.test(w)) missed++; });
+        const acc = res.accuracy[myColor];
+        const lines = [];
+        if (acc != null) {
+            lines.push(acc >= 90 ? tr('مباراة ممتازة! دقتك {a}%.', { a: acc })
+                : acc >= 75 ? tr('أداء جيد بدقة {a}%، وفيه مجال للتحسّن.', { a: acc })
+                    : acc >= 55 ? tr('أداء متوسط بدقة {a}%.', { a: acc })
+                        : tr('مباراة صعبة بدقة {a}%، وهذا يحدث للجميع. تعلّم منها.', { a: acc }));
+        }
+        const PH = [tr('الافتتاح'), tr('منتصف اللعب'), tr('النهاية')];
+        lines.push(worst >= 0 ? tr('أضعف مرحلة عندك: {p}.', { p: PH[worst] }) : tr('مستواك متقارب في كل مراحل المباراة.'));
+        if (hang && hang >= missed) lines.push(tr('تكرّر أن تترك قطعة معرّضة للأخذ ({n}). قبل كل نقلة اسأل نفسك: هل كل قطعة محمية؟', { n: hang }));
+        else if (missed) lines.push(tr('فاتتك فرص أخذ أو كش ({n}). قبل كل نقلة ابحث عن الأخذ والكش وتهديدات الخصم.', { n: missed }));
+        else if (errs.length) lines.push(tr('عندك {n} أخطاء كبيرة. راجعها بزر «الخطأ التالي».', { n: errs.length }));
+        else lines.push(tr('لا أخطاء كبيرة في هذه المباراة. أحسنت!'));
+        const card = $('<div class="an-coach">').append($('<h4>').text('🎓 ' + tr('المدرّب')));
+        lines.forEach((t) => card.append($('<p>').text(t)));
+        const row = $('<div class="an-coach-btns">');
+        if (errs.length) row.append($('<button type="button" class="btn secondary" data-mist="open">').text('🎯 ' + tr('تمرّن على أخطائك')));
+        if (worst === 0) row.append($('<button type="button" class="btn secondary" data-tr="open">').text('📖 ' + tr('تدريب الافتتاحيات')));
+        if (missed || worst === 1) row.append($('<button type="button" class="btn secondary" data-action="showPuzzles">').text('🧩 ' + tr('حلّ ألغاز')));
+        if (row.children().length) card.append(row);
+        box.prepend(card);
+    }
+
     function renderDeep(res, box) {
         const n = res.plies.length;
         if (!n) return;
@@ -1799,6 +1840,12 @@
             ratings[cat] = r.newRatings[myColor];
             renderRatings();
             dl.text(tr('التصنيف {r} ({d})', { r: r.newRatings[myColor], d: (d >= 0 ? '+' : '') + d })).addClass(d >= 0 ? 'pos' : 'neg').removeClass('hidden');
+        }
+        if (!rematchSent) $('#result-rematch').text(tone === 'loss' ? tr('⚔ ثأر!') : tr('العب مجددًا'));
+        const hh = $('#result-h2h').addClass('hidden');
+        if (state.h2h && myColor && (state.h2h.w + state.h2h.b) > 0) {
+            const oc = myColor === 'w' ? 'b' : 'w';
+            hh.text('⚔ ' + tr('المواجهات بينكما') + ': ' + state.h2h[myColor] + ' – ' + state.h2h[oc]).removeClass('hidden');
         }
         $('#result-dialog').removeClass('hidden');
         $('#result-rematch:visible').trigger('focus');

@@ -1,18 +1,88 @@
 {
-  "name": "منصة الشطرنج",
-  "short_name": "شطرنج",
+  "id": "/",
+  "name": "الألعاب: شطرنج وملك المدينة وسلم وثعبان وليدو",
+  "short_name": "ألعاب",
+  "description": "ألعاب لوحية أونلاين مع أصدقائك: شطرنج، ملك المدينة، سلم وثعبان، ليدو.",
   "lang": "ar",
   "dir": "rtl",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0B1324",
   "theme_color": "#0B1324",
+  "categories": [
+    "games",
+    "entertainment"
+  ],
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "شطرنج",
+      "short_name": "شطرنج",
+      "url": "/chess?source=shortcut",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "ملك المدينة",
+      "short_name": "ملك المدينة",
+      "url": "/monopoly?source=shortcut",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "سلم وثعبان",
+      "short_name": "سلم وثعبان",
+      "url": "/snakes?source=shortcut",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "ليدو",
+      "short_name": "ليدو",
+      "url": "/ludo?source=shortcut",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
   ]
 }

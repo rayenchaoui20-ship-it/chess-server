@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#0B1324">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="ألعاب">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="description" content="العب الشطرنج مباشرة مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين، دون تسجيل.">
     <title>منصة الشطرنج الاحترافية: العب أونلاين وحل الألغاز مجانًا</title>
     <link rel="canonical" href="https://chess-relay-server-y321.onrender.com/">
@@ -57,12 +61,13 @@
     <!-- الصفحة الافتتاحية للزوار -->
     <section id="landing-screen" class="land hidden">
         <div class="land-hero">
-            <h1 class="land-title">الشطرنج وملك المدينة وسلم وثعبان، مع أصدقائك</h1>
+            <h1 class="land-title">الشطرنج وملك المدينة وسلم وثعبان وليدو، مع أصدقائك</h1>
             <p class="land-sub">ألعاب لوحية أونلاين بلا تحميل وبلا اشتراك. أنشئ حسابًا في نصف دقيقة وابدأ أول مباراة.</p>
             <div class="land-cta">
                 <button class="btn primary" data-action="landingStart">أنشئ حسابًا مجانيًا</button>
                 <button class="btn ghost" data-action="landingLogin">لدي حساب</button>
             </div>
+            <ul class="land-badges"><li>🆓 مجاني</li><li>⚡ بلا تحميل</li><li>🌍 عربي · English · Français</li><li>📱 يعمل على الهاتف</li></ul>
             <p class="land-ref hidden" id="land-ref" role="status"></p>
             <p class="land-online muted small" id="landing-online"></p>
         </div>
@@ -88,6 +93,18 @@
                 <p class="w-desc">أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. حتى 4 لاعبين أو ضد الحاسوب.</p>
             </article>
         </div>
+
+        <h2 class="land-h2">كيف تبدأ؟</h2>
+        <ol class="land-steps">
+            <li><b>١</b><strong>أنشئ حسابًا</strong><span>في نصف دقيقة، أو العب مباشرة كضيف.</span></li>
+            <li><b>٢</b><strong>اختر لعبتك</strong><span>شطرنج أو ملك المدينة أو سلم وثعبان أو ليدو.</span></li>
+            <li><b>٣</b><strong>ادعُ صديقك</strong><span>أرسل له كود الغرفة وابدأوا فورًا.</span></li>
+        </ol>
+        <div class="land-install hidden" id="land-install">
+            <div><strong>📲 ثبّت الموقع كتطبيق</strong><span>أيقونة على شاشتك، يفتح بملء الشاشة وبسرعة.</span></div>
+            <button class="btn primary" id="land-install-btn" type="button">ثبّت الآن</button>
+        </div>
+        <p class="land-ios muted small hidden" id="ios-hint">📲 على آيفون: اضغط زر المشاركة في Safari ثم «إضافة إلى الشاشة الرئيسية».</p>
 
         <dl class="land-facts">
             <div><dt>تصنيف وألغاز</dt><dd>تصنيف Elo لكل نظام وقت، وألغاز يومية وتدريب تكتيكي.</dd></div>
@@ -145,14 +162,21 @@
                 <div class="row">
                     <input type="text" id="lu-join" class="field code-input" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="كود الغرفة">
                     <button class="btn secondary" data-lu="join">انضم</button>
+                    <button class="btn ghost" data-lu="watch">👁 شاهد</button>
                 </div>
             </div>
+            <button class="btn ghost block" data-lu="top">🏆 أفضل اللاعبين وإحصاءاتي</button>
+            <div class="hidden" id="lu-top"></div>
         </div>
         <div id="lu-lobby" class="narrow stack hidden">
             <div class="card stack">
                 <h3>غرفة ليدو</h3>
                 <div class="mp-codebox"><span id="lu-code" dir="ltr"></span> <button class="btn ghost" data-lu="copy">انسخ الكود</button></div>
                 <ul id="lu-players" class="fr-list"></ul>
+                <div class="row">
+                    <button class="btn secondary" data-lu="wa">📲 أرسل التحدّي في واتساب</button>
+                    <button class="btn ghost" data-lu="link">🔗 انسخ الرابط</button>
+                </div>
                 <button class="btn primary block" id="lu-start" data-lu="start">🎲 ابدأ اللعب</button>
                 <p id="lu-wait" class="muted small hidden">ننتظر المضيف ليبدأ اللعبة...</p>
                 <button class="btn ghost block" data-lu="leave">مغادرة الغرفة</button>
@@ -161,12 +185,17 @@
         <div id="lu-play" class="hidden">
             <div class="lu-wrap">
                 <div id="lu-turn" class="lu-turn" role="status"></div>
-                <canvas id="lu-canvas" width="720" height="720" aria-label="لوحة ليدو"></canvas>
+                <div id="lu-bar" class="lu-bar"></div>
+                <div class="lu-board"><canvas id="lu-canvas" width="720" height="720" aria-label="لوحة ليدو"></canvas></div>
                 <div class="lu-controls">
                     <div id="lu-die" class="snk-die lu-die" aria-label="النرد"></div>
                     <button class="btn primary" id="lu-roll" data-lu="roll">🎲 ارمِ النرد</button>
                 </div>
-                <div id="lu-over" class="status-card hidden"><span id="lu-over-t"></span> <button class="btn primary" data-lu="again">🔁 العب مجددًا</button></div>
+                <div class="mp-reactbar" id="lu-reactbar" role="group" aria-label="تفاعلات سريعة">
+                    <button type="button" data-lreact="👍">👍</button><button type="button" data-lreact="😂">😂</button><button type="button" data-lreact="😮">😮</button><button type="button" data-lreact="😡">😡</button><button type="button" data-lreact="🎉">🎉</button><button type="button" data-lreact="😭">😭</button><button type="button" data-lreact="🤝">🤝</button><button type="button" data-lreact="🎲">🎲</button>
+                </div>
+                <div id="lu-reacts" class="mp-reacts" aria-live="polite"></div>
+                <div id="lu-over" class="status-card hidden"><span id="lu-over-t"></span> <button class="btn primary" id="lu-again" data-lu="again">🔁 العب مجددًا</button></div>
                 <button class="btn ghost block" data-lu="exit">⬅ مغادرة اللعبة</button>
             </div>
         </div>
@@ -943,6 +972,7 @@
         <h2 id="result-title"></h2>
         <p class="reason" id="result-reason"></p>
         <p class="delta hidden" id="result-delta"></p>
+        <p class="muted hidden" id="result-h2h"></p>
         <div class="dialog-actions">
             <p class="reason" id="rematch-note" style="margin:-8px 0 12px"></p>
             <button class="btn primary" id="result-rematch" data-action="requestRematch">العب مجددًا</button>

@@ -81,8 +81,8 @@
     }
     function walk(root) {
         if (!root) return;
-        if (root.nodeType === 3) { if (!(root.parentNode && SKIP[root.parentNode.nodeName])) doText(root); return; }
-        if (root.nodeType !== 1 || SKIP[root.nodeName]) return;
+        if (root.nodeType === 3) { if (!(root.parentNode && (SKIP[root.parentNode.nodeName] || (root.parentNode.closest && root.parentNode.closest('[translate="no"]'))))) doText(root); return; }
+        if (root.nodeType !== 1 || SKIP[root.nodeName] || (root.getAttribute && root.getAttribute('translate') === 'no')) return;
         doAttrs(root);
         for (var c = root.firstChild; c; c = c.nextSibling) walk(c);
     }
@@ -92,7 +92,7 @@
         busy = true;
         try {
             list.forEach(function (m) {
-                if (m.type === 'characterData') { if (!(m.target.parentNode && SKIP[m.target.parentNode.nodeName])) doText(m.target); }
+                if (m.type === 'characterData') { if (!(m.target.parentNode && (SKIP[m.target.parentNode.nodeName] || (m.target.parentNode.closest && m.target.parentNode.closest('[translate="no"]'))))) doText(m.target); }
                 else if (m.type === 'attributes') doAttrs(m.target);
                 else m.addedNodes.forEach(walk);
             });
