@@ -14,7 +14,7 @@ function newGame(players) {
     const n = players.length, cols = seatColors(n);
     return {
         n, cols, pieces: players.map(() => [-1, -1, -1, -1]), turn: 0, dice: 0, phase: 'roll', sixes: 0, winner: null,
-        rolls: 0, last: null
+        rolls: 0, last: null, st: players.map(() => ({ r: 0, caps: 0, capd: 0 }))
     };
 }
 function legal(g, seat, d) {
@@ -33,7 +33,7 @@ function nextSeat(g) {
 function roll(g, rnd) {
     if (g.winner !== null || g.phase !== 'roll') return null;
     const d = 1 + Math.floor((rnd || Math.random)() * 6);
-    g.dice = d; g.rolls++;
+    g.dice = d; g.rolls++; g.st[g.turn].r++;
     g.last = null;
     if (d === 6) g.sixes++;
     if (d === 6 && g.sixes >= 3) { const r = { dice: d, movable: [], passed: true, triple: true }; nextSeat(g); g.dice = d; return r; }
@@ -54,7 +54,7 @@ function move(g, piece) {
     if (abs !== null && !isSafe(abs)) {
         g.pieces.forEach((arr, s) => {
             if (s === seat) return;
-            arr.forEach((p, i) => { if (absOf(g.cols[s], p) === abs) { arr[i] = -1; cap.push({ seat: s, piece: i }); } });
+            arr.forEach((p, i) => { if (absOf(g.cols[s], p) === abs) { arr[i] = -1; cap.push({ seat: s, piece: i }); g.st[s].capd++; g.st[seat].caps++; } });
         });
     }
     g.last = { seat, piece, from, to, cap, dice: d };
@@ -101,10 +101,14 @@ function aiPick(g, movable) {
     return best;
 }
 
+const REACTIONS = ['👍', '😂', '😮', '😡', '🎉', '😭', '🤝', '🎲'];
+const AWAY_WAIT = 45000, IDLE_WAIT = 30000, MAX_MISS = 3;
+
 function attach(io, deps) {
     const nameOf = deps.nameOf;
     const rooms = new Map();
     const queue = new Map();
+    const now = deps.now || Date.now;
     const BOT_NAMES = ['ياسمين', 'سلطان', 'نور'];
     const newCode = () => {
         const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -112,12 +116,17 @@ function attach(io, deps) {
         return null;
     };
     const findByToken = (t) => { for (const room of rooms.values()) { const i = room.players.findIndex((p) => p.token === t); if (i >= 0) return { room, i }; } return null; };
-    const dropRoom = (room) => { clearTimeout(room.timer); rooms.delete(room.code); };
+    const dropRoom = (room) => {
+        clearTimeout(room.timer);
+        (room.specs || new Set()).forEach((sid) => io.to(sid).emit('lu_closed'));
+        rooms.delete(room.code);
+    };
     function pub(room, forSeat) {
         const g = room.game;
         const base = {
-            code: room.code, started: !!g, host: 0, me: forSeat,
-            players: room.players.map((p, i) => ({ name: p.name, bot: !!p.bot, gone: !p.bot && !p.sid, color: g ? g.cols[i] : i }))
+            code: room.code, started: !!g, host: 0, me: forSeat, watching: forSeat < 0, specs: room.specs ? room.specs.size : 0, tally: room.tally || [],
+            rm: room.players.map((p) => !!p.rm || !!p.bot),
+            players: room.players.map((p, i) => ({ name: p.name, bot: !!p.bot, gone: !p.bot && !p.sid, color: g ? g.cols[i] : i, d: deps.deco && (p.stat || p.token) ? deps.deco(p.stat || p.token) : null }))
         };
         if (!g) return base;
         return Object.assign(base, {
@@ -127,20 +136,33 @@ function attach(io, deps) {
     }
     function emitRoom(room, extra) {
         room.players.forEach((p, i) => { if (p.sid) io.to(p.sid).emit('lu_state', Object.assign(pub(room, i), extra || {})); });
+        (room.specs || new Set()).forEach((sid) => io.to(sid).emit('lu_state', Object.assign(pub(room, -1), extra || {})));
     }
     function isAuto(room, seat) { const p = room.players[seat]; return p.bot || !p.sid; }
     function schedule(room) {
         clearTimeout(room.timer);
         const g = room.game;
         if (!g || g.winner !== null) { room.deadline = 0; return; }
-        const auto = isAuto(room, g.turn);
-        const wait = auto ? 900 : 30000;
+        const p = room.players[g.turn];
+        const auto = isAuto(room, g.turn) && (p.bot || false);
+        const away = !p.bot && !p.sid;
+        // لاعب غائب: إشعار هاتف مرة واحدة لكل رمية، ثم ننتظر عودته قبل أن يلعب الحاسوب عنه
+        if (away && g.phase === 'roll' && deps.pushOffline && p.token) {
+            const key = g.turn + ':' + g.rolls;
+            if (room.pk !== key) { room.pk = key; try { deps.pushOffline(p.token, { title: '🎲 جاء دورك في ليدو', body: 'ارجع إلى اللعبة قبل أن يلعب الحاسوب عنك.', url: '/ludo', tag: 'ludo-' + room.code }); } catch (e) { /* */ } }
+        }
+        const wait = auto ? 900 : away ? AWAY_WAIT : IDLE_WAIT;
         room.deadline = auto ? 0 : Date.now() + wait;
         room.timer = setTimeout(() => act(room, auto ? 'bot' : 'timeout'), wait);
     }
     function act(room, why) {
         const g = room.game;
         if (!g || g.winner !== null) return;
+        const p = room.players[g.turn];
+        if (why === 'timeout' && !p.bot) {
+            p.miss = (p.miss || 0) + 1;
+            if (p.miss >= MAX_MISS) { p.bot = true; p.name = String(p.name).slice(0, 18) + ' 🤖'; p.token = null; p.sid = null; emitRoom(room); }
+        }
         if (g.phase === 'roll') doRoll(room);
         else { const mv = legal(g, g.turn, g.dice); doMove(room, aiPick(g, mv)); }
     }
@@ -169,9 +191,21 @@ function attach(io, deps) {
     function finish(room) {
         clearTimeout(room.timer);
         room.over = true;
+        room.tally = room.tally || room.players.map(() => 0);
+        if (room.game.winner !== null) room.tally[room.game.winner] = (room.tally[room.game.winner] || 0) + 1;
+        if (deps.onEnd) {
+            try {
+                const g = room.game;
+                deps.onEnd(room.players.map((p, i) => ({ token: p.stat || null, win: i === g.winner, humans: room.humans || 0, rolls: g.st[i].r, caps: g.st[i].caps, capd: g.st[i].capd })).filter((r) => r.token));
+            } catch (e) { /* لا يعطّل اللعب */ }
+        }
         room.timer = setTimeout(() => dropRoom(room), 5 * 60 * 1000);
     }
     function startGame(room) {
+        room.humans = room.players.filter((p) => !p.bot).length;
+        room.players.forEach((p) => { p.stat = !p.bot && p.token ? p.token : null; p.rm = false; });
+        room.over = false;
+        if (!room.tally) room.tally = room.players.map(() => 0);
         room.game = newGame(room.players);
         emitRoom(room);
         schedule(room);
@@ -190,14 +224,20 @@ function attach(io, deps) {
         const mine = () => (tok() ? findByToken(tok()) : null);
         const leaveQueue = () => { if (tok() && queue.delete(tok())) socket.emit('lu_searching', { on: false }); };
         const human = () => ({ token: tok(), name: nameOf(tok()), sid: socket.id });
-        function leave() {
+        function leave(soft) {
             leaveQueue();
             const f = mine();
             if (!f) return;
             const { room, i } = f;
             if (room.game && room.game.winner !== null) { room.players[i].sid = null; room.players[i].token = null; if (!room.players.some((p) => p.sid)) dropRoom(room); return; }
             if (!room.game) room.players.splice(i, 1);
-            else { room.players[i].sid = null; room.players[i].token = null; room.players[i].bot = true; room.players[i].name += ' 🤖'; }
+            else if (soft === true) {                       // انقطاع الاتصال: يحتفظ بمقعده ليعود
+                room.players[i].sid = null;
+                if (!room.players.some((p) => p.sid)) { clearTimeout(room.timer); room.timer = setTimeout(() => dropRoom(room), 10 * 60 * 1000); return; }
+                emitRoom(room);
+                if (room.game.turn === i) schedule(room);
+                return;
+            } else { room.players[i].sid = null; room.players[i].token = null; room.players[i].bot = true; room.players[i].name += ' 🤖'; }
             if (!room.players.some((p) => p.sid)) return dropRoom(room);
             emitRoom(room);
             if (room.game && room.game.turn === i) schedule(room);
@@ -244,11 +284,13 @@ function attach(io, deps) {
         socket.on('lu_roll', () => {
             const f = mine();
             if (!f || !f.room.game || f.room.game.turn !== f.i || f.room.game.phase !== 'roll') return;
+            f.room.players[f.i].miss = 0;
             doRoll(f.room);
         });
         socket.on('lu_move', (d) => {
             const f = mine();
             if (!f || !f.room.game || f.room.game.turn !== f.i || f.room.game.phase !== 'move') return;
+            f.room.players[f.i].miss = 0;
             doMove(f.room, parseInt(d && d.piece, 10));
         });
         socket.on('lu_quick', () => {
@@ -267,10 +309,71 @@ function attach(io, deps) {
             startGame(room);
         });
         socket.on('lu_quick_cancel', leaveQueue);
-        socket.on('lu_leave', leave);
-        socket.on('disconnect', leave);
+        function unwatch() {
+            const code = socket.data.luWatch;
+            if (!code) return;
+            socket.data.luWatch = null;
+            const room = rooms.get(code);
+            if (room && room.specs) { room.specs.delete(socket.id); emitRoom(room); }
+        }
+        socket.on('lu_watch', (d) => {
+            if (!tok()) return;
+            const code = String((d && d.code) || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
+            const room = rooms.get(code);
+            if (!room) return err('لا توجد غرفة بهذا الكود.');
+            if (mine()) return err('أنت في غرفة بالفعل.');
+            room.specs = room.specs || new Set();
+            if (room.specs.size >= 20 && !room.specs.has(socket.id)) return err('عدد المشاهدين ممتلئ.');
+            unwatch();
+            leaveQueue();
+            socket.data.luWatch = code;
+            room.specs.add(socket.id);
+            emitRoom(room);
+        });
+        socket.on('lu_rematch', () => {
+            const f = mine();
+            if (!f || !f.room.game || f.room.game.winner === null) return;
+            const room = f.room;
+            room.players[f.i].rm = true;
+            if (room.players.every((p) => p.bot || !p.sid || p.rm)) {
+                clearTimeout(room.timer);
+                room.players.forEach((p) => { if (!p.bot && !p.sid) { p.bot = true; p.token = null; p.name = String(p.name).slice(0, 18) + ' 🤖'; } });
+                if (!room.players.some((p) => p.sid)) return dropRoom(room);
+                startGame(room);
+            } else emitRoom(room);
+        });
+        socket.on('lu_rejoin', () => {
+            const f = mine();
+            if (!f) return;
+            f.room.players[f.i].sid = socket.id;
+            f.room.players[f.i].miss = 0;
+            clearTimeout(f.room.dropT);
+            emitRoom(f.room);
+            if (f.room.game && f.room.game.winner === null) schedule(f.room);
+            else if (!f.room.game) emitRoom(f.room);
+        });
+        socket.on('lu_react', (d) => {
+            const f = mine();
+            const e = d && d.e;
+            const wroom = !f && socket.data.luWatch ? rooms.get(socket.data.luWatch) : null;
+            if ((!f && !wroom) || typeof e !== 'string' || !REACTIONS.includes(e)) return;
+            const t = now();
+            if (t - (socket.data.luReact || 0) < 600) return;
+            socket.data.luReact = t;
+            const room = f ? f.room : wroom;
+            const from = f ? String(room.players[f.i].name || 'لاعب').slice(0, 24) : '👁 ' + String(nameOf(tok()) || 'مشاهد').slice(0, 20);
+            room.players.forEach((p) => { if (p.sid) io.to(p.sid).emit('lu_react', { from, e }); });
+            (room.specs || new Set()).forEach((sid) => io.to(sid).emit('lu_react', { from, e }));
+        });
+        socket.on('lu_top', () => {
+            if (!tok()) return;
+            const rows = deps.top ? deps.top() : { month: [], all: [] };
+            socket.emit('lu_top', Object.assign({}, rows, { mine: deps.stats ? deps.stats(tok()) : null }));
+        });
+        socket.on('lu_leave', () => { unwatch(); leave(false); });
+        socket.on('disconnect', () => { unwatch(); leave(true); });
     });
     return { rooms };
 }
 
-module.exports = { attach, newGame, legal, roll, move, aiPick, START, FIN, COLORS, isSafe, absOf };
+module.exports = { REACTIONS, attach, newGame, legal, roll, move, aiPick, START, FIN, COLORS, isSafe, absOf };

@@ -32,6 +32,9 @@ const DEFS = [
     { id: 'mp_first', icon: '🏙', title: 'أول فوز في ملك المدينة', desc: 'اربح لعبة ملك المدينة ضد لاعبين حقيقيين.', test: (r) => !!(r.ml && r.ml.wh >= 1) },
     { id: 'mp_wins_10', icon: '🏰', title: 'ملك المدينة', desc: 'اربح 10 ألعاب ملك المدينة ضد لاعبين حقيقيين.', test: (r) => !!(r.ml && r.ml.wh >= 10) },
     { id: 'mp_champion', icon: '👑', title: 'بطل ملك المدينة', desc: 'افز ببطولة «ملك المدينة» في ناديك.', test: (r) => (r.mchamp || 0) >= 1 },
+    { id: 'lu_first', icon: '🎲', title: 'أول فوز في ليدو', desc: 'اربح لعبة ليدو.', test: (r) => !!(r.lu && r.lu.w >= 1) },
+    { id: 'lu_wins_10', icon: '🍀', title: 'ملك الحظ', desc: 'اربح 10 ألعاب ليدو.', test: (r) => !!(r.lu && r.lu.w >= 10) },
+    { id: 'lu_games_25', icon: '🎯', title: 'لاعب ليدو منتظم', desc: 'العب 25 لعبة ليدو.', test: (r) => !!(r.lu && r.lu.g >= 25) },
     { id: 'sl_champion', icon: '🐍', title: 'بطل سلم وثعبان', desc: 'افز ببطولة «سلم وثعبان» في ناديك.', test: (r) => (r.schamp || 0) >= 1 }
 ];
 const BY_ID = Object.fromEntries(DEFS.map((d) => [d.id, d]));

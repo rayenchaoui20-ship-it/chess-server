@@ -392,6 +392,7 @@ function publicState(room) {
         history: room.game.history(),
         cr: typeof room.game.rights === 'function' ? room.game.rights() : undefined,
         names: room.names,
+        h2h: room.h2h && room.players.w && room.players.b ? { w: room.h2h[room.players.w] || 0, b: room.h2h[room.players.b] || 0 } : null,
         ratings: room.ratings,
         rated: room.rated,
         tc: room.tcId,
@@ -553,6 +554,11 @@ function endGame(room, result) {
     room.over = true;
     room.overAt = Date.now();
     room.result = result;
+    if (room.type === 'multi' && room.matched && room.plies >= 2 && result.reason !== 'aborted') {     // نتيجة المواجهات بين الخصمين عبر الإعادات
+        room.h2h = room.h2h || {};
+        ['w', 'b'].forEach((c) => { const tk = room.players[c]; if (tk && room.h2h[tk] == null) room.h2h[tk] = 0; });
+        if (result.winner && room.players[result.winner]) room.h2h[room.players[result.winner]]++;
+    }
     room.drawOffer = null;
     clearTimeout(room.timer);
     room.lastTick = Date.now();
@@ -563,6 +569,9 @@ function endGame(room, result) {
             room.result.newRatings = ch.ratings;
             ['w', 'b'].forEach((c) => { try { awardFor(room.players[c]); } catch (e) { /* لا يُعطّل الإنهاء */ } });
         }
+    }
+    if (room.plies >= 4 && result.reason !== 'aborted') {
+        ['w', 'b'].forEach((c) => { const tk = room.players[c]; if (tk && db.players[tk] && db.players[tk].user) gcCount(tk, 'ch', result.winner === c, { moves: Math.ceil(room.plies / 2) }); if (room.type === 'multi' && room.matched && tk && db.players[tk] && db.players[tk].user) leagueCount(tk, result.winner === c ? 'win' : result.winner ? 'loss' : 'draw'); });
     }
     try { fairPlayCheck(room); } catch (e) { /* لا يُعطّل إنهاء المباراة */ }
     saveGameRecords(room);
@@ -838,18 +847,28 @@ sweepTimer.unref();
 
 // ───────────────────────── Express ─────────────────────────
 app.disable('x-powered-by');
+const monet = require('./monet');
+const cosm = require('./cosmetics');
+const MONET = monet.config(process.env);
+// إعلانات AdSense لا تعمل إلا إن وُضعت المتغيرات في Render؛ عندها فقط نوسّع السياسة الأمنية لنطاقات جوجل
+const ADS_CSP = MONET.ads ? {
+    script: ' https://pagead2.googlesyndication.com https://partner.googleadservices.com https://www.googletagservices.com https://tpc.googlesyndication.com',
+    img: ' https:', connect: ' https://pagead2.googlesyndication.com https://*.g.doubleclick.net https://*.googlesyndication.com',
+    frame: ' https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://*.googlesyndication.com'
+} : { script: '', img: '', connect: '', frame: '' };
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', [
         "default-src 'self'",
-        "script-src 'self' 'wasm-unsafe-eval' https://code.jquery.com https://cdnjs.cloudflare.com https://unpkg.com",
+        "script-src 'self' 'wasm-unsafe-eval' https://code.jquery.com https://cdnjs.cloudflare.com https://unpkg.com" + ADS_CSP.script,
         "worker-src 'self' blob:",
         "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
         "font-src 'self' https://fonts.gstatic.com",
-        "img-src 'self' data: blob: https://cdn.jsdelivr.net",
-        "connect-src 'self' ws: wss:",
+        "img-src 'self' data: blob: https://cdn.jsdelivr.net" + ADS_CSP.img,
+        "connect-src 'self' ws: wss:" + ADS_CSP.connect,
+        ADS_CSP.frame ? 'frame-src' + ADS_CSP.frame : "frame-src 'none'",
         "base-uri 'none'",
         "form-action 'none'"
     ].join('; '));
@@ -932,7 +951,7 @@ const SEO_PAGES = {
     '/': { t: 'الشطرنج وملك المدينة وسلم وثعبان: ألعاب لوحية أونلاين مجانًا', d: 'العب الشطرنج وملك المدينة وسلم وثعبان مع أصدقائك أو ضد لاعبين حقيقيين والحاسوب. بلا تحميل وبلا اشتراك، مع تصنيف وبطولات وإنجازات.', cat: 'Game' },
     '/chess': { img: '/og-chess.png', t: 'العب الشطرنج أونلاين مجانًا: تصنيف وألغاز وبطولات', d: 'شطرنج مباشر مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين وألغاز يومية ودروس افتتاحيات وبطولات للنوادي.', cat: 'Chess' },
     '/monopoly': { img: '/og-monopoly.png', t: 'ملك المدينة: لعبة تجارة وعقارات أونلاين مع الأصدقاء', d: 'اشترِ المدن وابنِ الفنادق وأفلس خصومك في ملك المدينة. حتى 8 لاعبين، مزادات وتبادل ودردشة صوتية وبطولات للنوادي.', cat: 'Board game' },
-    '/ludo': { img: '/og-snakes.png', t: 'ليدو أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة ليدو كلاسيكية لحتى 4 لاعبين: أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. العب مع الأصدقاء بكود غرفة أو ضد الحاسوب.', cat: 'Board game' },
+    '/ludo': { img: '/og-ludo.png', t: 'ليدو أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة ليدو كلاسيكية لحتى 4 لاعبين: أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. العب مع الأصدقاء بكود غرفة أو ضد الحاسوب.', cat: 'Board game' },
     '/snakes': { img: '/og-snakes.png', t: 'سلم وثعبان أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة سلم وثعبان بأربعة أنماط: كلاسيكية وسريعة وفوضى ومفاجآت. العب مع الأصدقاء أو لاعبين عشوائيين، مع ترتيب شهري وبطولات.', cat: 'Board game' }
 };
 const escAttr = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -971,9 +990,28 @@ app.get('/robots.txt', (req, res) => {
     res.type('text/plain').send('User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: ' + SITE_URL + '/sitemap.xml\n');
 });
 const SITEMAP_AT = new Date().toISOString().slice(0, 10);
+app.get('/icon.svg', (req, res) => {
+    res.type('image/svg+xml').set('Cache-Control', 'public, max-age=86400').send('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34"><rect width="34" height="34" rx="7" fill="#0B1324"/><rect x="4" y="4" width="13" height="13" rx="3" fill="#E4E9F2"/><rect x="17" y="4" width="13" height="13" rx="3" fill="#5879AE"/><rect x="4" y="17" width="13" height="13" rx="3" fill="#5879AE"/><rect x="17" y="17" width="13" height="13" rx="3" fill="#E2B14B"/></svg>');
+});
 app.get('/sitemap.xml', (req, res) => {
     const urls = Object.keys(SEO_PAGES).map((p) => '  <url><loc>' + SITE_URL + (p === '/' ? '/' : p) + '</loc><lastmod>' + SITEMAP_AT + '</lastmod><priority>' + (p === '/' ? '1.0' : '0.8') + '</priority></url>').join('\n');
     res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '\n</urlset>\n');
+});
+app.get('/monet.json', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300').json({ ads: MONET.ads, support: MONET.support, vip: MONET.vip });
+});
+// webhook الدفع من Lemon Squeezy: يُفعِّل عضوية VIP تلقائيًا بعد الدفع (يتحقق من التوقيع أولًا)
+app.post('/webhooks/lemon', express.raw({ type: '*/*', limit: '200kb' }), (req, res) => {
+    if (!monet.verify(req.body, req.get('x-signature'), process.env.LS_WEBHOOK_SECRET)) return res.status(401).end();
+    let body = null;
+    try { body = JSON.parse(req.body.toString('utf8')); } catch (e) { return res.status(400).end(); }
+    const r = monet.apply(db, body, Date.now());
+    if (r) {
+        saveSoon();
+        emitTo(r.token, 'notify', { text: r.until > Date.now() ? '💎 شكرًا لدعمك! فُعّلت عضويتك الداعمة.' : 'انتهت عضويتك الداعمة.' });
+        try { pushCos(r.token); } catch (e) { /* */ }
+    }
+    res.json({ ok: true });
 });
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 
@@ -984,6 +1022,20 @@ function adminOk(req) {
     if (!key || key.length < 12 || got.length !== key.length) return false;
     return crypto.timingSafeEqual(Buffer.from(got), Buffer.from(key));
 }
+// منح عضوية داعمة يدويًا (لمن دفع عبر PayPal أو تحويل): /admin/vip?key=...&user=اسم&days=35  (days=0 للإلغاء)
+app.get('/admin/vip', (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    const tk = db.users[cleanUser(String(req.query.user || '')).toLowerCase()];
+    const rec = tk && db.players[tk];
+    if (!rec || !rec.user) return res.status(404).json({ error: 'no such user' });
+    const days = Math.max(0, Math.min(3650, parseInt(req.query.days, 10) || 0));
+    const now = Date.now();
+    rec.vip = { until: days ? Math.max(now, rec.vip && rec.vip.until > now ? rec.vip.until : 0) + days * 864e5 : now, ev: 'admin', at: now };
+    saveSoon();
+    emitTo(tk, 'notify', { text: days ? '💎 شكرًا لدعمك! فُعّلت عضويتك الداعمة.' : 'انتهت عضويتك الداعمة.' });
+    try { pushCos(tk); } catch (e) { /* */ }
+    res.json({ ok: true, user: rec.user, until: rec.vip.until });
+});
 app.get('/admin/safety', (req, res) => {
     if (!adminOk(req)) return res.status(404).end();
     res.set('Cache-Control', 'no-store');
@@ -1409,7 +1461,7 @@ const monoRoom = require('./monoroom').init({
 function gameStat(rec, key, win, humans) {
     const st = rec[key] = rec[key] || { g: 0, w: 0, wh: 0 };
     const id = require('./season').seasonId(Date.now());
-    if (!st.m || st.m.id !== id) st.m = { id, w: 0, g: 0 };
+    if (!st.m || st.m.id !== id) { if (st.m) st.pm = st.m; st.m = { id, w: 0, g: 0 }; }
     st.g++;
     if (humans >= 2) st.m.g++;
     if (win) { st.w++; if (humans >= 2) { st.wh = (st.wh || 0) + 1; st.m.w++; } }
@@ -1422,9 +1474,9 @@ function gameTop(key) {
     const id = require('./season').seasonId(Date.now());
     const people = Object.values(db.players).filter((p) => p.user && p[key]);
     const month = people.filter((p) => p[key].m && p[key].m.id === id && p[key].m.w > 0)
-        .map((p) => ({ user: p.user, w: p[key].m.w, g: p[key].m.g })).sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 10);
+        .map((p) => ({ user: p.user, d: decoOf(p), w: p[key].m.w, g: p[key].m.g })).sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 10);
     const all = people.filter((p) => p[key].wh > 0)
-        .map((p) => ({ user: p.user, w: p[key].wh, g: p[key].g })).sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 10);
+        .map((p) => ({ user: p.user, d: decoOf(p), w: p[key].wh, g: p[key].g })).sort((a, b) => b.w - a.w || a.g - b.g).slice(0, 10);
     c.at = Date.now(); c.rows = { month, all, id };
     return c.rows;
 }
@@ -1438,6 +1490,8 @@ function monoRecord(r) {
         const rec = db.players[tk];
         if (!rec || !rec.user) return;
         gameStat(rec, 'ml', r.tokens[r.winner] === tk, r.tokens.filter(Boolean).length);
+        gcCount(tk, 'ml', r.tokens[r.winner] === tk);
+        if (r.tokens.filter(Boolean).length >= 2) leagueCount(tk, r.tokens[r.winner] === tk ? 'win' : 'loss');
         awardFor(tk);
         rec.mh = [id].concat(Array.isArray(rec.mh) ? rec.mh : []).slice(0, 5);
         any = true;
@@ -1490,11 +1544,72 @@ function slRecord(results) {
             sl.w++; if (r.humans >= 2) { sl.wh = (sl.wh || 0) + 1; sl.m.w++; }
             if (r.big) sl.big = (sl.big || 0) + 1;
         }
+        gcCount(r.token, 'sl', !!r.win, { lad: r.lad, snk: r.snk });
+        if (r.humans >= 2) leagueCount(r.token, r.win ? 'win' : 'loss');
         awardFor(r.token);
     }
     saveSoon();
 }
-try { require('./ludo').attach(io, { nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب' }); } catch (e) { console.error('ludo', e); }
+// ───── تحدّي اليوم لكل الألعاب ─────
+const gch = require('./gchallenge');
+const league = require('./league');
+// المظهر العام للاعب (أفاتار/لقب/إطار/لون اسم) من اسم المستخدم أو المعرّف
+function decoOf(rec) { try { const d = rec && rec.user ? cosm.display(rec, Date.now()) : null; return d && (d.av || d.ti || d.fr || d.nc || d.vip) ? d : null; } catch (e) { return null; } }
+const decoUser = (user) => { const tk = db.users[String(user || '').toLowerCase()]; return tk ? decoOf(db.players[tk]) : null; };
+const decoToken = (tk) => decoOf(db.players[tk]);
+function cosState(token) {
+    const rec = db.players[token];
+    const now = Date.now();
+    if (!rec || !rec.user) return { guest: true, cfg: { support: MONET.support, vip: MONET.vip.enabled, price: MONET.vip.price } };
+    const titles = {}; ach.DEFS.forEach((d) => { titles[d.id] = d.title; });
+    return {
+        catalog: cosm.catalog(rec, now), sel: rec.cos || {}, display: cosm.display(rec, now), season: cosm.seasonState(rec, now), titles,
+        vip: { active: cosm.isVip(rec, now), until: rec.vip && rec.vip.until > now ? rec.vip.until : 0 },
+        cfg: { support: MONET.support, vip: MONET.vip.enabled, price: MONET.vip.price }, checkout: MONET.vip.enabled ? monet.checkoutUrl(process.env, token) : null
+    };
+}
+function pushCos(token) { emitTo(token, 'cos_state', cosState(token)); }
+function lgDeco(st) { if (st && st.rows) st.rows.forEach((r) => { r.d = decoUser(r.user); }); return st; }
+function leagueCount(token, outcome) {
+    try {
+        const rec = db.players[token];
+        if (!rec || !rec.user) return;
+        league.count(rec, outcome, Date.now());
+        saveSoon();
+        if (rec.lg) emitTo(token, 'lg_state', lgDeco(league.state(db, token, Date.now())));
+    } catch (e) { console.error('league', e.message); }
+}
+function gcDeco(st) { if (st && st.top) st.top.forEach((r) => { r.d = decoUser(r.user); }); return st; }
+function gcCount(token, key, win, info) {
+    try {
+        const rec = db.players[token];
+        if (!rec || !rec.user) return;
+        cosm.seasonCount(rec, !!win, Date.now()).forEach((it) => { emitTo(token, 'notify', { text: '🎁 مكافأة الموسم: ' + it.n }); });
+        const fresh = gch.count(db, rec, key, win, Date.now(), info);
+        if (fresh.length) {
+            fresh.forEach((c) => emitTo(token, 'notify', { text: '🎯 أنجزت تحدّي اليوم: ' + c.text }));
+            saveSoon();
+        }
+        emitTo(token, 'gc_state', gcDeco(gch.state(db, rec, Date.now())));
+    } catch (e) { console.error('gc', e.message); }
+}
+function luRecord(results) {
+    for (const r of results) {
+        const rec = db.players[r.token];
+        if (!rec || !rec.user) continue;
+        gameStat(rec, 'lu', r.win, r.humans);
+        gcCount(r.token, 'lu', r.win, { rolls: r.rolls, caps: r.caps, capd: r.capd });
+        if (r.humans >= 2) leagueCount(r.token, r.win ? 'win' : 'loss');
+        awardFor(r.token);
+    }
+    saveSoon();
+}
+try {
+    require('./ludo').attach(io, {
+        nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب', onEnd: luRecord, top: () => gameTop('lu'), pushOffline, deco: decoToken,
+        stats: (t) => { const r = db.players[t]; return r && r.lu ? { g: r.lu.g || 0, w: r.lu.w || 0, wh: r.lu.wh || 0 } : null; }
+    });
+} catch (e) { console.error('ludo', e); }
 const snakeApi = require('./snakes').attach(io, {
     nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب',
     onEnd: slRecord, top: () => gameTop('sl'), emitTo, statusOf, uname,
@@ -1630,6 +1745,34 @@ io.on('connection', (socket) => {
     });
 
     // ملف اللاعب (ملفي أو ملف لاعب آخر باسم المستخدم)
+    const lgReply = (token) => socket.emit('lg_state', lgDeco(league.state(db, token, Date.now())));
+    socket.on('lg_get', () => { const ctx = playerCtx(socket); if (ctx) lgReply(ctx.token); });
+    socket.on('lg_create', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const r = league.create(db, ctx.token, d && d.name, Date.now());
+        if (r.error) return socket.emit('lg_error', r.error);
+        saveSoon(); lgReply(ctx.token);
+    });
+    socket.on('lg_join', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const r = league.join(db, ctx.token, d && d.code);
+        if (r.error) return socket.emit('lg_error', r.error);
+        saveSoon(); lgReply(ctx.token);
+    });
+    socket.on('lg_leave', () => { const ctx = playerCtx(socket); if (!ctx) return; league.leave(db, ctx.token); saveSoon(); lgReply(ctx.token); });
+    socket.on('cos_get', () => { const ctx = playerCtx(socket); if (ctx) socket.emit('cos_state', cosState(ctx.token)); });
+    socket.on('cos_set', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const rec = db.players[ctx.token];
+        if (!rec || !rec.user) return;
+        cosm.select(rec, d && typeof d === 'object' ? d : {}, Date.now());
+        saveSoon();
+        socket.emit('cos_state', cosState(ctx.token));
+    });
+    socket.on('gc_get', () => {
+        const ctx = playerCtx(socket);
+        socket.emit('gc_state', gcDeco(gch.state(db, ctx && db.players[ctx.token], Date.now())));
+    });
     socket.on('profile_get', (d) => {
         const a = acct();
         if (!a) return;
@@ -1641,6 +1784,7 @@ io.on('connection', (socket) => {
         try { club = require('./clubs').clubOf(db, want); } catch (e) { /* بلا نادٍ */ }
         const p = ach.profile(rec, { clubName: club && club.name });
         p.me = want === a.ctx.token;
+        p.deco = decoOf(rec);
         p.online = isConnected(want);
         if (!p.me) { p.recent = []; }           // مباريات الغير خاصة
         socket.emit('profile', p);
@@ -1871,6 +2015,15 @@ io.on('connection', (socket) => {
             promotion: typeof data.promotion === 'string' ? data.promotion : undefined
         });
         if (!ok && !ctx.room.over) socket.emit('state', publicState(ctx.room));
+        if (ok && !ctx.room.over && ctx.room.type === 'multi') {                  // «جاء دورك» للخصم إن كان غير متصل
+            const oppT = ctx.room.players[other(ctx.color)];
+            const nowT = Date.now();
+            ctx.room.pushAt = ctx.room.pushAt || {};
+            if (oppT && nowT - (ctx.room.pushAt[oppT] || 0) > 60000) {
+                ctx.room.pushAt[oppT] = nowT;
+                pushOffline(oppT, { title: '♟ جاء دورك', body: (ctx.room.names && ctx.room.names[ctx.color] || 'خصمك') + ' لعب نقلته. ارجع إلى المباراة.', url: '/', tag: 'chess-' + ctx.room.id });
+            }
+        }
     });
 
     // ───── الإبلاغ عن لاعب ─────
@@ -2272,7 +2425,31 @@ const stampNow = () => {
     const p2 = (n) => String(n).padStart(2, '0');
     return d.getUTCFullYear() + p2(d.getUTCMonth() + 1) + p2(d.getUTCDate()) + '-' + p2(d.getUTCHours()) + p2(d.getUTCMinutes()) + p2(d.getUTCSeconds());
 };
+function gameBadges(now) {
+    const cur = season.seasonId(now);
+    if (!db.gseason) { db.gseason = cur; saveSoon(); return; }
+    if (db.gseason === cur) return;
+    const prev = db.gseason;
+    const NAMES = { ml: 'ملك المدينة', sl: 'سلم وثعبان', lu: 'ليدو' };
+    Object.keys(NAMES).forEach((key) => {
+        Object.values(db.players)
+            .map((p) => ({ p, m: p && p[key] && (p[key].m && p[key].m.id === prev ? p[key].m : p[key].pm && p[key].pm.id === prev ? p[key].pm : null) }))
+            .filter((x) => x.p.user && x.m && x.m.w >= 3)
+            .sort((a, b) => b.m.w - a.m.w || a.m.g - b.m.g).slice(0, 3)
+            .forEach((x, i) => {
+                x.p.badges = Array.isArray(x.p.badges) ? x.p.badges : [];
+                if (x.p.badges.some((b) => b.s === prev && b.c === key)) return;
+                x.p.badges.push({ s: prev, c: key, k: i + 1 });
+                const tk = Object.keys(db.players).find((t) => db.players[t] === x.p);
+                const text = season.MEDAL[i] + ' فزت بالمركز ' + (i + 1) + ' في ' + NAMES[key] + ' لموسم ' + prev + '!';
+                if (tk) { emitTo(tk, 'notify', { text }); pushOffline(tk, { title: '🏅 شارة الموسم', body: text, url: '/' }); awardFor(tk); }
+            });
+    });
+    db.gseason = cur;
+    saveSoon();
+}
 async function checkSeason() {
+    try { gameBadges(Date.now()); } catch (e) { console.error('Game badges failed:', e.message); }
     try {
         const now = Date.now();
         if (db.season && db.season.id !== season.seasonId(now)) await backupDb('pre-restore-' + stampNow());   // نسخة أمان قبل تقريب التصنيفات
