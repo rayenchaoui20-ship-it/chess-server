@@ -10,14 +10,14 @@
     };
     var NAMES = { classic: 'كلاسيكي', green: 'أخضر', brown: 'بني', slate: 'رمادي', coral: 'مرجاني', purple: 'بنفسجي', night: 'ليلي', ice: 'جليدي', ocean: 'محيطي', rose: 'وردي', emerald: 'زمردي', marble: 'رخامي', gold: 'ذهبي', obsidian: 'سبج', zellij: 'زليج مغربي', ramadan: 'ليلة رمضانية', andalus: 'أندلسي 💎' };
     var TITLES = { vip: 'للداعمين' };
-    var vip = false;
+    var vip = false, arab = false;
     var unlocked = {};
     try { unlocked = JSON.parse(localStorage.getItem('chess-looks-ach') || '{}') || {}; } catch (e) { unlocked = {}; }
     function save() { try { localStorage.setItem('chess-looks-ach', JSON.stringify(unlocked)); } catch (e) { /* */ } }
 
     function isOpen(kind, id) {
         var need = NEED[kind] && NEED[kind][id];
-        return !need || (need === 'vip' ? vip : !!unlocked[need]);
+        return !need || (need === 'vip' ? (vip || arab) : !!unlocked[need]);
     }
     window.Looks = { isOpen: isOpen };
 
@@ -77,7 +77,7 @@
         unlocked = u; save();
         if (!$('#looks-dialog').hasClass('hidden') && $('#looks-dialog').length) render();
     });
-    APP.socket.on('cos_state', function (d) { vip = !!(d && d.vip && d.vip.active); });
+    APP.socket.on('cos_state', function (d) { vip = !!(d && d.vip && d.vip.active); arab = !!(d && d.catalog && d.catalog.av && d.catalog.av.some(function (x) { return x.id === 'mosque' && x.open; })); });
     APP.socket.on('ach_new', function (d) {
         (d.list || []).forEach(function (a) { unlocked[a.id] = 1; TITLES[a.id] = a.title; });
         save();

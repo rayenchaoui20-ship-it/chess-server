@@ -63,6 +63,7 @@
             return;
         }
         $('<p class="small"></p>').append($('<b translate="no"></b>').text(d.name), document.createTextNode(' · ' + tr_('الكود') + ' '), $('<code dir="ltr"></code>').text(d.code), document.createTextNode(' · ' + tr_('يتبقى') + ' ' + d.left + ' ' + tr_('يوم'))).appendTo(h);
+        if (d.fri) $('<p class="lg-fri"></p>').text('🔥 ' + tr_('ليلة الجمعة: نقاط دوري الأصدقاء مضاعفة اليوم!')).appendTo(h);
         var ol = $('<ol class="lg-rows"></ol>').appendTo(h);
         d.rows.forEach(function (r, i) {
             $('<li></li>').toggleClass('me', !!r.me).append($('<span></span>').append(document.createTextNode((['🥇', '🥈', '🥉'][i] || (i + 1) + '.') + ' '), window.Deco ? window.Deco.el(r.user, r.d) : document.createTextNode(r.user)), $('<small></small>').text(r.w + '/' + r.g), $('<b></b>').text(r.pts)).appendTo(ol);

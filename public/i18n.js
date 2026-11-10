@@ -9,6 +9,8 @@
     var SKIP = { SCRIPT: 1, STYLE: 1, TEXTAREA: 1, CODE: 1, NOSCRIPT: 1 };
     var lang = 'ar';
     try { var sv = localStorage.getItem('chess-lang'); if (ORDER.indexOf(sv) >= 0) lang = sv; } catch (e) { /* */ }
+    // صفحات /en و /fr تفتح بلغتها وتحفظها
+    try { var pm = /^\/(en|fr)(\/|$)/.exec(location.pathname); if (pm) { lang = pm[1]; localStorage.setItem('chess-lang', lang); } } catch (e) { /* */ }
 
     var tables = {};            // لغة -> { exact: Map, pats: [] }
     function table(l) {

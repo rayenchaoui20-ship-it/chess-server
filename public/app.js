@@ -26,7 +26,7 @@
     };
     const CAT_NAMES = { bullet: tr('بوليت'), blitz: tr('بليتز'), rapid: tr('رابيد') };
     const THEMES = ['classic', 'green', 'brown', 'slate', 'coral', 'purple', 'night', 'ice', 'ocean', 'rose', 'emerald', 'marble', 'gold', 'obsidian', 'zellij', 'ramadan', 'andalus'];
-    const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'mist-screen', 'trainer-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'ludo-screen', 'game-screen'];
+    const SCREENS = ['landing-screen', 'world-screen', 'menu-screen', 'live-screen', 'ai-options-screen', 'waiting-screen', 'searching-screen', 'leaderboard-screen', 'auth-screen', 'friends-screen', 'club-screen', 'lessons-screen', 'games-screen', 'profile-screen', 'mist-screen', 'trainer-screen', 'puzzle-screen', 'mono-screen', 'snk-screen', 'ludo-screen', 'cards-screen', 'game-screen'];
     const REASONS = {
         checkmate: tr('كش مات'), timeout: tr('انتهى الوقت'), resign: tr('استسلام اللاعب'), abandoned: tr('غادر الخصم المباراة'),
         stalemate: tr('جمود (Stalemate)'), insufficient: tr('عدم كفاية القطع'), repetition: tr('تكرار الوضعية'),
@@ -126,8 +126,8 @@
         if (id !== 'club-screen' && clubTimer) { clearInterval(clubTimer); clubTimer = null; }
         if (id !== 'live-screen' && liveTimer) { clearInterval(liveTimer); liveTimer = null; }
         SCREENS.forEach((s) => $('#' + s).toggleClass('hidden', s !== id));
-        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen' && id !== 'snk-screen' && id !== 'ludo-screen');
-        $('#wordmark').text((id === 'world-screen' || id === 'landing-screen') ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : id === 'ludo-screen' ? 'ليدو' : 'شطرنج');
+        $('#world-switch').toggleClass('hidden', id !== 'menu-screen' && id !== 'mono-screen' && id !== 'snk-screen' && id !== 'ludo-screen' && id !== 'cards-screen');
+        $('#wordmark').text((id === 'world-screen' || id === 'landing-screen') ? 'الألعاب' : id === 'mono-screen' ? 'ملك المدينة' : id === 'snk-screen' ? 'سلم وثعبان' : id === 'ludo-screen' ? 'ليدو' : id === 'cards-screen' ? 'لعبة الورق' : 'شطرنج');
         window.scrollTo(0, 0);
     }
 
@@ -382,6 +382,8 @@
         pickMono() { lsSet('chess-world', 'mono'); A.showMono(); },
         pickLudo() { lsSet('chess-world', 'ludo'); A.showLudo(); },
         showLudo() { show('ludo-screen'); if (window.Ludo) window.Ludo.open(); },
+        pickCards() { lsSet('chess-world', 'cards'); A.showCards(); },
+        showCards() { show('cards-screen'); if (window.Cards) window.Cards.open(); },
         pickSnake() { lsSet('chess-world', 'snake'); A.showSnake(); },
         showSnake() { show('snk-screen'); if (window.Snake) window.Snake.open(); },
         changeWorld() {
@@ -522,7 +524,8 @@
         dailyTop() { socket.emit('daily_top'); },
         togglePush() { pushOn ? disablePush() : enablePush(); },
         showLessons() { show('lessons-screen'); if (window.Lessons) window.Lessons.open(); },
-        showPuzzles() { pzIsDaily = false; show('puzzle-screen'); $('#pz-dtop, #daily-board').addClass('hidden'); pzNext(false); },
+        showPuzzles() { pzIsDaily = false; show('puzzle-screen'); $('#pz-dtop, #daily-board').addClass('hidden'); pzKidsUi(); pzNext(false); },
+        pzKids() { pzKids = !pzKids; lsSet('chess-pz-kids', pzKids ? '1' : '0'); pzKidsUi(); pzIsDaily = false; pzNext(false); },
         pzLevel(el) {
             pzLevelN = Number(el.dataset.n);
             $('#pz-levels button').each(function () { $(this).attr('aria-pressed', String(Number($(this).data('n')) === pzLevelN)); });
@@ -2501,7 +2504,7 @@
     }
     // تصنيف الألغاز (محلي في متصفحك): يتغير مرة واحدة عند أول إنهاء لكل لغز
     function pzApplyRating(score) {
-        if (!pzCur || pzRated.has(pzCur.id)) return '';
+        if (pzKids || !pzCur || pzRated.has(pzCur.id)) return '';
         pzRated.add(pzCur.id);
         const e = 1 / (1 + Math.pow(10, ((pzCur.d || 1000) - pzRating) / 400));
         const delta = Math.round(24 * (score - e));
@@ -2510,7 +2513,15 @@
         lsSet('chess-pz-rated', JSON.stringify([...pzRated]));
         return ' ' + tr('({d} تصنيف)', { d: (delta >= 0 ? '+' : '') + delta });
     }
-    function pzPool() { return PUZZLES.filter((p) => !pzLevelN || p.n === pzLevelN); }
+    // وضع الصغار: ألغاز «مات في حركة» فقط، تلميح على مرحلتين، رسائل مشجّعة، بلا تغيير في التصنيف
+    let pzKids = lsGet('chess-pz-kids') === '1';
+    function pzKidsUi() {
+        $('#pz-kids').attr('aria-pressed', String(pzKids)).toggleClass('on', pzKids);
+        $('#puzzle-screen').toggleClass('kids', pzKids);
+        $('#pz-levels').closest('.panel').find('h3, #pz-levels').toggleClass('hidden', pzKids);
+    }
+    let pzHintN = 0;
+    function pzPool() { return PUZZLES.filter((p) => (pzKids ? p.n === 1 : !pzLevelN || p.n === pzLevelN)); }
     function pzStats() {
         const pool = pzPool();
         const done = pool.filter((p) => pzSolved.has(p.id)).length;
@@ -2555,6 +2566,7 @@
         pzBusy = false;
         pzDone = false;
         pzHelped = false;
+        pzHintN = 0;
         pzMistakes = 0;
         pzClear();
         // تحقق احتياطي: إن لم تكن الحركة الأولى قانونية نتخطى اللغز
@@ -2629,6 +2641,7 @@
             pzGame.undo();
             pzMistakes++;
             playSound('wrong');
+            if (pzKids) { pzSetText('🙂 ' + tr('قريب! جرّب حركة أخرى، يمكنك الضغط على «تلميح».'), 'check', true); return false; }
             pzSetText(tactic ? tr('ليست أقوى حركة، ابحث عن طريقة لكسب مادة.') : finalMove ? tr('ليست كش مات، حاول مرة أخرى.') : tr('ليست الحركة الصحيحة، حاول مرة أخرى.'), 'check', true);
             return false;
         }
@@ -2749,7 +2762,7 @@
         pzClear();
         playSound('good');
         let delta = '';
-        if (!pzHelped) {
+        if (!pzHelped || pzKids) {
             pzSolved.add(pzCur.id);
             pzStreak = pzMistakes === 0 ? pzStreak + 1 : 0;
             delta = pzApplyRating(pzMistakes === 0 ? 1 : 0.4);
@@ -2759,11 +2772,12 @@
         }
         if (!pzHelped) dailyCheck();
         pzSave();
+        const kidsMsg = pzKids ? '⭐ ' + tr('أحسنت يا بطل! كش مات!') + (pzMistakes === 0 && !pzHelped ? ' ⭐⭐⭐' : pzMistakes <= 1 ? ' ⭐⭐' : ' ⭐') : null;
         pzStats();
         const what = tr(pzCur.n === 3 ? tr('كسبت مادة!') : tr('كش مات!'));
         const msg = pzHelped ? tr('{what} (بمساعدة التلميح، لن يُحتسب لغزًا محلولًا)', { what }) + delta
             : pzMistakes === 0 ? tr('ممتاز! {what} من أول محاولة.', { what }) + delta : tr('{what} أحسنت.', { what }) + delta;
-        pzSetText(msg, 'win');
+        pzSetText(kidsMsg || msg, 'win');
     }
 
     // أول حركة تعطي كش مات من الوضعية الحالية
@@ -2788,7 +2802,12 @@
         else if (pzCur.n === 1 || pzStep === 1) { const m = pzFindMate(); from = m && m.from; }
         else from = pzCur.s.slice(0, 2);
         if (from) $('#pboard .square-' + from).addClass('hint-sq');
-        pzSetText(tr('القطعة المضيئة بالأخضر هي التي يجب تحريكها.'), 'mine');
+        pzHintN++;
+        if (pzKids && pzHintN >= 2 && (pzCur.n === 1 || pzStep === 1)) {
+            const mm = pzFindMate();
+            if (mm) { $('#pboard .square-' + mm.to).addClass('hint-sq'); pzSetText('💡 ' + tr('حرّك القطعة المضيئة إلى المربع المضيء الثاني.'), 'mine'); return; }
+        }
+        pzSetText(pzKids ? '💡 ' + tr('القطعة المضيئة هي التي تحرّكها. اضغط «تلميح» مرة أخرى لترى إلى أين.') : tr('القطعة المضيئة بالأخضر هي التي يجب تحريكها.'), 'mine');
     }
 
     function pzSolution() {
@@ -2822,10 +2841,11 @@
 
     // اللعبة المختارة: أول زيارة تعرض شاشة الاختيار
     (function () {
-        const pw = { '/chess': 'chess', '/monopoly': 'mono', '/snakes': 'snake', '/ludo': 'ludo' }[location.pathname];
+        const pw = { '/chess': 'chess', '/monopoly': 'mono', '/snakes': 'snake', '/ludo': 'ludo', '/cards': 'cards' }[location.pathname.replace(/^\/(en|fr)(?=\/|$)/, '') || '/'];
         if (pw) lsSet('chess-world', pw);
         const w = lsGet('chess-world');
-        if (w !== 'chess' && w !== 'mono' && w !== 'snake' && w !== 'ludo') show('world-screen');
+        if (w !== 'chess' && w !== 'mono' && w !== 'snake' && w !== 'ludo' && w !== 'cards') show('world-screen');
+        else if (w === 'cards') setTimeout(() => { if (currentScreen === 'menu-screen') A.showCards(); }, 0);
         else if (w === 'ludo') setTimeout(() => { if (currentScreen === 'menu-screen') A.showLudo(); }, 0);
         else if (w === 'snake') setTimeout(() => { if (currentScreen === 'menu-screen') A.showSnake(); }, 0);
         else if (w === 'mono') setTimeout(() => { if (currentScreen === 'menu-screen') A.showMono(); }, 0);

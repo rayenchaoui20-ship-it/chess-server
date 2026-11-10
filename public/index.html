@@ -73,24 +73,33 @@
         </div>
 
         <div class="world-grid four land-grid">
-            <article class="world-card chess land-card">
+            <article tabindex="0" role="button" data-action="landingStart" class="world-card chess land-card">
                 <span class="w-icon" aria-hidden="true">♞</span>
                 <h2 class="w-name">شطرنج</h2>
                 <p class="w-desc">مباريات مصنَّفة مع لاعبين حقيقيين، أو ضد الحاسوب. ألغاز وتحليل لمبارياتك وشطرنج فيشر 960.</p>
+                <span class="land-go">العب الآن ›</span>
             </article>
-            <article class="world-card mono land-card">
+            <article tabindex="0" role="button" data-action="landingStart" class="world-card mono land-card">
                 <h2 class="w-name">ملك المدينة</h2>
                 <p class="w-desc">اشترِ المدن وابنِ الفنادق وأفلس خصومك. غرف مع الأصدقاء ودردشة صوتية وتفاعلات سريعة.</p>
+                <span class="land-go">العب الآن ›</span>
             </article>
-            <article class="world-card snake land-card">
+            <article tabindex="0" role="button" data-action="landingStart" class="world-card snake land-card">
                 <span class="w-icon" aria-hidden="true">🐍</span>
                 <h2 class="w-name">سلم وثعبان</h2>
                 <p class="w-desc">ارمِ النرد وتسلّق السلالم وتجنّب الثعابين. حتى 4 لاعبين أو ضد الحاسوب.</p>
+                <span class="land-go">العب الآن ›</span>
             </article>
-            <article class="world-card ludo land-card">
+            <article tabindex="0" role="button" data-action="landingStart" class="world-card ludo land-card">
                 <span class="w-icon" aria-hidden="true">🎲</span>
                 <h2 class="w-name">ليدو</h2>
                 <p class="w-desc">أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. حتى 4 لاعبين أو ضد الحاسوب.</p>
+                <span class="land-go">العب الآن ›</span>
+            </article>
+            <article tabindex="0" role="button" data-action="landingStart" class="world-card cards land-card">
+                <h2 class="w-name">لعبة الورق</h2>
+                <p class="w-desc">تخلّص من أوراقك أولًا بمطابقة اللون أو الرقم. منع وعكس وسحب وبرّية. حتى 4 لاعبين أو ضد الحاسوب.</p>
+                <span class="land-go">العب الآن ›</span>
             </article>
         </div>
 
@@ -137,6 +146,11 @@
                 <span class="w-icon" aria-hidden="true">🎲</span>
                 <span class="w-name">ليدو</span>
                 <span class="w-desc">ارمِ النرد وأخرج قطعك الأربع وسبق الجميع إلى البيت. مع الأصدقاء أو ضد الحاسوب</span>
+            </button>
+            <button class="world-card cards" data-action="pickCards">
+                <span class="w-icon" aria-hidden="true">🃏</span>
+                <span class="w-name">لعبة الورق</span>
+                <span class="w-desc">خلّص أوراقك قبل الجميع بمطابقة اللون أو الرقم. مع الأصدقاء أو ضد الحاسوب</span>
             </button>
         </div>
     </section>
@@ -195,9 +209,84 @@
                     <button type="button" data-lreact="👍">👍</button><button type="button" data-lreact="😂">😂</button><button type="button" data-lreact="😮">😮</button><button type="button" data-lreact="😡">😡</button><button type="button" data-lreact="🎉">🎉</button><button type="button" data-lreact="😭">😭</button><button type="button" data-lreact="🤝">🤝</button><button type="button" data-lreact="🎲">🎲</button>
                 </div>
                 <div id="lu-reacts" class="mp-reacts" aria-live="polite"></div>
-                <div id="lu-over" class="status-card hidden"><span id="lu-over-t"></span> <button class="btn primary" id="lu-again" data-lu="again">🔁 العب مجددًا</button></div>
+                <div id="lu-over" class="status-card hidden"><span id="lu-over-t"></span> <button class="btn secondary" data-share="ludo">📤 شارك النتيجة</button> <button class="btn primary" id="lu-again" data-lu="again">🔁 العب مجددًا</button></div>
                 <button class="btn ghost block" data-lu="exit">⬅ مغادرة اللعبة</button>
             </div>
+        </div>
+    </section>
+
+
+    <!-- لعبة الورق -->
+    <section id="cards-screen" class="hidden">
+        <div id="cd-error" class="error" role="alert"></div>
+        <div id="cd-home" class="narrow stack">
+            <button class="btn ghost block" type="button" data-cd="help">❓ كيف ألعب؟</button>
+            <p id="cd-help" class="muted small hidden">لكل لاعب 7 أوراق. ألقِ ورقة تطابق لون الورقة المكشوفة أو رقمها. ورقة «منع» تتخطى التالي، و«عكس» يقلب الاتجاه، و«+2» يسحب فيها التالي ورقتين، و«البرّية» تغيّر اللون، و«برّية +4» تغيّره وتجعل التالي يسحب أربعًا. إن لم تملك ورقة صالحة فاسحب واحدة. يفوز من يتخلص من أوراقه أولًا.</p>
+            <div class="card stack">
+                <h3>🤖 ضد الحاسوب</h3>
+                <div class="row">
+                    <select id="cd-bots" class="field" aria-label="عدد اللاعبين الآليين"><option value="1">لاعب آلي واحد</option><option value="2" selected>لاعبان آليان</option><option value="3">ثلاثة لاعبين آليين</option></select>
+                    <button class="btn primary" data-cd="ai">ابدأ</button>
+                </div>
+            </div>
+            <div class="card stack">
+                <h3>🌐 مع الأصدقاء</h3>
+                <button class="btn primary block" data-cd="quick">🎯 قابل لاعبًا عشوائيًا</button>
+                <div id="cd-searching" class="hidden status-card"><span>⏳ نبحث عن خصم...</span> <button class="btn ghost" data-cd="quickcancel">إلغاء</button></div>
+                <button class="btn secondary block" data-cd="create">أنشئ غرفة</button>
+                <div class="row">
+                    <input type="text" id="cd-join" class="field code-input" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="كود الغرفة">
+                    <button class="btn secondary" data-cd="join">انضم</button>
+                    <button class="btn ghost" data-cd="watch">👁 شاهد</button>
+                </div>
+            </div>
+            <button class="btn ghost block" data-cd="top">🏆 أفضل اللاعبين وإحصاءاتي</button>
+            <div class="hidden" id="cd-top"></div>
+        </div>
+        <div id="cd-lobby" class="narrow stack hidden">
+            <div class="card stack">
+                <h3>غرفة لعبة الورق</h3>
+                <div class="mp-codebox"><span id="cd-code" dir="ltr"></span> <button class="btn ghost" data-cd="copy">انسخ الكود</button></div>
+                <ul id="cd-players" class="fr-list"></ul>
+                <div class="row">
+                    <button class="btn secondary" data-cd="wa">📲 أرسل التحدّي في واتساب</button>
+                    <button class="btn ghost" data-cd="link">🔗 انسخ الرابط</button>
+                </div>
+                <button class="btn primary block" id="cd-start" data-cd="start">🃏 ابدأ اللعب</button>
+                <p id="cd-wait" class="muted small hidden">ننتظر المضيف ليبدأ اللعبة...</p>
+                <button class="btn ghost block" data-cd="leave">مغادرة الغرفة</button>
+            </div>
+        </div>
+        <div id="cd-play" class="hidden">
+            <div class="cd-table" id="cd-table">
+                <div class="cd-opps" id="cd-opps"></div>
+                <div class="cd-center">
+                    <button class="cd-deck" id="cd-deck" type="button" data-cd="draw" aria-label="اسحب ورقة"><span class="cd-deck-n" id="cd-deck-n"></span></button>
+                    <div class="cd-disc" id="cd-disc"><div class="cd-ring" id="cd-ring"></div><div class="cd-pile" id="cd-pile"></div></div>
+                    <div class="cd-dir" id="cd-dir" aria-hidden="true">↻</div>
+                </div>
+                <div class="cd-flash" id="cd-flash" aria-live="polite"></div>
+                <div class="cd-turn" id="cd-turn" role="status"></div>
+            </div>
+            <div class="cd-me" id="cd-me"></div>
+            <div class="cd-hand" id="cd-hand"></div>
+            <div class="cd-actions">
+                <button class="btn secondary hidden" id="cd-pass" data-cd="pass">⏭ مرّر</button>
+                <button class="btn primary" id="cd-drawbtn" data-cd="draw">📥 اسحب ورقة</button>
+            </div>
+            <div class="mp-reactbar" id="cd-reactbar" role="group" aria-label="تفاعلات سريعة">
+                <button type="button" data-creact="👍">👍</button><button type="button" data-creact="😂">😂</button><button type="button" data-creact="😮">😮</button><button type="button" data-creact="😡">😡</button><button type="button" data-creact="🎉">🎉</button><button type="button" data-creact="😭">😭</button><button type="button" data-creact="🤝">🤝</button><button type="button" data-creact="🃏">🃏</button>
+            </div>
+            <div id="cd-reacts" class="mp-reacts" aria-live="polite"></div>
+            <div id="cd-over" class="cd-over hidden">
+                <div class="cd-over-box"><div class="cd-over-e" id="cd-over-e">🏆</div><h3 id="cd-over-t"></h3><p class="muted" id="cd-over-s"></p>
+                    <div class="row"><button class="btn secondary" data-share="cards">📤 شارك النتيجة</button> <button class="btn primary" id="cd-again" data-cd="again">🔁 العب مجددًا</button></div>
+                </div>
+            </div>
+            <button class="btn ghost block" data-cd="exit">⬅ مغادرة اللعبة</button>
+        </div>
+        <div id="cd-colorpick" class="cd-colorpick hidden" role="dialog" aria-label="اختر اللون">
+            <div class="cd-cp-box"><h4>اختر اللون</h4><div class="cd-cp-row" id="cd-cp-row"></div><button class="btn ghost" data-cd="cpcancel">إلغاء</button></div>
         </div>
     </section>
 
@@ -827,6 +916,7 @@
                     <p id="pz-meta" class="muted small"></p>
                     <p id="pz-text" aria-live="polite">...</p>
                 </div>
+                <button type="button" class="btn ghost full pz-kids-btn" id="pz-kids" data-action="pzKids" aria-pressed="false">🧒 وضع الصغار</button>
                 <div class="panel">
                     <h3>النوع</h3>
                     <div class="seg" role="group" aria-label="نوع اللغز" id="pz-levels">

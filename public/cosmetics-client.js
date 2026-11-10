@@ -35,6 +35,7 @@
         $('#cos-dialog').on('click', function (e) { if (e.target === this) $(this).addClass('hidden'); });
     }
     function need(it) {
+        if (it.pk) return '🛍 ' + tr_(it.pk === 'arab' ? 'حزمة الزخارف' : 'حزمة الملوك');
         if (it.vip) return '💎 ' + tr_('للداعمين');
         if (it.ach) return '🔒 ' + tr_((S.titles && S.titles[it.ach]) || it.ach);
         return '🔒';
@@ -52,14 +53,35 @@
         $('<p class="muted small"></p>').text(tr_('انتصاراتك هذا الشهر') + ': ' + se.w + ' — ' + tr_('اجمع انتصارات لتفتح مكافآت دائمة بمظهر هذا الموسم.')).appendTo(sc);
         var tl = $('<div class="cos-tiers"></div>').appendTo(sc);
         se.tiers.forEach(function (t) { $('<span></span>').toggleClass('done', !!t.done).text((t.done ? '✅ ' : '⬜ ') + t.w + ' ' + tr_('فوز') + ' → ' + tr_(KIND_REW[t.kind])).appendTo(tl); });
+        // مناسبة عالمية جارية
+        if (se.event) {
+            var ev = se.event, ec = $('<div class="cos-season"></div>').css('--c', ev.c).appendTo(b);
+            $('<h4></h4>').text(ev.icon + ' ' + tr_(ev.name) + ' · ' + tr_('يتبقى') + ' ' + ev.left + ' ' + tr_('يوم')).appendTo(ec);
+            $('<p class="muted small"></p>').text(tr_('مناسبة خاصة: انتصاراتك الآن') + ': ' + ev.w).appendTo(ec);
+            var et = $('<div class="cos-tiers"></div>').appendTo(ec);
+            ev.tiers.forEach(function (t) { $('<span></span>').toggleClass('done', !!t.done).text((t.done ? '✅ ' : '⬜ ') + t.w + ' ' + tr_('فوز') + ' → ' + tr_(KIND_REW[t.kind])).appendTo(et); });
+        }
+        // المتجر: حزم تُشترى مرة واحدة
+        if (S.packs && S.packs.length) {
+            var sh = $('<div class="cos-store"></div>').appendTo(b);
+            $('<h4></h4>').text('🛍 ' + tr_('المتجر') + ' · ' + tr_('دفعة واحدة بلا اشتراك')).appendTo(sh);
+            S.packs.forEach(function (pk) {
+                var card = $('<div class="cos-pack"></div>').toggleClass('owned', !!pk.owned).appendTo(sh);
+                $('<b></b>').text(pk.e + ' ' + tr_(pk.n)).appendTo(card);
+                $('<small class="muted"></small>').text(pk.items.map(function (x) { return tr_(x); }).join(' · ')).appendTo(card);
+                if (pk.owned) $('<span class="cos-owned"></span>').text('✅ ' + tr_('تملكها')).appendTo(card);
+                else if (pk.url) $('<a class="btn primary" target="_blank" rel="noopener"></a>').attr('href', pk.url).text(tr_('اشترِ') + (pk.price ? ' · ' + pk.price : '')).appendTo(card);
+            });
+        }
         // الدعم
         if (S.cfg && (S.cfg.vip || S.cfg.support)) {
             var vc = $('<div class="cos-vip"></div>').appendTo(b);
             $('<h4></h4>').text('💎 ' + tr_('عضوية الداعمين')).appendTo(vc);
             if (S.vip.active) $('<p></p>').text(tr_('عضويتك فعّالة حتى') + ' ' + new Date(S.vip.until).toLocaleDateString()).appendTo(vc);
-            else $('<p class="muted small"></p>').text(tr_('تدعم الموقع وتحصل على: بلا إعلانات، أفاتارات وإطار وألوان وثيمات حصرية، ولقب «داعم الموقع». لا أي أفضلية في اللعب.') + (S.cfg.price ? ' (' + S.cfg.price + ')' : '')).appendTo(vc);
+            else $('<p class="muted small"></p>').text(tr_('تدعم الموقع وتحصل على: بلا إعلانات، أفاتارات وإطار وألوان وثيمات حصرية، ولقب «داعم الموقع». لا أي أفضلية في اللعب.')).appendTo(vc);
             var r = $('<div class="cos-btns"></div>').appendTo(vc);
-            if (S.cfg.vip && S.checkout) $('<a class="btn primary" target="_blank" rel="noopener"></a>').attr('href', S.checkout).text(S.vip.active ? tr_('جدّد العضوية') : '💎 ' + tr_('كن داعمًا')).appendTo(r);
+            if (S.cfg.vip && S.checkout) $('<a class="btn primary" target="_blank" rel="noopener"></a>').attr('href', S.checkout).text((S.vip.active ? tr_('جدّد العضوية') : '💎 ' + tr_('كن داعمًا')) + (S.cfg.price ? ' · ' + S.cfg.price : '')).appendTo(r);
+            if (S.cfg.year && S.checkoutYear) $('<a class="btn primary" target="_blank" rel="noopener"></a>').attr('href', S.checkoutYear).text('⭐ ' + tr_('الخطة السنوية') + (S.cfg.priceYear ? ' · ' + S.cfg.priceYear : '')).appendTo(r);
             if (S.cfg.support) $('<a class="btn secondary" target="_blank" rel="noopener"></a>').attr('href', S.cfg.support).text('☕ ' + tr_('ادعم الموقع بتبرّع')).appendTo(r);
         }
         ['av', 'ti', 'fr', 'nc'].forEach(function (kind) {
@@ -92,7 +114,7 @@
     socket.on('cos_state', function (d) {
         S = d; cfg = d && d.cfg; vipActive = !!(d && d.vip && d.vip.active);
         if ($('#cos-dialog').length && !$('#cos-dialog').hasClass('hidden')) render();
-        adsDecide();
+        adsDecide(); sponsorRender();
     });
     socket.on('welcome', function (w) { window.__myName = w && w.user ? w.user : ''; setTimeout(function () { socket.emit('cos_get'); }, 700); });
 
@@ -133,7 +155,37 @@
         if (!ADS) return;
         if (lget('ads-consent')) adsLoad(); else consentBanner();
     }
+    // ───────── راعٍ مباشر (بلا تتبّع ولا موافقة؛ يختفي للداعمين) + تذييل ─────────
+    var SP = null, CONTACT = null;
+    function sponsorRender() {
+        $('.sponsor-wrap').remove();
+        if (!SP || vipActive) return;
+        AD_SCREENS.forEach(function (id) {
+            var sc = document.getElementById(id);
+            if (!sc) return;
+            var a = $('<a class="sponsor-wrap" target="_blank" rel="sponsored nofollow noopener"></a>').attr('href', SP.url);
+            $('<small class="muted"></small>').text(tr_('برعاية')).appendTo(a);
+            $('<b translate="no"></b>').text(SP.name).appendTo(a);
+            if (SP.text) $('<span translate="no"></span>').text(SP.text).appendTo(a);
+            $('<em></em>').text(SP.cta + ' ›').attr('translate', 'no').appendTo(a);
+            var ft = $(sc).children('#site-foot');
+            if (ft.length) a.insertBefore(ft); else $(sc).append(a);
+        });
+    }
+    function footerRender() {
+        if ($('#site-foot').length) return;
+        var f = $('<footer id="site-foot" class="site-foot"></footer>');
+        var nav = $('<nav aria-label="Games"></nav>').appendTo(f);
+        [['/', 'الشطرنج وملك المدينة وليدو'], ['/chess', 'شطرنج'], ['/monopoly', 'ملك المدينة'], ['/ludo', 'ليدو'], ['/snakes', 'سلم وثعبان']].forEach(function (x, i) {
+            if (i) $('<a></a>').attr('href', x[0]).text(tr_(x[1])).appendTo(nav);
+        });
+        var ln = $('<nav class="lang" aria-label="Language"></nav>').appendTo(f);
+        [['/', 'العربية'], ['/en', 'English'], ['/fr', 'Français']].forEach(function (x) { $('<a></a>').attr('href', x[0]).attr('translate', 'no').text(x[1]).appendTo(ln); });
+        if (CONTACT && !SP) $('<a class="foot-ad"></a>').attr('href', CONTACT).attr('target', '_blank').attr('rel', 'noopener').text('📣 ' + tr_('أعلن معنا')).appendTo(f);
+        $('#landing-screen').append(f);
+    }
+    footerRender();
     try {
-        fetch('/monet.json').then(function (r) { return r.json(); }).then(function (c) { ADS = c && c.ads; if (ADS) setTimeout(adsDecide, 1500); }).catch(function () { /* بلا إعلانات */ });
+        fetch('/monet.json').then(function (r) { return r.json(); }).then(function (c) { ADS = c && c.ads; SP = c && c.sponsor; CONTACT = c && c.contact; if (SP || CONTACT) { $('#site-foot').remove(); footerRender(); } sponsorRender(); if (ADS) setTimeout(adsDecide, 1500); }).catch(function () { /* بلا إعلانات */ });
     } catch (e) { /* */ }
 })();
