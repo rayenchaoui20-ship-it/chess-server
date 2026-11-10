@@ -1,6 +1,6 @@
 'use strict';
 // دوري الأصدقاء الأسبوعي: مجموعة صغيرة (حتى 12 لاعبًا مسجّلًا). كل لعبة ضد بشر تعطي نقاطًا في الأسبوع:
-// فوز = 3 · تعادل = 2 · مشاركة = 1. الأسبوع ISO من الاثنين (UTC).
+// فوز = 3 · تعادل = 2 · مشاركة = 1 (والجمعة تُضاعَف النقاط). الأسبوع ISO من الاثنين (UTC).
 // الحالة: db.leagues[CODE] = { name, owner, members: [token], week, hist: [{ week, user, pts }] } · rec.lg = CODE · rec.wk = { id, pts, w, g } · rec.wkPrev
 const MAX = 12;
 const PTS = { win: 3, draw: 2, play: 1 };
@@ -13,6 +13,7 @@ function weekId(now) {
     const w = Math.ceil(((t - Date.UTC(y, 0, 1)) / 864e5 + 1) / 7);
     return y + '-W' + String(w).padStart(2, '0');
 }
+const isFriday = (now) => new Date(now).getUTCDay() === 5;
 function daysLeft(now) {
     const d = new Date(now), day = d.getUTCDay() || 7;
     return 8 - day;                                   // يشمل اليوم الحالي
@@ -26,7 +27,8 @@ function ensureWk(rec, now) {
 function count(rec, outcome, now) {
     if (!rec || !rec.user) return 0;
     const wk = ensureWk(rec, now);
-    const add = outcome === 'win' ? PTS.win : outcome === 'draw' ? PTS.draw : PTS.play;
+    const base = outcome === 'win' ? PTS.win : outcome === 'draw' ? PTS.draw : PTS.play;
+    const add = base * (isFriday(now) ? 2 : 1);          // ليلة الجمعة: نقاط مضاعفة
     wk.pts += add; wk.g++; if (outcome === 'win') wk.w++;
     return add;
 }
@@ -99,6 +101,6 @@ function state(db, token, now) {
         return { user: x.rec.user, pts: p.pts, w: p.w, g: p.g, me: x.t === token };
     }).sort((a, b) => b.pts - a.pts || b.w - a.w || a.user.localeCompare(b.user));
     const code = rec.lg;
-    return { code, name: lg.name, week: id, left: daysLeft(now), rows, hist: lg.hist || [], owner: lg.owner === token, max: MAX };
+    return { code, name: lg.name, week: id, left: daysLeft(now), fri: isFriday(now), rows, hist: lg.hist || [], owner: lg.owner === token, max: MAX };
 }
-module.exports = { weekId, daysLeft, count, create, join, leave, state, rollover, PTS, MAX };
+module.exports = { isFriday, weekId, daysLeft, count, create, join, leave, state, rollover, PTS, MAX };

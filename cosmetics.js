@@ -21,12 +21,45 @@ const seasonOf = (id) => SEASONS[(parseInt(String(id).slice(5, 7), 10) - 1 + 12)
 // مراحل مكافآت الموسم (انتصارات في الشهر)
 const TIERS = [{ w: 5, kind: 'fr' }, { w: 15, kind: 'nc' }, { w: 30, kind: 'ti' }];
 
+// مناسبات عالمية قصيرة (بالتاريخ UTC). رمضان والعيد من التقويم الهجري عبر Intl. لكل مناسبة إطار بعد 3 انتصارات ولقب بعد 8.
+const EV_TIERS = [{ w: 3, kind: 'fr' }, { w: 8, kind: 'ti' }];
+const EVENTS = [
+    { id: 'newyear', n: 'رأس السنة', icon: '🎆', c: '#E8B923', c2: '#F6DC7A' },
+    { id: 'winter', n: 'أضواء الشتاء', icon: '🎄', c: '#2E9E6B', c2: '#8BD9B3' },
+    { id: 'halloween', n: 'الهالوين', icon: '🎃', c: '#E8731A', c2: '#F6B173' },
+    { id: 'ramadan', n: 'رمضان', icon: '🌙', c: '#6E7FD6', c2: '#A5B1F0' },
+    { id: 'eid', n: 'العيد', icon: '🎉', c: '#D56B93', c2: '#F0A6C0' },
+    { id: 'spring', n: 'عيد الربيع', icon: '🌷', c: '#E06C9F', c2: '#F4A9C9' }
+];
+function hijri(now) {
+    try {
+        const p = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', { month: 'numeric', day: 'numeric', timeZone: 'UTC' }).formatToParts(new Date(now));
+        const g = (t) => parseInt((p.find((x) => x.type === t) || {}).value, 10);
+        return { m: g('month'), d: g('day') };
+    } catch (e) { return null; }
+}
+// المناسبة الجارية أو null. المفتاح يتضمن السنة الميلادية (أو الهجرية لرمضان والعيد) كي لا يتكرر منح العنصر.
+function eventOf(now) {
+    const d = new Date(now), y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate();
+    const left = (endUTC) => Math.max(1, Math.ceil((endUTC - now) / 864e5));
+    const ev = (id, key, endUTC) => Object.assign({}, EVENTS.find((e) => e.id === id), { key: id + '-' + key, left: left(endUTC) });
+    const h = hijri(now);
+    if (h && h.m === 9) return ev('ramadan', y, now + (30 - h.d + 1) * 864e5);
+    if (h && ((h.m === 10 && h.d <= 3) || (h.m === 12 && h.d >= 10 && h.d <= 13))) return ev('eid', y + '-' + h.m, now + 3 * 864e5);
+    if ((m === 12 && day >= 26) || (m === 1 && day <= 6)) return ev('newyear', m === 1 ? y - 1 : y, Date.UTC(m === 1 ? y : y + 1, 0, 7));
+    if (m === 12 && day >= 15) return ev('winter', y, Date.UTC(y, 11, 26));
+    if ((m === 10 && day >= 24) || (m === 11 && day <= 2)) return ev('halloween', m === 11 ? y : y, Date.UTC(m === 11 ? y : y, 10, 3));
+    if ((m === 3 && day >= 20) || (m === 4 && day <= 3)) return ev('spring', y, Date.UTC(y, 3, 4));
+    return null;
+}
+
 const AVATARS = [
     { id: 'pawn', e: '♟', n: 'البيدق' }, { id: 'dice', e: '🎲', n: 'النرد' }, { id: 'crown', e: '👑', n: 'التاج' },
     { id: 'fox', e: '🦊', n: 'الثعلب', ach: 'wins_10' }, { id: 'falcon', e: '🦅', n: 'الصقر', ach: 'rating_1600' },
     { id: 'lion', e: '🦁', n: 'الأسد', ach: 'wins_50' }, { id: 'snake', e: '🐍', n: 'الثعبان', ach: 'sl_first' },
     { id: 'clover', e: '🍀', n: 'البرسيم', ach: 'lu_wins_10' }, { id: 'castle', e: '🏰', n: 'القلعة', ach: 'mp_wins_10' },
     { id: 'owl', e: '🦉', n: 'البومة', ach: 'puzzles_50' }, { id: 'fire', e: '🔥', n: 'النار', ach: 'daily_7' },
+    { id: 'mosque', e: '🕌', n: 'المسجد', pk: 'arab' }, { id: 'moon', e: '🌙', n: 'الهلال', pk: 'arab' }, { id: 'trophy', e: '🏆', n: 'الكأس', pk: 'royal' }, { id: 'joker', e: '🃏', n: 'الجوكر', pk: 'royal' },
     { id: 'wolf', e: '🐺', n: 'الذئب', vip: true }, { id: 'dragon', e: '🐉', n: 'التنين', vip: true }, { id: 'gem', e: '💎', n: 'الماسة', vip: true }
 ];
 const TITLES = [
@@ -35,17 +68,17 @@ const TITLES = [
     { id: 'master', n: 'سيّد الشطرنج', ach: 'rating_1800' }, { id: 'climber', n: 'المتسلّق', ach: 'sl_ladders3' },
     { id: 'king', n: 'ملك المدينة', ach: 'mp_wins_10' }, { id: 'star', n: 'نجم الموسم', ach: 'season_badge' },
     { id: 'champ', n: 'بطل البطولات', ach: 'champion' }, { id: 'patient', n: 'محترف الصبر', ach: 'games_100' },
-    { id: 'vip', n: 'داعم الموقع 💎', vip: true }
+    { id: 'vip', n: 'داعم الموقع 💎', vip: true }, { id: 'sage', n: 'الحكيم', pk: 'arab' }, { id: 'emperor', n: 'الإمبراطور', pk: 'royal' }
 ];
 const FRAMES = [
     { id: 'none', n: 'بلا إطار', c: 'transparent' }, { id: 'bronze', n: 'برونزي', c: '#CD7F32', ach: 'first_win' },
     { id: 'silver', n: 'فضي', c: '#C0C8D2', ach: 'wins_10' }, { id: 'gold', n: 'ذهبي', c: '#E2B14B', ach: 'wins_50' },
-    { id: 'royal', n: 'ملكي متوهّج', c: '#B070FF', vip: true }
+    { id: 'royal', n: 'ملكي متوهّج', c: '#B070FF', vip: true }, { id: 'zellij', n: 'زليج', c: '#1BA6A0', pk: 'arab' }, { id: 'rainbow', n: 'قوس قزح', c: '#FF6FB5', pk: 'royal' }
 ];
 const NAMECOLORS = [
     { id: 'default', n: 'الافتراضي', c: '' }, { id: 'sky', n: 'سماوي', c: '#4DB3E6', ach: 'games_25' },
     { id: 'lime', n: 'ليموني', c: '#8FD14F', ach: 'puzzles_10' }, { id: 'rose', n: 'وردي', c: '#F27AA5', ach: 'friend_first' },
-    { id: 'gold', n: 'ذهبي', c: '#F2C14B', vip: true }
+    { id: 'gold', n: 'ذهبي', c: '#F2C14B', vip: true }, { id: 'emerald', n: 'زمردي', c: '#34D399', pk: 'arab' }, { id: 'crimson', n: 'قرمزي', c: '#FF5A6E', pk: 'royal' }
 ];
 const KINDS = { av: AVATARS, ti: TITLES, fr: FRAMES, nc: NAMECOLORS };
 
@@ -53,7 +86,21 @@ const isVip = (rec, now) => !!(rec && rec.vip && rec.vip.until > now);
 // عناصر مكافآت الموسم التي كسبها اللاعب (دائمة)
 function seasonItems(rec) {
     return (Array.isArray(rec.rw) ? rec.rw : []).map((k) => {
-        const [kind, sid] = k.split(':'), se = seasonOf(sid);
+        const [kind, sid] = k.split(':');
+        if (sid && sid.startsWith('ev-')) {
+            const e = EVENTS.find((x) => x.id === sid.slice(3).split('-')[0]);
+            if (!e) return null;
+            if (kind === 'fr') return { kind, id: k, n: 'إطار ' + e.n, c: e.c };
+            if (kind === 'ti') return { kind, id: k, n: 'بطل ' + e.n };
+            return null;
+        }
+        if (sid && sid.startsWith('tn-')) {
+            const rank = parseInt(sid.split('-').pop(), 10) || 3;
+            if (kind === 'fr') return { kind, id: k, n: 'إطار بطولة الأسبوع', c: ['#F2C14B', '#C0C8D2', '#CD7F32'][rank - 1] || '#CD7F32' };
+            if (kind === 'ti') return { kind, id: k, n: 'بطل بطولة الأسبوع' };
+            return null;
+        }
+        const se = seasonOf(sid);
         if (kind === 'fr') return { kind, id: k, n: 'إطار ' + se.n, c: se.c };
         if (kind === 'nc') return { kind, id: k, n: 'لون ' + se.n, c: se.c2 };
         if (kind === 'ti') return { kind, id: k, n: 'بطل ' + se.n };
@@ -62,6 +109,7 @@ function seasonItems(rec) {
 }
 function unlocked(rec, kind, item, now) {
     if (!item) return false;
+    if (item.pk) return Array.isArray(rec.pk) && rec.pk.includes(item.pk);
     if (item.vip) return isVip(rec, now);
     if (item.ach) return !!(rec.ach && rec.ach[item.ach]);
     return true;
@@ -111,12 +159,24 @@ function seasonCount(rec, win, now) {
         const key = t.kind + ':' + id;
         if (rec.ss.w >= t.w && !rec.rw.includes(key)) { rec.rw.push(key); fresh.push(seasonItems({ rw: [key] })[0]); }
     });
+    const ev = eventOf(now);
+    if (ev) {
+        if (!rec.ev || rec.ev.k !== ev.key) rec.ev = { k: ev.key, w: 0 };
+        if (win) rec.ev.w++;
+        EV_TIERS.forEach((t) => {
+            const key = t.kind + ':ev-' + ev.key;
+            if (rec.ev.w >= t.w && !rec.rw.includes(key)) { rec.rw.push(key); fresh.push(seasonItems({ rw: [key] })[0]); }
+        });
+    }
     return fresh;
 }
 function seasonState(rec, now) {
     const id = seasonId(now), se = seasonOf(id);
     const ss = rec && rec.ss && rec.ss.id === id ? rec.ss : { w: 0, g: 0 };
     const d = new Date(now), left = Math.max(1, Math.ceil((Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - now) / 864e5));
-    return { id, name: se.n, icon: se.icon, c: se.c, w: ss.w, g: ss.g, left, tiers: TIERS.map((t) => ({ w: t.w, kind: t.kind, done: ss.w >= t.w })) };
+    const ev = eventOf(now);
+    const evs = ev ? { id: ev.id, name: ev.n, icon: ev.icon, c: ev.c, left: ev.left, w: rec && rec.ev && rec.ev.k === ev.key ? rec.ev.w : 0 } : null;
+    if (evs) evs.tiers = EV_TIERS.map((t) => ({ w: t.w, kind: t.kind, done: evs.w >= t.w }));
+    return { event: evs, id, name: se.n, icon: se.icon, c: se.c, w: ss.w, g: ss.g, left, tiers: TIERS.map((t) => ({ w: t.w, kind: t.kind, done: ss.w >= t.w })) };
 }
-module.exports = { catalog, select, display, seasonCount, seasonState, seasonOf, isVip, SEASONS, TIERS, AVATARS, TITLES, FRAMES, NAMECOLORS };
+module.exports = { catalog, select, display, seasonCount, seasonState, seasonOf, eventOf, EVENTS, isVip, SEASONS, TIERS, AVATARS, TITLES, FRAMES, NAMECOLORS };

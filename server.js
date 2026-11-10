@@ -947,43 +947,17 @@ app.get('/vendor/stockfish/manifest.json', (req, res) => {
 app.use('/vendor/stockfish', express.static(nm('stockfish'), { maxAge: '7d' }));
 // ───── محركات البحث والمشاركة: عنوان ووصف وصورة معاينة لكل صفحة ─────
 const SITE_URL = (process.env.SITE_URL || 'https://chess-relay-server-y321.onrender.com').replace(/\/+$/, '');
-const SEO_PAGES = {
-    '/': { t: 'الشطرنج وملك المدينة وسلم وثعبان: ألعاب لوحية أونلاين مجانًا', d: 'العب الشطرنج وملك المدينة وسلم وثعبان مع أصدقائك أو ضد لاعبين حقيقيين والحاسوب. بلا تحميل وبلا اشتراك، مع تصنيف وبطولات وإنجازات.', cat: 'Game' },
-    '/chess': { img: '/og-chess.png', t: 'العب الشطرنج أونلاين مجانًا: تصنيف وألغاز وبطولات', d: 'شطرنج مباشر مع لاعبين حقيقيين أو ضد الحاسوب، مع تصنيف ولوحة متصدرين وألغاز يومية ودروس افتتاحيات وبطولات للنوادي.', cat: 'Chess' },
-    '/monopoly': { img: '/og-monopoly.png', t: 'ملك المدينة: لعبة تجارة وعقارات أونلاين مع الأصدقاء', d: 'اشترِ المدن وابنِ الفنادق وأفلس خصومك في ملك المدينة. حتى 8 لاعبين، مزادات وتبادل ودردشة صوتية وبطولات للنوادي.', cat: 'Board game' },
-    '/ludo': { img: '/og-ludo.png', t: 'ليدو أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة ليدو كلاسيكية لحتى 4 لاعبين: أخرج قطعك وأكل قطع خصومك وسبقهم إلى البيت. العب مع الأصدقاء بكود غرفة أو ضد الحاسوب.', cat: 'Board game' },
-    '/snakes': { img: '/og-snakes.png', t: 'سلم وثعبان أونلاين: العب مع أصدقائك أو ضد الحاسوب', d: 'لعبة سلم وثعبان بأربعة أنماط: كلاسيكية وسريعة وفوضى ومفاجآت. العب مع الأصدقاء أو لاعبين عشوائيين، مع ترتيب شهري وبطولات.', cat: 'Board game' }
-};
-const escAttr = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const seo = require('./seo');
 let seoBase = null;
-function seoHtml(pathname) {
+function seoHtml(lang, key) {
     if (!seoBase) seoBase = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-    const pg = SEO_PAGES[pathname] || SEO_PAGES['/'];
-    const url = SITE_URL + (pathname === '/' ? '/' : pathname);
-    const img = SITE_URL + (pg.img || '/og-image.png');
-    const ld = JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebApplication', name: pg.t, url, description: pg.d, applicationCategory: 'GameApplication', genre: pg.cat, inLanguage: 'ar', operatingSystem: 'Any', offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' } }).replace(/</g, '\\u003c');
-    const block = [
-        '<meta name="description" content="' + escAttr(pg.d) + '">',
-        '<link rel="canonical" href="' + url + '">',
-        '<meta property="og:type" content="website">', '<meta property="og:locale" content="ar_AR">', '<meta property="og:site_name" content="الألعاب اللوحية">',
-        '<meta property="og:title" content="' + escAttr(pg.t) + '">', '<meta property="og:description" content="' + escAttr(pg.d) + '">', '<meta property="og:url" content="' + url + '">',
-        '<meta property="og:image" content="' + img + '">', '<meta property="og:image:width" content="1200">', '<meta property="og:image:height" content="630">', '<meta property="og:image:alt" content="' + escAttr(pg.t) + '">',
-        '<meta name="twitter:card" content="summary_large_image">', '<meta name="twitter:title" content="' + escAttr(pg.t) + '">', '<meta name="twitter:description" content="' + escAttr(pg.d) + '">', '<meta name="twitter:image" content="' + img + '">',
-        '<script type="application/ld+json">' + ld + '</script>'
-    ].join('\n    ');
-    return seoBase
-        .replace(/<title>[\s\S]*?<\/title>/, '<title>' + escAttr(pg.t) + '</title>')
-        .replace(/<meta name="description"[^>]*>\s*/g, '')
-        .replace(/<link rel="canonical"[^>]*>\s*/g, '')
-        .replace(/<meta property="og:[^>]*>\s*/g, '')
-        .replace(/<meta name="twitter:[^>]*>\s*/g, '')
-        .replace('</head>', '    ' + block + '\n</head>');
+    return seo.render(seoBase, SITE_URL, lang, key);
 }
-Object.keys(SEO_PAGES).forEach((p) => {
-    app.get(p, (req, res) => {
+seo.routes().forEach((r) => {
+    app.get(r.path, (req, res) => {
         res.set('Content-Type', 'text/html; charset=utf-8');
         res.set('Cache-Control', 'no-cache');
-        res.send(seoHtml(p));
+        res.send(seoHtml(r.lang, r.key));
     });
 });
 app.get('/robots.txt', (req, res) => {
@@ -994,11 +968,10 @@ app.get('/icon.svg', (req, res) => {
     res.type('image/svg+xml').set('Cache-Control', 'public, max-age=86400').send('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34"><rect width="34" height="34" rx="7" fill="#0B1324"/><rect x="4" y="4" width="13" height="13" rx="3" fill="#E4E9F2"/><rect x="17" y="4" width="13" height="13" rx="3" fill="#5879AE"/><rect x="4" y="17" width="13" height="13" rx="3" fill="#5879AE"/><rect x="17" y="17" width="13" height="13" rx="3" fill="#E2B14B"/></svg>');
 });
 app.get('/sitemap.xml', (req, res) => {
-    const urls = Object.keys(SEO_PAGES).map((p) => '  <url><loc>' + SITE_URL + (p === '/' ? '/' : p) + '</loc><lastmod>' + SITEMAP_AT + '</lastmod><priority>' + (p === '/' ? '1.0' : '0.8') + '</priority></url>').join('\n');
-    res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '\n</urlset>\n');
+    res.type('application/xml').send(seo.sitemap(SITE_URL, SITEMAP_AT));
 });
 app.get('/monet.json', (req, res) => {
-    res.set('Cache-Control', 'public, max-age=300').json({ ads: MONET.ads, support: MONET.support, vip: MONET.vip });
+    res.set('Cache-Control', 'public, max-age=300').json({ ads: MONET.ads, support: MONET.support, vip: MONET.vip, sponsor: MONET.sponsor, contact: MONET.contact });
 });
 // webhook الدفع من Lemon Squeezy: يُفعِّل عضوية VIP تلقائيًا بعد الدفع (يتحقق من التوقيع أولًا)
 app.post('/webhooks/lemon', express.raw({ type: '*/*', limit: '200kb' }), (req, res) => {
@@ -1008,10 +981,20 @@ app.post('/webhooks/lemon', express.raw({ type: '*/*', limit: '200kb' }), (req, 
     const r = monet.apply(db, body, Date.now());
     if (r) {
         saveSoon();
-        emitTo(r.token, 'notify', { text: r.until > Date.now() ? '💎 شكرًا لدعمك! فُعّلت عضويتك الداعمة.' : 'انتهت عضويتك الداعمة.' });
-        try { pushCos(r.token); } catch (e) { /* */ }
+        const txt = r.kind === 'pack' ? (r.owned ? '🛍 شكرًا لشرائك! فُتحت عناصر الحزمة في 🎨.' : 'أُلغيت الحزمة بعد استرداد المبلغ.')
+            : r.kind === 'school' ? (r.until > Date.now() ? '🎓 فُعّل ترخيص المدرّب. افتح «فصولي» لإنشاء فصلك.' : 'انتهى ترخيص المدرّب.')
+                : (r.until > Date.now() ? '💎 شكرًا لدعمك! فُعّلت عضويتك الداعمة.' : 'انتهت عضويتك الداعمة.');
+        emitTo(r.token, 'notify', { text: txt });
+        try { pushCos(r.token); clsReply(r.token); } catch (e) { /* */ }
     }
     res.json({ ok: true });
+});
+// تطبيق أندرويد (TWA): يربط التطبيق بالموقع. يُفعَّل بمتغيّرين: ANDROID_PACKAGE و ANDROID_SHA256 (بصمات مفصولة بفواصل)
+app.get('/.well-known/assetlinks.json', (req, res) => {
+    const pkg = String(process.env.ANDROID_PACKAGE || '').trim();
+    const fps = String(process.env.ANDROID_SHA256 || '').split(',').map((x) => x.trim().toUpperCase()).filter((x) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(x));
+    if (!/^[a-zA-Z][\w]*(\.[a-zA-Z][\w]*)+$/.test(pkg) || !fps.length) return res.status(404).json([]);
+    res.set('Cache-Control', 'public, max-age=300').json([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: pkg, sha256_cert_fingerprints: fps } }]);
 });
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '5m' }));
 
@@ -1035,6 +1018,33 @@ app.get('/admin/vip', (req, res) => {
     emitTo(tk, 'notify', { text: days ? '💎 شكرًا لدعمك! فُعّلت عضويتك الداعمة.' : 'انتهت عضويتك الداعمة.' });
     try { pushCos(tk); } catch (e) { /* */ }
     res.json({ ok: true, user: rec.user, until: rec.vip.until });
+});
+// منح حزمة مظاهر أو ترخيص مدرّب يدويًا: /admin/pack?key=...&user=اسم&pack=arab|royal|all  ·  /admin/school?key=...&user=اسم&days=365 (days=0 للإلغاء)
+app.get('/admin/pack', (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    const tk = db.users[cleanUser(String(req.query.user || '')).toLowerCase()];
+    const rec = tk && db.players[tk];
+    const pack = String(req.query.pack || '');
+    if (!rec || !rec.user || !monet.PACKS.includes(pack)) return res.status(404).json({ error: 'no such user or pack' });
+    const have = new Set(Array.isArray(rec.pk) ? rec.pk : []);
+    (pack === 'all' ? ['arab', 'royal'] : [pack]).forEach((i) => have.add(i));
+    rec.pk = [...have]; saveSoon();
+    emitTo(tk, 'notify', { text: '🛍 فُتحت عناصر الحزمة في 🎨.' });
+    try { pushCos(tk); } catch (e) { /* */ }
+    res.json({ ok: true, user: rec.user, packs: rec.pk });
+});
+app.get('/admin/school', (req, res) => {
+    if (!adminOk(req)) return res.status(404).end();
+    const tk = db.users[cleanUser(String(req.query.user || '')).toLowerCase()];
+    const rec = tk && db.players[tk];
+    if (!rec || !rec.user) return res.status(404).json({ error: 'no such user' });
+    const days = Math.max(0, Math.min(3650, parseInt(req.query.days, 10) || 0));
+    const now = Date.now();
+    rec.sch = { until: days ? Math.max(now, rec.sch && rec.sch.until > now ? rec.sch.until : 0) + days * 864e5 : now, ev: 'admin', at: now };
+    saveSoon();
+    emitTo(tk, 'notify', { text: days ? '🎓 فُعّل ترخيص المدرّب.' : 'انتهى ترخيص المدرّب.' });
+    try { clsReply(tk); } catch (e) { /* */ }
+    res.json({ ok: true, user: rec.user, until: rec.sch.until });
 });
 app.get('/admin/safety', (req, res) => {
     if (!adminOk(req)) return res.status(404).end();
@@ -1557,6 +1567,50 @@ const league = require('./league');
 function decoOf(rec) { try { const d = rec && rec.user ? cosm.display(rec, Date.now()) : null; return d && (d.av || d.ti || d.fr || d.nc || d.vip) ? d : null; } catch (e) { return null; } }
 const decoUser = (user) => { const tk = db.users[String(user || '').toLowerCase()]; return tk ? decoOf(db.players[tk]) : null; };
 const decoToken = (tk) => decoOf(db.players[tk]);
+
+// ───── بطولة الأسبوع (برعاية اختيارية) ─────
+const tourney = require('./tournament');
+const classes = require('./classes');
+function tnState(token) {
+    const st = tourney.state(db, token, Date.now());
+    st.rows.forEach((r) => { r.d = decoUser(r.user); });
+    st.sponsor = MONET.tourney;
+    return st;
+}
+function tnSettle() {
+    try {
+        const won = tourney.settle(db, Date.now());
+        if (!won.length) return;
+        saveSoon();
+        won.forEach((w) => {
+            emitTo(w.token, 'notify', { text: '🏆 فزت بالمركز ' + w.rank + ' في بطولة الأسبوع! فُتح إطار حصري في 🎨.' });
+            try { pushOffline(w.token, { title: '🏆 المركز ' + w.rank + ' في بطولة الأسبوع', body: 'فُتح لك إطار حصري في 🎨.', url: '/', tag: 'tourney' }); pushCos(w.token); } catch (e) { /* */ }
+        });
+    } catch (e) { console.error('tourney', e.message); }
+}
+function clsStats(rec) {
+    const p = ach.profile(rec, {});
+    const best = Math.max(0, ...Object.values(p.ratings || {}).map((x) => x.r || 0));
+    return { rating: best || null, games: p.games || 0, wins: p.w || 0, puzzles: p.pz && p.pz.solved || 0 };
+}
+function clsReply(token) {
+    const st = classes.state(db, token, Date.now(), clsStats);
+    st.cfg = { school: MONET.school.enabled, price: MONET.school.price, contact: MONET.contact };
+    st.checkout = MONET.school.enabled ? monet.checkoutUrl(process.env, token, 'school') : null;
+    emitTo(token, 'cls_state', st);
+}
+const PACK_INFO = {
+    arab: { n: 'حزمة الزخارف', e: '🕌', items: ['🕌 المسجد', '🌙 الهلال', 'إطار زليج', 'لون زمردي', 'لقب «الحكيم»', 'ثيم أندلس'] },
+    royal: { n: 'حزمة الملوك', e: '👑', items: ['🏆 الكأس', '🃏 الجوكر', 'إطار قوس قزح', 'لون قرمزي', 'لقب «الإمبراطور»'] },
+    all: { n: 'الحزمتان معًا', e: '🎁', items: ['كل عناصر حزمة الزخارف', 'كل عناصر حزمة الملوك'] }
+};
+function packList(token, rec) {
+    const have = new Set(Array.isArray(rec.pk) ? rec.pk : []);
+    return Object.keys(PACK_INFO).filter((id) => MONET.packs[id] && MONET.packs[id].enabled).map((id) => ({
+        id, n: PACK_INFO[id].n, e: PACK_INFO[id].e, items: PACK_INFO[id].items, price: MONET.packs[id].price,
+        owned: id === 'all' ? have.has('arab') && have.has('royal') : have.has(id), url: monet.checkoutUrl(process.env, token, 'pack:' + id)
+    }));
+}
 function cosState(token) {
     const rec = db.players[token];
     const now = Date.now();
@@ -1565,7 +1619,7 @@ function cosState(token) {
     return {
         catalog: cosm.catalog(rec, now), sel: rec.cos || {}, display: cosm.display(rec, now), season: cosm.seasonState(rec, now), titles,
         vip: { active: cosm.isVip(rec, now), until: rec.vip && rec.vip.until > now ? rec.vip.until : 0 },
-        cfg: { support: MONET.support, vip: MONET.vip.enabled, price: MONET.vip.price }, checkout: MONET.vip.enabled ? monet.checkoutUrl(process.env, token) : null
+        packs: packList(token, rec), cfg: { support: MONET.support, vip: MONET.vip.enabled, price: MONET.vip.price, year: MONET.vip.year, priceYear: MONET.vip.priceYear }, checkout: MONET.vip.enabled ? monet.checkoutUrl(process.env, token) : null, checkoutYear: MONET.vip.year ? monet.checkoutUrl(process.env, token, 'year') : null
     };
 }
 function pushCos(token) { emitTo(token, 'cos_state', cosState(token)); }
@@ -1610,6 +1664,22 @@ try {
         stats: (t) => { const r = db.players[t]; return r && r.lu ? { g: r.lu.g || 0, w: r.lu.w || 0, wh: r.lu.wh || 0 } : null; }
     });
 } catch (e) { console.error('ludo', e); }
+function cdRecord(results) {
+    for (const r of results) {
+        const rec = db.players[r.token];
+        if (!rec || !rec.user) continue;
+        gameStat(rec, 'cd', r.win, r.humans);
+        if (r.humans >= 2) leagueCount(r.token, r.win ? 'win' : 'loss');
+        awardFor(r.token);
+    }
+    saveSoon();
+}
+try {
+    require('./cards').attach(io, {
+        nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب', onEnd: cdRecord, top: () => gameTop('cd'), pushOffline, deco: decoToken,
+        stats: (t) => { const r = db.players[t]; return r && r.cd ? { g: r.cd.g || 0, w: r.cd.w || 0, wh: r.cd.wh || 0 } : null; }
+    });
+} catch (e) { console.error('cards', e); }
 const snakeApi = require('./snakes').attach(io, {
     nameOf: (t) => (db.players[t] && db.players[t].name) || 'لاعب',
     onEnd: slRecord, top: () => gameTop('sl'), emitTo, statusOf, uname,
@@ -1746,6 +1816,33 @@ io.on('connection', (socket) => {
 
     // ملف اللاعب (ملفي أو ملف لاعب آخر باسم المستخدم)
     const lgReply = (token) => socket.emit('lg_state', lgDeco(league.state(db, token, Date.now())));
+    socket.on('tn_get', () => { const ctx = playerCtx(socket); if (!ctx) return; tnSettle(); socket.emit('tn_state', tnState(ctx.token)); });
+    socket.on('cls_get', () => { const ctx = playerCtx(socket); if (ctx) clsReply(ctx.token); });
+    socket.on('cls_create', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const r = classes.create(db, ctx.token, d && d.name, Date.now());
+        if (r.err) return socket.emit('cls_error', r.err);
+        saveSoon(); clsReply(ctx.token);
+    });
+    socket.on('cls_join', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const r = classes.join(db, ctx.token, d && d.code);
+        if (r.err) return socket.emit('cls_error', r.err);
+        saveSoon(); clsReply(ctx.token);
+    });
+    socket.on('cls_leave', () => { const ctx = playerCtx(socket); if (!ctx) return; classes.leave(db, ctx.token); saveSoon(); clsReply(ctx.token); });
+    socket.on('cls_remove', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const r = classes.remove(db, ctx.token, String((d && d.code) || '').toUpperCase(), d && d.user);
+        if (r.err) return socket.emit('cls_error', r.err);
+        saveSoon(); clsReply(ctx.token);
+    });
+    socket.on('cls_destroy', (d) => {
+        const ctx = playerCtx(socket); if (!ctx) return;
+        const r = classes.destroy(db, ctx.token, String((d && d.code) || '').toUpperCase());
+        if (r.err) return socket.emit('cls_error', r.err);
+        saveSoon(); clsReply(ctx.token);
+    });
     socket.on('lg_get', () => { const ctx = playerCtx(socket); if (ctx) lgReply(ctx.token); });
     socket.on('lg_create', (d) => {
         const ctx = playerCtx(socket); if (!ctx) return;
@@ -2483,7 +2580,8 @@ async function dailyReminders() {
 }
 function startPeriodic() {
     checkSeason();
-    setInterval(() => { checkSeason(); dailyReminders(); }, 3600 * 1000).unref();
+    setTimeout(tnSettle, 20000).unref();
+    setInterval(() => { checkSeason(); dailyReminders(); tnSettle(); }, 3600 * 1000).unref();
 }
 
 // ───────────────────────── التشغيل والإيقاف ─────────────────────────
